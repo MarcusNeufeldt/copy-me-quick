@@ -5,6 +5,7 @@
 [![TailwindCSS](https://img.shields.io/badge/TailwindCSS-3.4.1-38bdf8.svg)](https://tailwindcss.com/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.0+-blue.svg)](https://www.typescriptlang.org/)
 [![Live Demo](https://img.shields.io/badge/demo-online-green.svg)](https://copymequick.vercel.app/)
+[![GitHub](https://img.shields.io/badge/github-repo-black.svg)](https://github.com/MarcusNeufeldt/copy-me-quick)
 
 ## 📖 Overview
 
@@ -57,7 +58,7 @@ LLMs have context window limitations measured in tokens. Without proper optimiza
 
 1. **Installation**
    ```bash
-   git clone https://github.com/your-username/copy-me-quick.git
+   git clone https://github.com/MarcusNeufeldt/copy-me-quick.git
    cd copy-me-quick
    npm install
    # or
