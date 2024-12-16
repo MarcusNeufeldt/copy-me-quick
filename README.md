@@ -1,5 +1,7 @@
 # 🚀 Copy Me Quick: Your Bridge to LLM Code Understanding
 
+> Efficiently prepare and share codebases with LLMs. Copy Me Quick intelligently processes your code to optimize token usage while preserving context, making it perfect for getting the most out of your AI interactions.
+
 [![Next.js](https://img.shields.io/badge/Next.js-14.2.5-black.svg)](https://nextjs.org/)
 [![React](https://img.shields.io/badge/React-18.0+-61dafb.svg)](https://reactjs.org/)
 [![TailwindCSS](https://img.shields.io/badge/TailwindCSS-3.4.1-38bdf8.svg)](https://tailwindcss.com/)
