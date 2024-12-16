@@ -1,6 +1,3 @@
-This is a great start to a README! It's well-structured and informative. Here's a refined version with optimizations and suggestions for improvement, incorporating best practices for open-source READMEs:
-
-```markdown
 # 🚀 Copy Me Quick: Your Bridge to LLM Code Understanding
 
 > Efficiently prepare and copy codebases to LLMs. Copy Me Quick intelligently optimizes your code, minimizing token usage while preserving context for superior AI interactions.
