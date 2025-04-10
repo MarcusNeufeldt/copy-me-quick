@@ -263,7 +263,7 @@ const AnalysisResult: React.FC<AnalysisResultProps> = ({
                 <h3 className="text-2xl font-bold">
                   {totalSelectedFiles}
                 </h3>
-                <span className="ml-2 text-sm text-muted-foreground">of {state.analysisResult.files.length}</span>
+                <span className="ml-2 text-sm text-muted-foreground">of {(state.analysisResult.files || []).length}</span>
               </div>
             </div>
           </div>
@@ -281,7 +281,7 @@ const AnalysisResult: React.FC<AnalysisResultProps> = ({
                   {totalSelectedLines.toLocaleString()}
                 </h3>
                 <span className="ml-2 text-sm text-muted-foreground">
-                  of {state.analysisResult.totalLines.toLocaleString()}
+                  of {(state.analysisResult.totalLines || 0).toLocaleString()}
                 </span>
               </div>
             </div>
@@ -370,7 +370,7 @@ const AnalysisResult: React.FC<AnalysisResultProps> = ({
             </CardHeader>
             <CardContent>
               {state.selectedFiles.length > 0 ? (
-                <ProjectTree files={state.analysisResult.files.filter(file => 
+                <ProjectTree files={(state.analysisResult.files || []).filter(file => 
                   state.selectedFiles.includes(file.path))} 
                 />
               ) : (
