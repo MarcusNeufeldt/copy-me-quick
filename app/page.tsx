@@ -490,15 +490,29 @@ export default function ClientPageRoot() {
   };
 
   const handleGitHubLogout = async () => {
-    // TODO: Add an API route to clear the cookie server-side
-    // For now, just clear client-side state and redirect to trigger cookie removal via API if needed
-    setGithubUser(null);
-    setGithubError(null);
-    // Optionally clear GitHub related state like selected repo/branch if stored
-    // Redirect or call a specific logout endpoint that clears the cookie
-    window.location.href = '/'; // Simple refresh/redirect might trigger cookie check
-    console.log("GitHub logout initiated (client-side)");
-    // We might need a proper /api/auth/github/logout endpoint later
+    try {
+      // Call the server-side logout endpoint to clear the cookie
+      const response = await fetch('/api/auth/github/logout', { 
+        method: 'POST',
+        credentials: 'include' // Important to include cookies
+      });
+      
+      if (response.ok) {
+        // Clear client-side state
+        setGithubUser(null);
+        setGithubError(null);
+        setSelectedRepoFullName(null);
+        setSelectedBranchName(null);
+        setBranches([]);
+        setRepos([]);
+        setGithubTree(null);
+        console.log("GitHub logout successful");
+      } else {
+        console.error("GitHub logout failed:", await response.text());
+      }
+    } catch (error) {
+      console.error("Error during GitHub logout:", error);
+    }
   };
 
   // Handler function for the new Reset button
