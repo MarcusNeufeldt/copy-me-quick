@@ -123,6 +123,8 @@ export default function ClientPageRoot() {
   const [githubSelectionError, setGithubSelectionError] = useState<string | null>(null); // Separate error state for selection
 
   const [isLoadingTree, setIsLoadingTree] = useState(false);
+  const [isLoadingFileContents, setIsLoadingFileContents] = useState(false);
+  const [fileLoadingProgress, setFileLoadingProgress] = useState({ current: 0, total: 0 });
   const [githubTree, setGithubTree] = useState<GitHubTreeItem[] | null>(null);
   const [isGithubTreeTruncated, setIsGithubTreeTruncated] = useState(false);
 
@@ -296,6 +298,10 @@ export default function ClientPageRoot() {
              throw new Error(data.error || 'Failed to fetch file tree');
         }
         
+        // Calculate total file count for the gitHub tree
+        const totalFileCount = data.tree.filter((item: any) => item.type === 'blob').length;
+        
+        // Set GitHub tree data for UI
         setGithubTree(data.tree);
         setIsGithubTreeTruncated(data.truncated ?? false);
         
@@ -306,21 +312,131 @@ export default function ClientPageRoot() {
           branch: branchName
         };
         
-        // Create pseudoAnalysis object structure
+        // Step 1: Create initial pseudoAnalysis object structure
         const pseudoAnalysis = {
-            totalFiles: data.tree.filter((item: any) => item.type === 'blob').length,
-            totalLines: 0, // Placeholder
+            totalFiles: totalFileCount,
+            totalLines: 0, // Will be updated after batch fetching
             totalTokens: 0, // Placeholder
             summary: `GitHub repo: ${selectedRepoFullName}, Branch: ${branchName}`,
             project_tree: `GitHub Tree Structure for ${selectedRepoFullName}/${branchName}`,
-            files: [], // Initially empty, FileSelector will populate based on tree
+            files: [], // Will be populated with files that have line counts
         };
         
+        // Set initial state with pseudoAnalysis
         setState(prevState => ({
              ...prevState, 
              analysisResult: pseudoAnalysis, 
              selectedFiles: [],
         }));
+
+        // Step 2: Batch fetch content for all smaller files to get line counts
+        // Only filter out very large files (> 100KB) to avoid excessive loading times
+        const filesToFetch = data.tree
+          .filter((item: any) => item.type === 'blob' && item.size && item.size < 100000);
+          
+        if (filesToFetch.length > 0) {
+          setIsLoadingTree(false); // Tree is loaded, now loading file contents
+          setIsLoadingFileContents(true); // Start file content loading state
+          setFileLoadingProgress({ current: 0, total: filesToFetch.length });
+          
+          let totalLineCount = 0;
+          const filesWithContent: any[] = [];
+          const treeUpdates: {path: string, lines: number, content: string}[] = [];
+          
+          // Show progress status during loading
+          const updateLoadingProgress = (current: number) => {
+            setFileLoadingProgress({ current, total: filesToFetch.length });
+          };
+          
+          // Update status with initial count
+          updateLoadingProgress(0);
+          
+          // Process files in batches to avoid overwhelming the browser
+          const batchSize = 10;
+          let processedCount = 0;
+          
+          for (let i = 0; i < filesToFetch.length; i += batchSize) {
+            const batch = filesToFetch.slice(i, i + batchSize);
+            
+            // Fetch content for each file in the current batch
+            await Promise.all(batch.map(async (file: any) => {
+              try {
+                const contentUrl = `/api/github/content?owner=${repoInfo.owner}&repo=${repoInfo.repo}&path=${encodeURIComponent(file.path)}`;
+                const contentResponse = await fetch(contentUrl);
+                
+                if (contentResponse.ok) {
+                  const contentData = await contentResponse.json();
+                  const content = contentData.content || '';
+                  const lineCount = content.split('\n').length;
+                  
+                  // Add to total line count
+                  totalLineCount += lineCount;
+                  
+                  // Add file with content and line count
+                  filesWithContent.push({
+                    path: file.path,
+                    lines: lineCount,
+                    content: content,
+                    size: file.size,
+                    sha: file.sha,
+                    dataSourceType: 'github'
+                  });
+                  
+                  // Track this update to apply to tree
+                  treeUpdates.push({
+                    path: file.path,
+                    lines: lineCount,
+                    content: content
+                  });
+                }
+              } catch (error) {
+                console.error(`Error fetching content for ${file.path}:`, error);
+              }
+              
+              // Update count after each file is processed
+              processedCount++;
+              updateLoadingProgress(processedCount);
+            }));
+            
+            // Update the tree after each batch to show progress
+            if (treeUpdates.length > 0) {
+              setGithubTree(prevTree => {
+                if (!prevTree) return prevTree;
+                
+                // Create a copy of the tree with updated line counts
+                return prevTree.map((item) => {
+                  const update = treeUpdates.find(u => u.path === item.path);
+                  if (update && item.type === 'blob') {
+                    return {
+                      ...item,
+                      lines: update.lines,
+                      content: update.content
+                    } as GitHubTreeItem & { lines: number, content: string };
+                  }
+                  return item;
+                });
+              });
+            }
+          }
+          
+          // Final update to state with all content
+          setState(prevState => {
+            if (!prevState.analysisResult) return prevState;
+            
+            return {
+              ...prevState,
+              analysisResult: {
+                ...prevState.analysisResult,
+                totalLines: totalLineCount,
+                files: filesWithContent
+              }
+            };
+          });
+          
+          // Clear the loading states
+          setIsLoadingFileContents(false);
+          setFileLoadingProgress({ current: 0, total: 0 });
+        }
 
       } catch (error) {
         console.error("Error fetching GitHub tree:", error);
@@ -554,6 +670,27 @@ export default function ClientPageRoot() {
                        {isLoadingTree && (
                            <div className="text-center text-muted-foreground text-xs py-2">Loading file tree...</div>
                        )}
+                       
+                       {/* File content loading progress */}
+                       {isLoadingFileContents && (
+                          <div className="space-y-2 animate-pulse">
+                            <div className="flex justify-between text-xs text-muted-foreground">
+                              <span>Loading file contents...</span>
+                              <span>{fileLoadingProgress.current}/{fileLoadingProgress.total} files</span>
+                            </div>
+                            <div className="w-full bg-muted rounded-full h-2.5">
+                              <div 
+                                className="bg-primary h-2.5 rounded-full transition-all duration-300" 
+                                style={{ 
+                                  width: `${fileLoadingProgress.total > 0 
+                                    ? (fileLoadingProgress.current / fileLoadingProgress.total) * 100 
+                                    : 0}%` 
+                                }}
+                              ></div>
+                            </div>
+                          </div>
+                       )}
+                       
                        {isGithubTreeTruncated && (
                           <Alert variant="default" className="text-xs mt-2">
                              <AlertDescription>Warning: Repository tree is large and was truncated. Some files/folders might be missing.</AlertDescription>

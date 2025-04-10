@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback, Dispatch, SetStateAction } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef, Dispatch, SetStateAction } from 'react';
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -39,6 +39,7 @@ interface InternalTreeNode {
   content?: string;
   sha?: string;
   size?: number;
+  formattedSize?: string;
 }
 
 const FileTreeNode: React.FC<{
@@ -132,10 +133,19 @@ const FileTreeNode: React.FC<{
                 ) : (
                   <span className={`${matchesSearch ? 'text-primary font-medium' : 'text-foreground'}`}>{node.name}</span>
                 )}
-                {!isFolder && node.lines && (
-                  <span className="ml-2 text-xs text-muted-foreground">
-                    ({node.lines.toLocaleString()} lines)
-                  </span>
+                {!isFolder && (
+                  <>
+                    {node.lines && (
+                      <span className="ml-2 text-xs text-muted-foreground">
+                        ({node.lines.toLocaleString()} lines)
+                      </span>
+                    )}
+                    {!node.lines && node.formattedSize && (
+                      <span className="ml-2 text-xs text-muted-foreground">
+                        ({node.formattedSize})
+                      </span>
+                    )}
+                  </>
                 )}
                 {contentMatches && !matchesSearch && !isFolder && (
                   <span className="ml-2 text-xs text-primary">
@@ -204,6 +214,9 @@ const FileSelector = ({
   const [isAiLoading, setIsAiLoading] = useState(false);
   const [aiError, setAiError] = useState<string | null>(null);
   const [highlightSearch, setHighlightSearch] = useState(false);
+  
+  // Ref to track the previous data source identity
+  const prevDataSourceRef = useRef<DataSource>();
 
   // Get tokenCount from parent state for display
   const currentTokenCount = state.analysisResult?.totalTokens ?? 0;
@@ -217,14 +230,18 @@ const FileSelector = ({
       // Convert GitHub tree items to minimal FileData structure
       return dataSource.tree
         .filter(item => item.type === 'blob')
-        .map(item => ({
-          path: item.path,
-          lines: 0, // Placeholder
-          content: '', // Placeholder
-          size: item.size,
-          sha: item.sha,
-          dataSourceType: 'github' // Mark as GitHub file
-        }));
+        .map(item => {
+          // Use TypeScript type assertion to access the added properties
+          const extendedItem = item as GitHubTreeItem & { lines?: number, content?: string };
+          return {
+            path: item.path,
+            lines: extendedItem.lines || 0, // Use lines if available, otherwise default to 0
+            content: extendedItem.content || '', // Use content if available, otherwise empty string
+            size: item.size,
+            sha: item.sha,
+            dataSourceType: 'github' // Mark as GitHub file
+          };
+        });
     } else if (state.analysisResult?.files) { // Fallback to analysisResult if dataSource is weird
         console.warn("Falling back to analysisResult.files in FileSelector");
         // Ensure fallback files also get dataSourceType marked (assume local)
@@ -279,6 +296,31 @@ const FileSelector = ({
 
   useEffect(() => {
     console.log("DataSource changed, rebuilding tree:", dataSource.type);
+    
+    // --- Determine if the source has fundamentally changed ---
+    let dataSourceChangedFundamentally = false;
+    const prevDataSource = prevDataSourceRef.current;
+
+    if (!prevDataSource) {
+        // Initial load is a fundamental change
+        dataSourceChangedFundamentally = true;
+    } else if (prevDataSource.type !== dataSource.type) {
+        // Type changed (local <-> github)
+        dataSourceChangedFundamentally = true;
+    } else if (dataSource.type === 'github' && prevDataSource.type === 'github') {
+        // For GitHub, check if repo or branch changed
+        const prevRepo = prevDataSource.repoInfo;
+        const currentRepo = dataSource.repoInfo;
+        
+        if (prevRepo?.owner !== currentRepo?.owner || 
+            prevRepo?.repo !== currentRepo?.repo || 
+            prevRepo?.branch !== currentRepo?.branch) {
+            dataSourceChangedFundamentally = true;
+        }
+    }
+    // --- End fundamental change check ---
+    
+    // Rebuild the tree based on current dataSource
     if (dataSource.type === 'local' && dataSource.files) {
        console.log(`Building local tree with ${dataSource.files.length} files.`);
       setFileTree(buildLocalFileTree(dataSource.files));
@@ -303,12 +345,19 @@ const FileSelector = ({
           setFileTree(null); // Clear tree if no valid data
        }
     }
-    // Reset expansion and selection when data source changes fundamentally
-    setExpandedNodes(new Set());
-    // Avoid resetting selection if only content/lines updated in local files
-    // setSelectedFiles([]); 
+    
+    // Reset expansion ONLY if the data source has fundamentally changed
+    if (dataSourceChangedFundamentally) {
+      console.log("Fundamental data source change detected. Resetting expanded nodes.");
+      setExpandedNodes(new Set());
+      // Optionally reset selection if needed
+      // setSelectedFiles([]);
+    }
+    
+    // Update the ref for the next render
+    prevDataSourceRef.current = dataSource;
 
-  }, [dataSource, state.analysisResult]); // Removed setSelectedFiles from deps for now
+  }, [dataSource, state.analysisResult]); // Dependencies remain the same
 
   // Filter nodes when search term changes
   useEffect(() => {
@@ -425,7 +474,22 @@ const FileSelector = ({
         if (!current) return; 
         if (i === parts.length - 1) {
           if (item.type === 'blob') {
-            current[part] = { name: part, path: item.path, type: 'file', sha: item.sha, size: item.size };
+            // Format the size for display
+            const formattedSize = item.size ? formatFileSize(item.size) : '';
+            
+            // Type assertion to access potential extended properties
+            const extendedItem = item as GitHubTreeItem & { lines?: number, content?: string };
+            
+            current[part] = { 
+              name: part, 
+              path: item.path, 
+              type: 'file', 
+              sha: item.sha, 
+              size: item.size,
+              formattedSize, // Add formatted size for display
+              lines: extendedItem.lines, // Get lines directly from extended item 
+              content: extendedItem.content // Get content directly from extended item
+            };
           } else if (item.type === 'tree') {
             if (!current[part]) {
                 current[part] = { name: part, path: item.path, type: 'directory', children: {}, sha: item.sha };
@@ -447,6 +511,15 @@ const FileSelector = ({
       });
     });
     return tree;
+  };
+
+  // Add a helper function to format file size
+  const formatFileSize = (bytes: number): string => {
+    if (bytes < 1024) return `${bytes} B`;
+    const kb = bytes / 1024;
+    if (kb < 1024) return `${kb.toFixed(1)} KB`;
+    const mb = kb / 1024;
+    return `${mb.toFixed(1)} MB`;
   };
 
   // Get all descendant files of a node 
@@ -509,10 +582,14 @@ const FileSelector = ({
 
   const selectAll = useCallback((): void => {
       const allFiles = getAllFilesFromDataSource(); // Use helper
+      // Just update the selectedFiles state, don't modify expanded nodes
       setSelectedFiles(allFiles.map(f => f.path));
-  }, [getAllFilesFromDataSource, setSelectedFiles]); // Use helper in deps
+  }, [getAllFilesFromDataSource, setSelectedFiles]);
 
-  const deselectAll = useCallback((): void => setSelectedFiles([]), [setSelectedFiles]);
+  const deselectAll = useCallback((): void => {
+      // Just clear selection, don't change expanded state
+      setSelectedFiles([]);
+  }, [setSelectedFiles]);
 
   const generateProjectTreeString = useCallback((tree: { [key: string]: InternalTreeNode }): string => {
     const buildString = (nodes: { [key: string]: InternalTreeNode }, prefix = ''): string => {
@@ -754,12 +831,36 @@ const FileSelector = ({
 
   // Memoize the file tree nodes to render only when necessary
   const treeNodesToRender = useMemo(() => {
+    console.log("Re-rendering tree nodes, searchTerm:", searchTerm, "expandedNodes count:", expandedNodes.size);
+    
     if (!fileTree) return [];
     
+    // Only apply filtering if there's actually a search term
+    if (!searchTerm) {
+      // When no search term is active, render the complete tree without filtering
+      return Object.values(fileTree)
+        .sort((a, b) => {
+          if (a.type !== b.type) return a.type === 'directory' ? -1 : 1;
+          return a.name.localeCompare(b.name);
+        })
+        .map((node) => (
+          <FileTreeNode
+            key={node.path}
+            node={node}
+            selectedFiles={selectedFiles}
+            onToggle={handleSelectionToggle}
+            expandedNodes={expandedNodes}
+            toggleExpand={toggleExpand}
+            averageLines={averageSelectedLines}
+            searchTerm={searchTerm}
+            highlightSearch={highlightSearch}
+          />
+        ));
+    }
+    
+    // If there is a search term, apply filtering
     // Recursively filter the tree based on the searchTerm and filteredNodes
     const filterTree = (tree: { [key: string]: InternalTreeNode }): { [key: string]: InternalTreeNode } => {
-      if (!searchTerm) return tree; // No filtering needed if no search term
-      
       const filtered: { [key: string]: InternalTreeNode } = {};
       Object.entries(tree).forEach(([key, node]) => {
         if (filteredNodes.has(node.path)) {
