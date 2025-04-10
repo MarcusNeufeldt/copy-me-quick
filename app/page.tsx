@@ -7,7 +7,7 @@ import ProjectSelector from '@/components/ProjectSelector';
 import FileUploadSection from '@/components/FileUploadSection';
 import BackupManagement from '@/components/BackupManagement';
 import AnalysisResult from '@/components/AnalysisResult';
-import { AppState, Project, FileData, AnalysisResultData } from '@/components/types';
+import { AppState, Project, FileData, AnalysisResultData, Backup } from '@/components/types';
 import dynamic from 'next/dynamic';
 import { Button } from "@/components/ui/button";
 import { GithubIcon, RotateCcw, Code2, GitBranchPlus, LayoutGrid, Github, CheckCircle, XCircle, GitBranch, BookMarked } from 'lucide-react';
@@ -538,10 +538,10 @@ export default function ClientPageRoot() {
     <div className="relative">
       {/* Header with background blur */}
       <header className="sticky top-0 z-40 w-full border-b bg-background/80 backdrop-blur-sm">
-        <div className="container flex h-16 items-center justify-between py-4">
+        <div className="container flex h-16 items-center justify-between py-4 px-4 sm:px-6">
           <div className="flex items-center gap-2">
-            <Code2 className="h-6 w-6 text-primary" />
-            <h1 className="text-xl font-heading font-bold text-gradient">Copy Me Quick</h1>
+            <Code2 className="h-5 w-5 sm:h-6 sm:w-6 text-primary" />
+            <h1 className="text-lg sm:text-xl font-heading font-bold text-gradient">Copy Me Quick</h1>
           </div>
           <div className="flex items-center gap-2">
             <a 
@@ -557,15 +557,15 @@ export default function ClientPageRoot() {
         </div>
       </header>
       
-      <div className="container px-4 py-6 md:py-10 max-w-7xl mx-auto animate-fade-in">
-        <div className="grid gap-6 md:grid-cols-[250px_1fr] lg:grid-cols-[280px_1fr]">
+      <div className="container px-4 py-4 sm:py-6 md:py-10 max-w-7xl mx-auto animate-fade-in">
+        <div className="grid gap-6 grid-cols-1 md:grid-cols-[250px_1fr] lg:grid-cols-[280px_1fr]">
           {/* Sidebar Navigation */}
           <aside className="flex flex-col gap-4">
             <Card className="glass-card animate-slide-up">
-              <CardContent className="pt-6 space-y-6">
-                <div className="flex items-center gap-2 mb-4">
-                  <GitBranchPlus className="h-5 w-5 text-primary" />
-                  <h2 className="font-heading font-semibold">Project Configuration</h2>
+              <CardContent className="p-4 sm:pt-6 space-y-4 sm:space-y-6">
+                <div className="flex items-center gap-2 mb-2 sm:mb-4">
+                  <GitBranchPlus className="h-4 w-4 sm:h-5 sm:w-5 text-primary" />
+                  <h2 className="font-heading font-semibold text-sm sm:text-base">Project Configuration</h2>
                 </div>
                 
                 <ProjectSelector
@@ -576,8 +576,8 @@ export default function ClientPageRoot() {
                 />
                 
                 {/* --- GitHub Integration Start --- */}
-                <div className="space-y-4">
-                  <h3 className="text-sm font-medium text-muted-foreground">Load From</h3>
+                <div className="space-y-3 sm:space-y-4">
+                  <h3 className="text-xs sm:text-sm font-medium text-muted-foreground">Load From</h3>
                   <FileUploadSection
                     state={state}
                     setState={setState}
@@ -587,7 +587,7 @@ export default function ClientPageRoot() {
                     projectTypeSelected={projectTypeSelected}
                   />
                   {/* Separator */}
-                  <div className="relative my-4">
+                  <div className="relative my-3 sm:my-4">
                     <div className="absolute inset-0 flex items-center">
                       <span className="w-full border-t" />
                     </div>
@@ -599,9 +599,9 @@ export default function ClientPageRoot() {
                   </div>
                   {/* GitHub Section */}
                   {isLoadingGithubUser ? (
-                    <div className="text-center text-muted-foreground text-sm">Checking GitHub connection...</div>
+                    <div className="text-center text-muted-foreground text-xs sm:text-sm">Checking GitHub connection...</div>
                   ) : githubUser ? (
-                    <div className="space-y-4 text-sm border-t pt-4 mt-4">
+                    <div className="space-y-3 sm:space-y-4 text-xs sm:text-sm border-t pt-3 sm:pt-4 mt-3 sm:mt-4">
                        <div className="flex items-center justify-between mb-2">
                          <div className="flex items-center gap-2">
                            {githubUser.avatarUrl && (
@@ -631,12 +631,12 @@ export default function ClientPageRoot() {
                            onValueChange={handleRepoChange}
                            disabled={isLoadingRepos || repos.length === 0}
                          >
-                            <SelectTrigger id="github-repo-select">
+                            <SelectTrigger id="github-repo-select" className="text-xs sm:text-sm">
                                 <SelectValue placeholder={isLoadingRepos ? "Loading repos..." : "Select repository..."} />
                             </SelectTrigger>
                             <SelectContent>
                                 {repos.map((repo: GitHubRepo) => (
-                                <SelectItem key={repo.id} value={repo.full_name}>
+                                <SelectItem key={repo.id} value={repo.full_name} className="text-xs sm:text-sm">
                                     {repo.full_name}
                                 </SelectItem>
                                 ))}
@@ -655,7 +655,7 @@ export default function ClientPageRoot() {
                            {isLoadingBranches ? (
                              <div className="text-center text-muted-foreground text-xs py-2">Loading branches...</div>
                            ) : branches.length > 0 ? (
-                             <div className="border rounded-md p-2 max-h-48 overflow-y-auto">
+                             <div className="border rounded-md p-2 max-h-36 sm:max-h-48 overflow-y-auto">
                                {branches.map((branch: GitHubBranch) => (
                                  <Button
                                    key={branch.name}
@@ -692,15 +692,15 @@ export default function ClientPageRoot() {
                               <span>Loading file contents...</span>
                               <span>{fileLoadingProgress.current}/{fileLoadingProgress.total} files</span>
                             </div>
-                            <div className="w-full bg-muted rounded-full h-2.5">
+                            <div className="w-full bg-muted rounded-full h-2">
                               <div 
-                                className="bg-primary h-2.5 rounded-full transition-all duration-300" 
+                                className="bg-primary h-2 rounded-full transition-all duration-300" 
                                 style={{ 
                                   width: `${fileLoadingProgress.total > 0 
-                                    ? (fileLoadingProgress.current / fileLoadingProgress.total) * 100 
+                                    ? Math.round((fileLoadingProgress.current / fileLoadingProgress.total) * 100) 
                                     : 0}%` 
-                                }}
-                              ></div>
+                                }} 
+                              />
                             </div>
                           </div>
                        )}
@@ -713,18 +713,20 @@ export default function ClientPageRoot() {
                        {/* FileSelector will now be rendered conditionally based on githubTree */} 
                     </div>
                   ) : (
-                    <>
-                      <Button
-                         variant="outline"
-                         className="w-full"
-                         onClick={handleGitHubLogin}
+                    <div>
+                      <Button 
+                        size="sm" 
+                        variant="outline" 
+                        className="w-full flex items-center justify-center gap-2"
+                        onClick={handleGitHubLogin}
                       >
-                        <Github className="mr-2 h-4 w-4" /> Connect to GitHub
+                        <Github className="h-4 w-4" />
+                        <span>Connect to GitHub</span>
                       </Button>
                       {githubError && (
-                         <p className="text-xs text-destructive">Error: {githubError}</p>
+                        <p className="text-xs text-destructive mt-2">{githubError}</p>
                       )}
-                    </>
+                    </div>
                   )}
                 </div>
                 {/* --- GitHub Integration End --- */}
@@ -775,6 +777,34 @@ export default function ClientPageRoot() {
                       branch: selectedBranchName
                     } : undefined
                   } : undefined}
+                  saveBackup={(description) => {
+                    // Fetch file content for selected files
+                    const fileContents: { [key: string]: string } = {};
+                    if (state.analysisResult) {
+                      state.selectedFiles.forEach(filePath => {
+                        const file = state.analysisResult!.files.find(f => f.path === filePath);
+                        if (file) {
+                          fileContents[filePath] = file.content;
+                        }
+                      });
+                    }
+
+                    const newBackup: Backup = {
+                      id: Date.now().toString(),
+                      timestamp: Date.now(),
+                      description,
+                      selectedFiles: state.selectedFiles,
+                      fileContents,
+                    };
+
+                    const updatedState = {
+                      ...state,
+                      backups: [newBackup, ...(state.backups || [])],
+                    };
+
+                    setState(updatedState);
+                    updateCurrentProject(updatedState);
+                  }}
                 />
               </>
             ) : (

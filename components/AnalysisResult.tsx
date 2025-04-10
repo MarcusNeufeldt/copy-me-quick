@@ -7,7 +7,19 @@ import { Progress } from "@/components/ui/progress";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import FileSelector from './FileSelector';
 import { AppState, FileData, DataSource } from './types';
-import { Copy, File, Folder, FileText, CheckCircle2, BarChart3, FileSymlink, Layers, AlertCircle } from 'lucide-react';
+import { Copy, File, Folder, FileText, CheckCircle2, BarChart3, FileSymlink, Layers, AlertCircle, CopyCheck, Download, Save, AlertTriangle, Archive } from 'lucide-react';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 
 interface AnalysisResultProps {
   state: AppState;
@@ -17,6 +29,7 @@ interface AnalysisResultProps {
   setTokenCount: React.Dispatch<React.SetStateAction<number>>;
   maxTokens: number;
   dataSource?: DataSource;
+  saveBackup: (name: string) => void;
 }
 
 interface TreeNodeData {
@@ -127,11 +140,15 @@ const AnalysisResult: React.FC<AnalysisResultProps> = ({
   tokenCount,
   setTokenCount,
   maxTokens,
-  dataSource
+  dataSource,
+  saveBackup
 }) => {
   const [totalSelectedFiles, setTotalSelectedFiles] = useState(0);
   const [totalSelectedLines, setTotalSelectedLines] = useState(0);
   const [copySuccess, setCopySuccess] = useState(false);
+  const [showBackupDialog, setShowBackupDialog] = useState(false);
+  const [backupName, setBackupName] = useState('');
+  const [activeTab, setActiveTab] = useState('output');
 
   // Create internal dataSource if not provided
   const effectiveDataSource = useMemo(() => {
@@ -178,14 +195,25 @@ const AnalysisResult: React.FC<AnalysisResultProps> = ({
     });
   }, [setState, updateCurrentProject]);
 
-  const copyToClipboard = () => {
-    if (state.analysisResult) {
-      navigator.clipboard.writeText(getSelectedFileTree(state.analysisResult.files, state.selectedFiles))
-        .then(() => {
-          setCopySuccess(true);
-          setTimeout(() => setCopySuccess(false), 2000);
-        });
-    }
+  const copyToClipboard = (text: string) => {
+    navigator.clipboard.writeText(text).then(() => {
+      setCopySuccess(true);
+    }).catch(err => {
+      console.error('Failed to copy: ', err);
+    });
+  };
+
+  // Function to download as file
+  const downloadAsFile = (content: string, filename: string) => {
+    const blob = new Blob([content], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
   };
 
   const getSelectedFileTree = (files: FileData[], selectedPaths: string[]): string => {
@@ -243,6 +271,49 @@ const AnalysisResult: React.FC<AnalysisResultProps> = ({
   const tokenPercentage = Math.min(100, (tokenCount / maxTokens) * 100);
   const isTokenWarning = tokenPercentage > 75;
   const isTokenExceeded = tokenPercentage >= 100;
+
+  // Get the selected files from state
+  const selectedFiles = state.analysisResult
+    ? state.analysisResult.files.filter(file => 
+        state.selectedFiles.includes(file.path)
+      )
+    : [];
+
+  // Create a summary of selected files
+  const selectedFilesSummary = selectedFiles.map(file => 
+    `// ${file.path} - ${file.lines} lines`
+  ).join('\n');
+
+  // Generate file output - include all selected file contents concatenated
+  const fileOutput = selectedFiles.map(file => 
+    `// File: ${file.path}\n// ${file.lines} lines\n\n${file.content}`
+  ).join('\n\n// ----------------------\n\n');
+
+  // Generate a markdown summary for the clipboard
+  const markdownSummary = `# Project Analysis
+
+## Summary
+- Total selected files: ${selectedFiles.length}
+- Total lines of code: ${selectedFiles.reduce((sum, file) => sum + file.lines, 0)}
+- Estimated token count: ${tokenCount.toLocaleString()}
+- Token usage: ${tokenPercentage.toFixed(1)}% (${tokenCount.toLocaleString()} of ${maxTokens.toLocaleString()})
+
+## Selected Files
+${selectedFiles.map(file => `- \`${file.path}\` (${file.lines} lines)`).join('\n')}
+`;
+
+  // Clean list output for clipboard - no file contents, just the list
+  const listOutput = selectedFiles.map(file => 
+    `${file.path} - ${file.lines} lines`
+  ).join('\n');
+
+  const handleSaveBackup = () => {
+    if (backupName.trim()) {
+      saveBackup(backupName.trim());
+      setShowBackupDialog(false);
+      setBackupName('');
+    }
+  };
 
   if (!state.analysisResult) {
     return null;
@@ -330,7 +401,7 @@ const AnalysisResult: React.FC<AnalysisResultProps> = ({
       </div>
 
       {/* File Selector Tabs */}
-      <Tabs defaultValue="selector" className="animate-fade-in animation-delay-200">
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="animate-fade-in animation-delay-200">
         <TabsList className="grid w-full grid-cols-2 mb-6">
           <TabsTrigger value="selector" className="flex items-center gap-2">
             <FileSymlink className="h-4 w-4" />
@@ -382,6 +453,209 @@ const AnalysisResult: React.FC<AnalysisResultProps> = ({
               )}
             </CardContent>
           </Card>
+        </TabsContent>
+      </Tabs>
+
+      {/* Tabs for different output formats */}
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+        <TabsList className="grid grid-cols-3 mb-4">
+          <TabsTrigger value="output" className="text-xs sm:text-sm">Output Options</TabsTrigger>
+          <TabsTrigger value="summary" className="text-xs sm:text-sm">Summary</TabsTrigger>
+          <TabsTrigger value="files" className="text-xs sm:text-sm">File List</TabsTrigger>
+        </TabsList>
+        
+        <TabsContent value="output" className="space-y-4">
+          <div className="grid gap-3 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
+            <Button 
+              variant="outline" 
+              className="flex justify-between items-center text-xs sm:text-sm"
+              onClick={() => copyToClipboard(markdownSummary)}
+            >
+              <div className="flex items-center">
+                <Badge variant="outline" className="mr-2 px-1 py-0 text-xs">MD</Badge>
+                Copy Markdown Summary
+              </div>
+              {copySuccess ? (
+                <CopyCheck className="h-3.5 w-3.5 text-green-500" />
+              ) : (
+                <Copy className="h-3.5 w-3.5" />
+              )}
+            </Button>
+            
+            <Button 
+              variant="outline" 
+              className="flex justify-between items-center text-xs sm:text-sm"
+              onClick={() => copyToClipboard(listOutput)}
+            >
+              <div className="flex items-center">
+                <Badge variant="outline" className="mr-2 px-1 py-0 text-xs">TXT</Badge>
+                Copy File List
+              </div>
+              <Copy className="h-3.5 w-3.5" />
+            </Button>
+            
+            <Button 
+              variant="outline" 
+              className="flex justify-between items-center text-xs sm:text-sm"
+              onClick={() => copyToClipboard(fileOutput)}
+            >
+              <div className="flex items-center">
+                <Badge variant="outline" className="mr-2 px-1 py-0 text-xs">CODE</Badge>
+                Copy Full Code
+              </div>
+              <Copy className="h-3.5 w-3.5" />
+            </Button>
+            
+            <Button 
+              variant="outline" 
+              className="flex justify-between items-center text-xs sm:text-sm"
+              onClick={() => downloadAsFile(markdownSummary, 'project-summary.md')}
+            >
+              <div className="flex items-center">
+                <Badge variant="outline" className="mr-2 px-1 py-0 text-xs">MD</Badge>
+                Download Summary
+              </div>
+              <Download className="h-3.5 w-3.5" />
+            </Button>
+            
+            <Button 
+              variant="outline" 
+              className="flex justify-between items-center text-xs sm:text-sm"
+              onClick={() => downloadAsFile(listOutput, 'file-list.txt')}
+            >
+              <div className="flex items-center">
+                <Badge variant="outline" className="mr-2 px-1 py-0 text-xs">TXT</Badge>
+                Download File List
+              </div>
+              <Download className="h-3.5 w-3.5" />
+            </Button>
+            
+            <Button 
+              variant="outline" 
+              className="flex justify-between items-center text-xs sm:text-sm"
+              onClick={() => downloadAsFile(fileOutput, 'project-code.txt')}
+            >
+              <div className="flex items-center">
+                <Badge variant="outline" className="mr-2 px-1 py-0 text-xs">CODE</Badge>
+                Download Full Code
+              </div>
+              <Download className="h-3.5 w-3.5" />
+            </Button>
+            
+            <Button 
+              variant="outline" 
+              className="flex justify-between items-center text-xs sm:text-sm col-span-full sm:col-span-1"
+              onClick={() => setShowBackupDialog(true)}
+            >
+              <div className="flex items-center">
+                <Badge variant="outline" className="mr-2 px-1 py-0 text-xs">BKP</Badge>
+                Save Selection as Backup
+              </div>
+              <Archive className="h-3.5 w-3.5" />
+            </Button>
+          </div>
+          
+          <Dialog open={showBackupDialog} onOpenChange={setShowBackupDialog}>
+            <DialogContent className="sm:max-w-md">
+              <DialogHeader>
+                <DialogTitle>Save Current Selection</DialogTitle>
+                <DialogDescription>
+                  Create a named backup of your currently selected files. You can restore them later.
+                </DialogDescription>
+              </DialogHeader>
+              
+              <div className="py-4">
+                <Label htmlFor="backup-name" className="text-xs sm:text-sm mb-2 block">Backup Name</Label>
+                <Input 
+                  id="backup-name"
+                  value={backupName}
+                  onChange={(e) => setBackupName(e.target.value)}
+                  placeholder="e.g., Core API Files"
+                  className="text-xs sm:text-sm"
+                />
+              </div>
+              
+              <div className="text-xs text-muted-foreground">
+                <p>This will save your current selection of {selectedFiles.length} files with {tokenCount.toLocaleString()} tokens.</p>
+              </div>
+              
+              <DialogFooter className="flex flex-col sm:flex-row gap-2 mt-4">
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  onClick={() => setShowBackupDialog(false)}
+                  className="w-full sm:w-auto text-xs sm:text-sm"
+                >
+                  Cancel
+                </Button>
+                <Button 
+                  onClick={handleSaveBackup}
+                  disabled={!backupName.trim()}
+                  size="sm"
+                  className="w-full sm:w-auto text-xs sm:text-sm"
+                >
+                  <Save className="h-3.5 w-3.5 mr-1.5" />
+                  Save Backup
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+        </TabsContent>
+        
+        <TabsContent value="summary">
+          <Textarea
+            className="font-mono text-xs leading-relaxed h-80 custom-scrollbar resize-none"
+            readOnly
+            value={markdownSummary}
+          />
+          <div className="flex justify-end mt-2">
+            <Button 
+              variant="outline" 
+              size="sm" 
+              className="text-xs"
+              onClick={() => copyToClipboard(markdownSummary)}
+            >
+              {copySuccess ? (
+                <>
+                  <CopyCheck className="h-3.5 w-3.5 mr-1.5" />
+                  Copied!
+                </>
+              ) : (
+                <>
+                  <Copy className="h-3.5 w-3.5 mr-1.5" />
+                  Copy to Clipboard
+                </>
+              )}
+            </Button>
+          </div>
+        </TabsContent>
+        
+        <TabsContent value="files">
+          <Textarea
+            className="font-mono text-xs leading-relaxed h-80 custom-scrollbar resize-none"
+            readOnly
+            value={listOutput}
+          />
+          <div className="flex justify-end mt-2">
+            <Button 
+              variant="outline" 
+              size="sm" 
+              className="text-xs"
+              onClick={() => copyToClipboard(listOutput)}
+            >
+              {copySuccess ? (
+                <>
+                  <CopyCheck className="h-3.5 w-3.5 mr-1.5" />
+                  Copied!
+                </>
+              ) : (
+                <>
+                  <Copy className="h-3.5 w-3.5 mr-1.5" />
+                  Copy to Clipboard
+                </>
+              )}
+            </Button>
+          </div>
         </TabsContent>
       </Tabs>
     </div>

@@ -1,11 +1,21 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetClose, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { Separator } from "@/components/ui/separator";
-import { Save, Download, Upload, Trash2 } from 'lucide-react';
+import { Save, Download, Upload, Trash2, Archive, Clock, ArrowUpRight } from 'lucide-react';
 import JSZip from 'jszip';
 import { saveAs } from 'file-saver';
 import { AppState, Backup } from './types';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import { Badge } from "@/components/ui/badge";
+import { ScrollArea } from "@/components/ui/scroll-area";
 
 interface BackupManagementProps {
   state: AppState;
@@ -18,6 +28,9 @@ const BackupManagement: React.FC<BackupManagementProps> = ({
   setState,
   updateCurrentProject
 }) => {
+  const [showDialog, setShowDialog] = useState(false);
+  const [selectedBackup, setSelectedBackup] = useState<Backup | null>(null);
+
   const createBackup = () => {
     if (!state.analysisResult) return;
 
@@ -131,6 +144,52 @@ const BackupManagement: React.FC<BackupManagementProps> = ({
     }
   };
 
+  const handleOpenDialog = (backup: Backup) => {
+    setSelectedBackup(backup);
+    setShowDialog(true);
+  };
+
+  const handleRestoreBackup = () => {
+    if (selectedBackup) {
+      const updatedState = {
+        ...state,
+        selectedFiles: selectedBackup.selectedFiles,
+      };
+      
+      setState(updatedState);
+      updateCurrentProject(updatedState);
+      setShowDialog(false);
+    }
+  };
+  
+  const handleDeleteBackup = (id: string) => {
+    if (confirm('Are you sure you want to delete this backup?')) {
+      const updatedBackups = state.backups.filter(backup => backup.id !== id);
+      const updatedState = {
+        ...state,
+        backups: updatedBackups,
+      };
+      
+      setState(updatedState);
+      updateCurrentProject(updatedState);
+    }
+  };
+  
+  const formatDate = (dateString: string) => {
+    try {
+      const date = new Date(dateString);
+      return new Intl.DateTimeFormat('en-US', { 
+        month: 'short', 
+        day: 'numeric',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+      }).format(date);
+    } catch (e) {
+      return 'Invalid date';
+    }
+  };
+
   return (
     <div className="space-y-4 mt-4">
       <Sheet>
@@ -157,10 +216,10 @@ const BackupManagement: React.FC<BackupManagementProps> = ({
                   <div className="font-semibold">{backup.description}</div>
                   <div className="text-sm text-gray-500">{new Date(backup.timestamp).toLocaleString()}</div>
                   <div className="flex justify-between items-center mt-2">
-                    <Button onClick={() => restoreBackup(backup.id)} size="sm" variant="outline">
+                    <Button onClick={() => handleOpenDialog(backup)} size="sm" variant="outline">
                       Restore
                     </Button>
-                    <Button onClick={() => deleteBackup(backup.id)} size="sm" variant="destructive">
+                    <Button onClick={() => handleDeleteBackup(backup.id)} size="sm" variant="destructive">
                       <Trash2 className="h-4 w-4" />
                     </Button>
                   </div>
@@ -191,6 +250,67 @@ const BackupManagement: React.FC<BackupManagementProps> = ({
           </SheetFooter>
         </SheetContent>
       </Sheet>
+      
+      <Dialog open={showDialog} onOpenChange={setShowDialog}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Archive className="h-4 w-4" />
+              {selectedBackup?.description || 'Backup Details'}
+            </DialogTitle>
+            <DialogDescription>
+              Created on {selectedBackup ? formatDate(selectedBackup.timestamp.toString()) : 'unknown date'}
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="py-4">
+            <div className="flex justify-between items-center mb-2">
+              <span className="text-xs font-medium">Selected Files</span>
+              <Badge variant="outline" className="px-1.5 py-0 text-xs">
+                {selectedBackup?.selectedFiles.length || 0} files
+              </Badge>
+            </div>
+            
+            <ScrollArea className="h-40 w-full border rounded-md p-2">
+              <ul className="text-xs space-y-1">
+                {selectedBackup?.selectedFiles.map((file, index) => (
+                  <li key={index} className="truncate">
+                    {file}
+                  </li>
+                ))}
+              </ul>
+            </ScrollArea>
+            
+            <div className="mt-4 flex items-center justify-between">
+              <span className="text-xs font-medium">Token Count</span>
+              <Badge 
+                variant="secondary" 
+                className="px-1.5 py-0.5 text-xs font-medium"
+              >
+                {(selectedBackup?.fileContents ? Object.keys(selectedBackup.fileContents).length : 0).toLocaleString()}
+              </Badge>
+            </div>
+          </div>
+          
+          <DialogFooter className="flex flex-col sm:flex-row gap-2">
+            <Button 
+              variant="outline" 
+              size="sm"
+              onClick={() => setShowDialog(false)}
+              className="w-full sm:w-auto text-xs"
+            >
+              Cancel
+            </Button>
+            <Button 
+              onClick={handleRestoreBackup}
+              size="sm"
+              className="w-full sm:w-auto text-xs"
+            >
+              Restore Selection
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

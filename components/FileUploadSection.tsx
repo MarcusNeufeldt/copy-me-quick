@@ -257,113 +257,171 @@ const FileUploadSection: React.FC<FileUploadSectionProps> = ({
       <input
         id="fileInput"
         type="file"
-        webkitdirectory="true"
-        directory="true"
-        className="hidden"
+        webkitdirectory=""
+        directory=""
+        style={{ display: 'none' }}
         onChange={handleFileUpload}
       />
       
-      <div className="flex flex-wrap gap-2">
+      <div className="flex flex-col sm:flex-row gap-2">
         <Button
-          variant="default"
+          variant="outline"
+          size="sm"
+          className="w-full text-xs sm:text-sm flex items-center justify-center"
           onClick={handleChooseFolder}
           disabled={isProcessing || !projectTypeSelected}
-          className="w-full"
         >
-          <FolderOpen className="mr-2 h-4 w-4" />
-          Choose Project Folder
+          <FolderOpen className="h-3.5 w-3.5 mr-1.5" />
+          Choose Folder
         </Button>
         
         {state.analysisResult && (
           <Button
             variant="outline"
+            size="sm"
+            className="w-full text-xs sm:text-sm flex items-center justify-center"
             onClick={handleRefreshClick}
             disabled={isProcessing}
-            className="w-full"
           >
-            <RefreshCw className={`mr-2 h-4 w-4 ${isProcessing ? 'animate-spin' : ''}`} />
-            Refresh Project
+            <RefreshCw className="h-3.5 w-3.5 mr-1.5" />
+            Refresh
           </Button>
         )}
       </div>
-
-      {(isProcessing || processingStatus) && (
-        <div className="space-y-2 animate-slide-up">
-          <div className="flex items-center justify-between mb-1">
-            <div className="flex items-center">
-              {isProcessing ? (
-                <Loader className="mr-2 h-3 w-3 animate-spin text-primary" />
-              ) : (
-                <FileUp className="mr-2 h-3 w-3 text-primary" />
-              )}
-              <span className="text-xs font-medium">
-                {processingStatus || "Processing files..."}
-              </span>
-            </div>
-            {isProcessing && (
-              <span className="text-xs text-muted-foreground">
-                {uploadStats.valid} / {uploadStats.total} files
-              </span>
-            )}
+      
+      {isProcessing && (
+        <div className="space-y-2 animate-pulse">
+          <div className="flex justify-between items-center text-xs text-muted-foreground">
+            <span>
+              {processingStatus || `Processing files... (${uploadStats.valid}/${uploadStats.total})`}
+            </span>
+            <span>{progress}%</span>
           </div>
-          <Progress 
-            value={progress} 
-            className="h-1.5"
-            indicatorClassName="bg-gradient-to-r from-primary to-secondary"
-          />
+          <Progress value={progress} className="h-1.5" />
         </div>
       )}
-
+      
+      {(state.excludeFolders || state.fileTypes) && (
+        <div className="flex flex-col sm:flex-row gap-2 sm:gap-4 mt-3 text-xs">
+          <div className="flex-1">
+            <div className="flex items-center">
+              <Label htmlFor="excludeFolders" className="mr-1 text-muted-foreground">Exclude:</Label>
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Info className="h-3 w-3 text-muted-foreground" />
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p className="max-w-xs text-xs">
+                      A comma-separated list of folder names to exclude.
+                      These are applied globally (any path component match will be excluded).
+                    </p>
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            </div>
+            <Input
+              id="excludeFolders"
+              value={state.excludeFolders}
+              onChange={(e) => 
+                setState(prev => ({ ...prev, excludeFolders: e.target.value }))
+              }
+              className="h-7 text-xs"
+              placeholder="e.g., node_modules,.git,dist"
+            />
+          </div>
+          
+          <div className="flex-1">
+            <div className="flex items-center">
+              <Label htmlFor="fileTypes" className="mr-1 text-muted-foreground">Include:</Label>
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Info className="h-3 w-3 text-muted-foreground" />
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p className="max-w-xs text-xs">
+                      A comma-separated list of file extensions to include.
+                      Files must end with one of these extensions.
+                    </p>
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            </div>
+            <Input
+              id="fileTypes"
+              value={state.fileTypes}
+              onChange={(e) => 
+                setState(prev => ({ ...prev, fileTypes: e.target.value }))
+              }
+              className="h-7 text-xs"
+              placeholder="e.g., .js,.jsx,.ts,.tsx"
+            />
+          </div>
+        </div>
+      )}
+      
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-        <DialogContent className="max-w-md glass-card">
+        <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Select Project Folder</DialogTitle>
+            <DialogTitle>Upload Information</DialogTitle>
             <DialogDescription>
-              This will scan your selected folder and process files according to your project configuration.
+              This tool works best with smaller codebases or selected portions of larger ones.
             </DialogDescription>
           </DialogHeader>
           
-          <div className="space-y-4 py-2">
-            <Alert className="bg-primary-50 dark:bg-primary-900/20 border-primary-100">
-              <AlertDescription className="text-sm">
-                <div className="flex items-start">
-                  <Info className="h-4 w-4 mr-2 text-primary mt-0.5" />
-                  <div>
-                    <p className="mb-1 font-medium">Important notes:</p>
-                    <ul className="list-disc list-inside text-xs space-y-1">
-                      <li>Only text files will be processed</li>
-                      <li>File content is processed locally in your browser</li>
-                      <li>Nothing is uploaded to any server</li>
-                      <li>Files are filtered based on your project settings</li>
-                    </ul>
-                  </div>
-                </div>
+          <div className="space-y-4 py-2 text-sm">
+            <Alert>
+              <AlertCircle className="h-4 w-4" />
+              <AlertDescription className="text-xs sm:text-sm ml-2">
+                All files are processed locally in your browser. No data is sent to any server.
               </AlertDescription>
             </Alert>
             
-            <div className="flex items-start space-x-2">
-              <Checkbox
-                id="remember"
-                checked={rememberPreference}
+            <div className="space-y-2">
+              <h4 className="font-medium">Tips for best results:</h4>
+              <ul className="list-disc pl-4 space-y-1 text-xs sm:text-sm">
+                <li>Choose project-specific folders rather than your entire filesystem</li>
+                <li>Exclude large binary files, assets, and dependencies using the filters</li>
+                <li>Consider excluding generated files like build outputs</li>
+                <li>For large projects, select only the most relevant directories</li>
+              </ul>
+            </div>
+            
+            <div className="flex items-center space-x-2">
+              <Checkbox 
+                id="remember-pref" 
+                checked={!rememberPreference} 
                 onCheckedChange={(checked) => {
-                  if (checked !== "indeterminate") {
-                    setRememberPreference(checked);
-                  }
+                  const newVal = checked !== true;
+                  setRememberPreference(newVal);
+                  localStorage.setItem('showUploadInfoBox', JSON.stringify(!newVal));
                 }}
               />
-              <Label htmlFor="remember" className="text-sm font-normal">
-                Don&apos;t show this message again
-              </Label>
+              <label
+                htmlFor="remember-pref"
+                className="text-xs sm:text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
+              >
+                Show this information before uploads
+              </label>
             </div>
           </div>
           
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setIsDialogOpen(false)}>
+          <DialogFooter className="flex flex-col sm:flex-row sm:justify-between gap-2">
+            <Button 
+              variant="ghost" 
+              size="sm"
+              onClick={() => setIsDialogOpen(false)}
+              className="w-full sm:w-auto"
+            >
               Cancel
             </Button>
-            <Button onClick={handleProceed}>
-              <Upload className="mr-2 h-4 w-4" />
-              Select Folder
+            <Button 
+              onClick={handleProceed}
+              size="sm"
+              className="w-full sm:w-auto"
+            >
+              Choose Folder
             </Button>
           </DialogFooter>
         </DialogContent>
