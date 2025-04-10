@@ -2,6 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { Card, CardContent } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { ModeToggle } from "@/components/ui/mode-toggle";
 import ProjectSelector from '@/components/ProjectSelector';
 import FileUploadSection from '@/components/FileUploadSection';
 import BackupManagement from '@/components/BackupManagement';
@@ -9,7 +10,7 @@ import AnalysisResult from '@/components/AnalysisResult';
 import { AppState, Project } from '@/components/types';
 import dynamic from 'next/dynamic';
 import { Button } from "@/components/ui/button";
-import { RotateCcw } from 'lucide-react';
+import { GithubIcon, RotateCcw, Code2, GitBranchPlus, LayoutGrid } from 'lucide-react';
 
 // Dynamically import Analytics with error handling
 const AnalyticsComponent = dynamic(
@@ -172,59 +173,104 @@ export default function ClientPageRoot() {
   }
 
   return (
-    <div className="container mx-auto p-4">
-      <h1 className="text-3xl font-bold mb-6 text-center text-gray-800">Copy Me Quick</h1>
+    <div className="relative">
+      {/* Header with background blur */}
+      <header className="sticky top-0 z-40 w-full border-b bg-background/80 backdrop-blur-sm">
+        <div className="container flex h-16 items-center justify-between py-4">
+          <div className="flex items-center gap-2">
+            <Code2 className="h-6 w-6 text-primary" />
+            <h1 className="text-xl font-heading font-bold text-gradient">Copy Me Quick</h1>
+          </div>
+          <div className="flex items-center gap-2">
+            <a 
+              href="https://github.com/MarcusNeufeldt/copy-me-quick" 
+              target="_blank" 
+              rel="noopener noreferrer"
+              className="text-muted-foreground hover:text-foreground transition-colors"
+            >
+              <GithubIcon className="h-5 w-5" />
+            </a>
+            <ModeToggle />
+          </div>
+        </div>
+      </header>
+      
+      <div className="container px-4 py-6 md:py-10 max-w-7xl mx-auto animate-fade-in">
+        <div className="grid gap-6 md:grid-cols-[250px_1fr] lg:grid-cols-[280px_1fr]">
+          {/* Sidebar Navigation */}
+          <aside className="flex flex-col gap-4">
+            <Card className="glass-card animate-slide-up">
+              <CardContent className="pt-6 space-y-6">
+                <div className="flex items-center gap-2 mb-4">
+                  <GitBranchPlus className="h-5 w-5 text-primary" />
+                  <h2 className="font-heading font-semibold">Project Configuration</h2>
+                </div>
+                
+                <ProjectSelector
+                  setState={setState}
+                  onProjectTypeSelected={setProjectTypeSelected}
+                  projectTypes={projectTypes}
+                  onProjectTemplatesUpdate={handleProjectTemplateUpdate}
+                />
+                
+                <FileUploadSection
+                  state={state}
+                  setState={setState}
+                  updateCurrentProject={updateCurrentProject}
+                  setError={setError}
+                  onUploadComplete={handleUploadComplete}
+                  projectTypeSelected={projectTypeSelected}
+                />
+                
+                <BackupManagement
+                  state={state}
+                  setState={setState}
+                  updateCurrentProject={updateCurrentProject}
+                />
+                
+                <Button
+                  variant="outline"
+                  onClick={handleResetWorkspace}
+                  className="w-full transition-all hover:border-destructive hover:text-destructive"
+                  disabled={!state.analysisResult && !currentProjectId}
+                >
+                  <RotateCcw className="mr-2 h-4 w-4" />
+                  Clear Workspace
+                </Button>
+              </CardContent>
+            </Card>
+          </aside>
+          
+          {/* Main Content */}
+          <div className="space-y-6 animate-slide-up animation-delay-200">
+            {error && (
+              <Alert variant="destructive" className="animate-scale">
+                <AlertDescription>{error}</AlertDescription>
+              </Alert>
+            )}
 
-      <Card className="mb-6">
-        <CardContent className="pt-6 space-y-4">
-          <ProjectSelector
-            setState={setState}
-            onProjectTypeSelected={setProjectTypeSelected}
-            projectTypes={projectTypes}
-            onProjectTemplatesUpdate={handleProjectTemplateUpdate}
-          />
-          <FileUploadSection
-            state={state}
-            setState={setState}
-            updateCurrentProject={updateCurrentProject}
-            setError={setError}
-            onUploadComplete={handleUploadComplete}
-            projectTypeSelected={projectTypeSelected}
-          />
-          <BackupManagement
-            state={state}
-            setState={setState}
-            updateCurrentProject={updateCurrentProject}
-          />
-          <Button
-            variant="outline"
-            onClick={handleResetWorkspace}
-            className="w-full"
-            disabled={!state.analysisResult && !currentProjectId}
-          >
-            <RotateCcw className="mr-2 h-4 w-4" />
-            Clear Current Workspace
-          </Button>
-        </CardContent>
-      </Card>
-
-      {error && (
-        <Alert variant="destructive" className="mb-6">
-          <AlertDescription>{error}</AlertDescription>
-        </Alert>
-      )}
-
-      {/* Conditionally render AnalysisResult only when data is ready */}
-      {state.analysisResult && (
-        <AnalysisResult
-          state={state}
-          setState={setState} // Pass setState
-          updateCurrentProject={updateCurrentProject} // Keep if needed
-          tokenCount={tokenCount}
-          setTokenCount={setTokenCount}
-          maxTokens={MAX_TOKENS}
-        />
-      )}
+            {/* Conditionally render AnalysisResult only when data is ready */}
+            {state.analysisResult ? (
+              <AnalysisResult
+                state={state}
+                setState={setState}
+                updateCurrentProject={updateCurrentProject}
+                tokenCount={tokenCount}
+                setTokenCount={setTokenCount}
+                maxTokens={MAX_TOKENS}
+              />
+            ) : (
+              <Card className="glass-card flex flex-col items-center justify-center p-12 text-center h-[400px]">
+                <LayoutGrid className="h-12 w-12 text-muted-foreground mb-4" />
+                <h2 className="text-2xl font-heading font-semibold mb-2">No Project Loaded</h2>
+                <p className="text-muted-foreground mb-6 max-w-md">
+                  Select a project type and upload a folder to get started. Your file tree will appear here.
+                </p>
+              </Card>
+            )}
+          </div>
+        </div>
+      </div>
       <AnalyticsComponent />
     </div>
   );

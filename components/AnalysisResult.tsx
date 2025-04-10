@@ -1,9 +1,13 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Badge } from "@/components/ui/badge";
+import { Progress } from "@/components/ui/progress";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import FileSelector from './FileSelector';
 import { AppState, FileData } from './types';
-import { Copy, File, Folder } from 'lucide-react';
+import { Copy, File, Folder, FileText, CheckCircle2, BarChart3, FileSymlink, Layers, AlertCircle } from 'lucide-react';
 
 interface AnalysisResultProps {
   state: AppState;
@@ -49,17 +53,17 @@ const TreeItem: React.FC<TreeItemProps> = ({ node, isLast, prefix = '' }) => {
   return (
     <div className="flex flex-col">
       <div className="flex items-center gap-1.5 text-sm">
-        <span className="text-gray-500 whitespace-pre font-mono">{linePrefix}</span>
+        <span className="text-muted-foreground whitespace-pre font-mono">{linePrefix}</span>
         <span className="w-4 h-4 flex-shrink-0 flex items-center justify-center">
           {node.type === 'file' ? (
-            <File className="w-3.5 h-3.5 text-blue-500" />
+            <File className="w-3.5 h-3.5 text-primary" />
           ) : (
-            <Folder className="w-3.5 h-3.5 text-yellow-500" />
+            <Folder className="w-3.5 h-3.5 text-accent" />
           )}
         </span>
         <span className="font-mono">{node.name}</span>
         {node.size && (
-          <span className="text-gray-500 text-xs ml-1">({formatFileSize(node.size)})</span>
+          <span className="text-muted-foreground text-xs ml-1">({formatFileSize(node.size)})</span>
         )}
       </div>
       {entries.map(([key, childNode], index) => (
@@ -101,15 +105,17 @@ const ProjectTree: React.FC<{ files: FileData[] }> = ({ files }) => {
   });
 
   return (
-    <div className="font-mono">
-      {entries.map(([key, node], index) => (
-        <TreeItem
-          key={key}
-          node={node}
-          isLast={index === entries.length - 1}
-        />
-      ))}
-    </div>
+    <Card className="glass-card p-4 overflow-auto max-h-96 custom-scrollbar">
+      <div className="font-mono text-xs">
+        {entries.map(([key, node], index) => (
+          <TreeItem
+            key={key}
+            node={node}
+            isLast={index === entries.length - 1}
+          />
+        ))}
+      </div>
+    </Card>
   );
 };
 
@@ -123,15 +129,11 @@ const AnalysisResult: React.FC<AnalysisResultProps> = ({
 }) => {
   const [totalSelectedFiles, setTotalSelectedFiles] = useState(0);
   const [totalSelectedLines, setTotalSelectedLines] = useState(0);
+  const [copySuccess, setCopySuccess] = useState(false);
 
   useEffect(() => {
-    console.log("AnalysisResult: state changed", state);
-    console.log("Files:", state.analysisResult?.files);
-    console.log("Selected Files:", state.selectedFiles);
-
     if (state.analysisResult) {
       const selectedFileData = state.analysisResult.files.filter(file => state.selectedFiles.includes(file.path));
-      console.log("Selected file data:", selectedFileData);
       setTotalSelectedFiles(selectedFileData.length);
       setTotalSelectedLines(selectedFileData.reduce((sum, file) => sum + file.lines, 0));
     }
@@ -142,8 +144,6 @@ const AnalysisResult: React.FC<AnalysisResultProps> = ({
       const newSelectedFiles = typeof filesOrUpdater === 'function' 
         ? filesOrUpdater(prevState.selectedFiles) 
         : filesOrUpdater;
-      
-      console.log("Updating selected files:", newSelectedFiles);
       
       const newState = {
         ...prevState,
@@ -157,7 +157,11 @@ const AnalysisResult: React.FC<AnalysisResultProps> = ({
 
   const copyToClipboard = () => {
     if (state.analysisResult) {
-      navigator.clipboard.writeText(getSelectedFileTree(state.analysisResult.files, state.selectedFiles));
+      navigator.clipboard.writeText(getSelectedFileTree(state.analysisResult.files, state.selectedFiles))
+        .then(() => {
+          setCopySuccess(true);
+          setTimeout(() => setCopySuccess(false), 2000);
+        });
     }
   };
 
@@ -198,11 +202,8 @@ const AnalysisResult: React.FC<AnalysisResultProps> = ({
 
       entries.forEach(([key, node], index) => {
         const isLast = index === entries.length - 1;
-        const linePrefix = prefix + (isLast ? '└── ' : '├── ');
-        const icon = node.type === 'file' ? <File className="h-4 w-4" /> : <Folder className="h-4 w-4" />;
-        const sizeInfo = node.size ? ` (${formatFileSize(node.size)})` : '';
-        
-        result += `${linePrefix}${icon} ${node.name}${sizeInfo}\n`;
+        const line = prefix + (isLast ? '└── ' : '├── ') + node.name;
+        result += line + '\n';
 
         if (node.children) {
           const newPrefix = prefix + (isLast ? '    ' : '│   ');
@@ -216,72 +217,148 @@ const AnalysisResult: React.FC<AnalysisResultProps> = ({
     return buildTreeString(tree);
   };
 
+  const tokenPercentage = Math.min(100, (tokenCount / maxTokens) * 100);
+  const isTokenWarning = tokenPercentage > 75;
+  const isTokenExceeded = tokenPercentage >= 100;
+
+  if (!state.analysisResult) {
+    return null;
+  }
+
   return (
-    <div className="grid grid-cols-4 gap-4">
-      <div className="col-span-1 space-y-4">
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base font-medium">Project Summary</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="grid gap-2 text-sm">
-              <div className="flex justify-between items-center">
-                <span className="text-gray-500">Selected Files:</span>
-                <span className="font-medium">{totalSelectedFiles}</span>
+    <div className="space-y-6 animate-fade-in">
+      {/* Summary Section */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <Card className="glass-card p-6 animate-slide-up">
+          <div className="flex items-center space-x-4">
+            <div className="p-3 rounded-full bg-primary-100 dark:bg-primary-900">
+              <FileText className="h-6 w-6 text-primary" />
+            </div>
+            <div>
+              <p className="text-sm font-medium text-muted-foreground">Selected Files</p>
+              <div className="flex items-baseline">
+                <h3 className="text-2xl font-bold">
+                  {totalSelectedFiles}
+                </h3>
+                <span className="ml-2 text-sm text-muted-foreground">of {state.analysisResult.files.length}</span>
               </div>
-              <div className="flex justify-between items-center">
-                <span className="text-gray-500">Total Lines:</span>
-                <span className="font-medium">{totalSelectedLines.toLocaleString()}</span>
+            </div>
+          </div>
+        </Card>
+
+        <Card className="glass-card p-6 animate-slide-up animation-delay-200">
+          <div className="flex items-center space-x-4">
+            <div className="p-3 rounded-full bg-secondary-100 dark:bg-secondary-900">
+              <Layers className="h-6 w-6 text-secondary" />
+            </div>
+            <div>
+              <p className="text-sm font-medium text-muted-foreground">Selected Lines</p>
+              <div className="flex items-baseline">
+                <h3 className="text-2xl font-bold">
+                  {totalSelectedLines.toLocaleString()}
+                </h3>
+                <span className="ml-2 text-sm text-muted-foreground">
+                  of {state.analysisResult.summary.total_lines.toLocaleString()}
+                </span>
               </div>
-              <div className="flex justify-between items-center">
-                <span className="text-gray-500">Token Usage:</span>
-                <span className="font-medium">{tokenCount} / {maxTokens}</span>
+            </div>
+          </div>
+        </Card>
+
+        <Card className="glass-card p-6 animate-slide-up animation-delay-400">
+          <div className="flex items-center space-x-4">
+            <div className="p-3 rounded-full bg-accent-100 dark:bg-accent-900">
+              <BarChart3 className="h-6 w-6 text-accent" />
+            </div>
+            <div>
+              <p className="text-sm font-medium text-muted-foreground">Token Count</p>
+              <div className="flex items-baseline">
+                <h3 className="text-2xl font-bold">
+                  {tokenCount.toLocaleString()}
+                </h3>
+                <span className="ml-2 text-sm text-muted-foreground">
+                  of {maxTokens.toLocaleString()}
+                </span>
               </div>
-              <div className="w-full bg-gray-100 dark:bg-gray-800 rounded-full h-2.5 mt-1">
-                <div 
-                  className="bg-blue-500 h-2.5 rounded-full transition-all"
-                  style={{ width: `${Math.min((tokenCount / maxTokens) * 100, 100)}%` }}
+            </div>
+          </div>
+          <div className="mt-4">
+            <Progress 
+              value={tokenPercentage} 
+              className={`h-2 ${
+                isTokenExceeded ? 'bg-destructive/20' : 
+                isTokenWarning ? 'bg-amber-200/20 dark:bg-amber-900/20' : 
+                'bg-secondary/20'
+              }`}
+              indicatorClassName={
+                isTokenExceeded ? 'bg-destructive' : 
+                isTokenWarning ? 'bg-amber-500' : 
+                'bg-gradient-to-r from-primary to-secondary'
+              }
+            />
+            {isTokenExceeded && (
+              <p className="mt-2 text-xs flex items-center text-destructive">
+                <AlertCircle className="w-3 h-3 mr-1" />
+                Token limit exceeded
+              </p>
+            )}
+          </div>
+        </Card>
+      </div>
+
+      {/* File Selector Tabs */}
+      <Tabs defaultValue="selector" className="animate-fade-in animation-delay-200">
+        <TabsList className="grid w-full grid-cols-2 mb-6">
+          <TabsTrigger value="selector" className="flex items-center gap-2">
+            <FileSymlink className="h-4 w-4" />
+            <span>File Selection</span>
+          </TabsTrigger>
+          <TabsTrigger value="tree" className="flex items-center gap-2">
+            <Folder className="h-4 w-4" />
+            <span>Project Tree</span>
+          </TabsTrigger>
+        </TabsList>
+        
+        <TabsContent value="selector" className="mt-0 animate-slide-up">
+          <Card className="glass-card">
+            <CardHeader className="pb-2">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-xl font-heading">File Selector</CardTitle>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <FileSelector
+                files={state.analysisResult.files}
+                selectedFiles={state.selectedFiles}
+                setSelectedFiles={handleSetSelectedFiles}
+                maxTokens={maxTokens}
+                onTokenCountChange={setTokenCount}
+              />
+            </CardContent>
+          </Card>
+        </TabsContent>
+        
+        <TabsContent value="tree" className="mt-0 animate-slide-up">
+          <Card className="glass-card">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-xl font-heading">Selected Files Tree</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {state.selectedFiles.length > 0 ? (
+                <ProjectTree files={state.analysisResult.files.filter(file => 
+                  state.selectedFiles.includes(file.path))} 
                 />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base font-medium">Project Tree</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="bg-gray-50 dark:bg-gray-900 rounded-lg p-4 overflow-x-auto max-h-[400px]">
-              {state.analysisResult ? (
-                state.selectedFiles.length > 0 ? (
-                  <ProjectTree
-                    files={state.analysisResult.files.filter(file => 
-                      state.selectedFiles.includes(file.path)
-                    )}
-                  />
-                ) : (
-                  <span className="text-gray-500">No files selected</span>
-                )
               ) : (
-                <span className="text-gray-500">No project loaded</span>
+                <div className="text-center py-8 text-muted-foreground">
+                  <Folder className="h-12 w-12 mx-auto mb-2 opacity-40" />
+                  <p>No files selected</p>
+                  <p className="text-sm mt-1">Select files using the File Selector tab.</p>
+                </div>
               )}
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      <div className="col-span-3">
-        {state.analysisResult && (
-          <FileSelector
-            files={state.analysisResult.files}
-            selectedFiles={state.selectedFiles}
-            setSelectedFiles={handleSetSelectedFiles}
-            maxTokens={maxTokens}
-            onTokenCountChange={setTokenCount}
-          />
-        )}
-      </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
     </div>
   );
 };

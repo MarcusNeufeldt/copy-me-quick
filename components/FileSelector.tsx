@@ -3,13 +3,31 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
-import { Folder, File, ChevronRight, ChevronDown, Info, Copy, ChevronDownSquare, ChevronUpSquare, Brain, Check, ChevronsUpDown, Loader2 } from 'lucide-react';
+import { Progress } from "@/components/ui/progress";
+import { Input } from "@/components/ui/input";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
+} from "@/components/ui/dropdown-menu";
+import { 
+  Folder, 
+  File, 
+  ChevronRight, 
+  ChevronDown, 
+  Copy, 
+  ChevronDownSquare, 
+  ChevronUpSquare, 
+  Brain, 
+  Check, 
+  ChevronsUpDown, 
+  Loader2, 
+  Search, 
+  X, 
+  FileSearch,
+  FileWarning 
+} from 'lucide-react';
 import { FileData } from './types';
 
 interface TreeNode {
@@ -28,7 +46,9 @@ const FileTreeNode: React.FC<{
   expandedNodes: Set<string>;
   toggleExpand: (path: string) => void;
   averageLines: number;
-}> = ({ node, selectedFiles, onToggle, expandedNodes, toggleExpand, averageLines }) => {
+  searchTerm: string;
+  highlightSearch: boolean;
+}> = ({ node, selectedFiles, onToggle, expandedNodes, toggleExpand, averageLines, searchTerm, highlightSearch }) => {
   const isFolder = node.type === 'directory';
   const isExpanded = expandedNodes.has(node.path);
 
@@ -54,18 +74,24 @@ const FileTreeNode: React.FC<{
     onToggle(node.path, checked);
   };
 
-  const truncateContent = (content: string, maxLength: number = 200) => {
-    if (content.length <= maxLength) return content;
-    return content.slice(0, maxLength) + '...';
-  };
-
+  // Determine if this node matches the search
+  const matchesSearch = searchTerm && node.name.toLowerCase().includes(searchTerm.toLowerCase());
+  // For files, also check content
+  const contentMatches = !isFolder && searchTerm && !!(node.content?.toLowerCase().includes(searchTerm.toLowerCase()));
+  
+  // Only show this node if:
+  // 1. It matches the search term
+  // 2. It's a folder with children that match the search term
+  // 3. There's no search term
+  const isAboveLargeSize = !isFolder && node.lines && averageLines > 0 && node.lines > averageLines * 1.5;
+  
   return (
-    <div className={`${isFolder ? 'mb-1' : ''}`}>
-      <div className={`flex items-center space-x-2 py-1 px-2 rounded-md hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors ${
+    <div className={`${isFolder ? 'mb-1' : ''} ${highlightSearch && (matchesSearch || contentMatches) ? 'animate-pulse-subtle' : ''}`}>
+      <div className={`flex items-center space-x-2 py-1 px-2 rounded-md transition-colors hover:bg-muted/50 ${
         selectedFiles.includes(node.path) 
-          ? !isFolder && node.lines && averageLines > 0 && node.lines > averageLines * 1.5
-            ? 'bg-amber-50 dark:bg-amber-950' 
-            : 'bg-gray-50 dark:bg-gray-900'
+          ? !isFolder && isAboveLargeSize
+            ? 'bg-amber-50/60 dark:bg-amber-950/30 gradient-border' 
+            : 'bg-muted/30 dark:bg-muted/10'
           : ''
       }`}>
         <div className="flex items-center">
@@ -73,14 +99,18 @@ const FileTreeNode: React.FC<{
             <Button
               variant="ghost"
               size="icon"
-              className="h-6 w-6 p-0 hover:bg-transparent"
+              className="h-6 w-6 p-0 hover:bg-transparent hover:text-primary"
               onClick={() => toggleExpand(node.path)}
             >
               {isExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
             </Button>
           ) : (
             <div className="w-6 flex justify-center">
-              <File className="h-4 w-4 text-gray-400" />
+              {isAboveLargeSize ? (
+                <FileWarning className="h-4 w-4 text-amber-500" />
+              ) : (
+                <File className="h-4 w-4 text-muted-foreground/70" />
+              )}
             </div>
           )}
         </div>
@@ -91,21 +121,38 @@ const FileTreeNode: React.FC<{
           className="h-4 w-4"
           {...(getSelectionState() === "indeterminate" && { "data-state": "indeterminate" })}
         />
-        <span className="flex-grow truncate text-sm">
-          {isFolder ? (
-            <span className="font-medium">{node.name}</span>
-          ) : (
-            <span className="text-gray-700 dark:text-gray-300">{node.name}</span>
-          )}
-          {!isFolder && node.lines && (
-            <span className="ml-2 text-xs text-gray-500">
-              ({node.lines.toLocaleString()} lines)
-            </span>
-          )}
-        </span>
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span className="flex-grow truncate text-sm cursor-default">
+                {isFolder ? (
+                  <span className="font-medium">{node.name}</span>
+                ) : (
+                  <span className={`${matchesSearch ? 'text-primary font-medium' : 'text-foreground'}`}>{node.name}</span>
+                )}
+                {!isFolder && node.lines && (
+                  <span className="ml-2 text-xs text-muted-foreground">
+                    ({node.lines.toLocaleString()} lines)
+                  </span>
+                )}
+                {contentMatches && !matchesSearch && !isFolder && (
+                  <span className="ml-2 text-xs text-primary">
+                    (content match)
+                  </span>
+                )}
+              </span>
+            </TooltipTrigger>
+            <TooltipContent side="right" align="start">
+              <p className="text-xs break-all">{node.path}</p>
+              {!isFolder && isAboveLargeSize && (
+                <p className="text-xs text-amber-500 mt-1">Large file (may use more tokens)</p>
+              )}
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
       </div>
       {isFolder && isExpanded && (
-        <div className="ml-4 pl-2 border-l border-gray-200 dark:border-gray-700">
+        <div className="ml-4 pl-2 border-l border-muted dark:border-muted/50">
           {Object.values(node.children!)
             .sort((a, b) => {
               // Sort directories first, then files
@@ -124,6 +171,8 @@ const FileTreeNode: React.FC<{
                 expandedNodes={expandedNodes}
                 toggleExpand={toggleExpand}
                 averageLines={averageLines}
+                searchTerm={searchTerm}
+                highlightSearch={highlightSearch}
               />
             ))}
         </div>
@@ -144,12 +193,14 @@ const FileSelector = ({ files, selectedFiles, setSelectedFiles, maxTokens, onTok
   const [fileTree, setFileTree] = useState<{ [key: string]: TreeNode } | null>(null);
   const [expandedNodes, setExpandedNodes] = useState<Set<string>>(new Set());
   const [searchTerm, setSearchTerm] = useState('');
+  const [filteredNodes, setFilteredNodes] = useState<Set<string>>(new Set());
   const [copySuccess, setCopySuccess] = useState(false);
   const [isCalculatingTokens, setIsCalculatingTokens] = useState(false);
-  const [minifyOnCopy, setMinifyOnCopy] = useState(true);
+  const [minifyOnCopy, setMinifyOnCopy] = useState<boolean>(true);
   const [tokenizerLoading, setTokenizerLoading] = useState(false);
   const [isAiLoading, setIsAiLoading] = useState(false);
   const [aiError, setAiError] = useState<string | null>(null);
+  const [highlightSearch, setHighlightSearch] = useState(false);
 
   // Calculate average lines for selected non-folder files
   const averageSelectedLines = useMemo(() => {
@@ -170,6 +221,82 @@ const FileSelector = ({ files, selectedFiles, setSelectedFiles, maxTokens, onTok
     const tree = buildFileTree(files);
     setFileTree(tree);
   }, [files]);
+
+  // Filter nodes when search term changes
+  useEffect(() => {
+    if (!searchTerm) {
+      setFilteredNodes(new Set());
+      return;
+    }
+
+    const term = searchTerm.toLowerCase();
+    const matchingNodes = new Set<string>();
+
+    // Helper function to check if a node or any of its descendants match
+    const checkNodeAndDescendants = (node: TreeNode): boolean => {
+      // Check if this node matches
+      const nameMatches = node.name.toLowerCase().includes(term);
+      // Ensure contentMatches is always boolean
+      const contentMatches = !!(node.content?.toLowerCase().includes(term));
+      const thisNodeMatches = nameMatches || contentMatches;
+      
+      if (thisNodeMatches) {
+        matchingNodes.add(node.path);
+      }
+      
+      // For folders, check children
+      if (node.type === 'directory' && node.children) {
+        let anyChildMatches = false;
+        Object.values(node.children).forEach(child => {
+          if (checkNodeAndDescendants(child)) {
+            anyChildMatches = true;
+          }
+        });
+        
+        // If any child matches, this folder should be in the filtered set too
+        if (anyChildMatches) {
+          matchingNodes.add(node.path);
+        }
+        
+        return thisNodeMatches || anyChildMatches;
+      }
+      
+      return thisNodeMatches;
+    };
+    
+    // Start the search from all root nodes
+    if (fileTree) {
+      Object.values(fileTree).forEach(node => {
+        checkNodeAndDescendants(node);
+      });
+    }
+    
+    setFilteredNodes(matchingNodes);
+    
+    // Auto-expand nodes that match search or have matching children
+    if (searchTerm && matchingNodes.size > 0) {
+      // Create a new set to avoid modifying the current one during iteration
+      const newExpandedNodes = new Set(expandedNodes);
+      
+      // Add all parent directories of matching nodes
+      matchingNodes.forEach(path => {
+        // Split the path to get all parent directories
+        const parts = path.split('/');
+        
+        // Build up parent paths
+        let currentPath = '';
+        for (let i = 0; i < parts.length - 1; i++) {
+          currentPath = currentPath ? `${currentPath}/${parts[i]}` : parts[i];
+          newExpandedNodes.add(currentPath);
+        }
+      });
+      
+      setExpandedNodes(newExpandedNodes);
+      // Briefly highlight the search results
+      setHighlightSearch(true);
+      setTimeout(() => setHighlightSearch(false), 1500);
+    }
+  }, [searchTerm, fileTree, expandedNodes]); // Added expandedNodes dependency
 
   // Simplified token estimation function that doesn't rely on tiktoken
   useEffect(() => {
@@ -201,245 +328,268 @@ const FileSelector = ({ files, selectedFiles, setSelectedFiles, maxTokens, onTok
           setIsCalculatingTokens(false);
         }
       }
-    }, 0);
+    }, 100);
 
     return () => {
       isMounted = false;
       clearTimeout(calculationTimeout);
-      setIsCalculatingTokens(false);
     };
   }, [selectedFiles, files, onTokenCountChange]);
 
   const buildFileTree = (files: FileData[]): { [key: string]: TreeNode } => {
     const tree: { [key: string]: TreeNode } = {};
+
     files.forEach(file => {
-      const parts = file.path.split(/[\/\\]/); // Handle both forward and backward slashes
-      let currentLevel: { [key: string]: TreeNode } = tree;
+      const parts = file.path.split('/');
+      let current = tree;
       let currentPath = '';
-      
-      parts.forEach((part, index) => {
+
+      // Process each part of the path
+      parts.forEach((part, i) => {
         currentPath = currentPath ? `${currentPath}/${part}` : part;
-        
-        if (!currentLevel[part]) {
-          currentLevel[part] = index === parts.length - 1
-            ? { 
-                name: part, 
-                path: file.path, 
-                type: 'file',
-                lines: file.lines, 
-                content: file.content 
-              }
-            : { 
-                name: part, 
-                path: currentPath, 
-                type: 'directory',
-                children: {} 
-              };
-        }
-        if (index < parts.length - 1) {
-          currentLevel = currentLevel[part].children!;
+
+        if (i === parts.length - 1) {
+          // This is a file
+          current[part] = {
+            name: part,
+            path: currentPath,
+            type: 'file',
+            lines: file.lines,
+            content: file.content
+          };
+        } else {
+          // This is a directory
+          if (!current[part]) {
+            current[part] = {
+              name: part,
+              path: currentPath,
+              type: 'directory',
+              children: {}
+            };
+          } else if (!current[part].children) {
+            current[part].children = {};
+          }
+          current = current[part].children as { [key: string]: TreeNode };
         }
       });
     });
+
     return tree;
   };
 
-  const handleToggle = useCallback((path: string, isSelected: boolean) => {
-    if (!fileTree) return;
-
-    const getDescendantFiles = (node: TreeNode): string[] => {
-      if (node.type === 'file') return [node.path];
-      if (!node.children) return [];
-      return Object.values(node.children).flatMap(getDescendantFiles);
-    };
-
-    const targetNode = findNode(fileTree, path);
-    if (!targetNode) return;
-
-    // Get all files that would be affected
-    const filesToToggle = targetNode.type === 'file' ? [targetNode.path] : getDescendantFiles(targetNode);
+  // Get all descendant files of a node 
+  const getDescendantFiles = (node: TreeNode): string[] => {
+    if (node.type === 'file') return [node.path];
     
-    // Calculate new selection
-    let newSelection: string[];
-    if (isSelected) {
-      // Add files if not already selected
-      const newSet = new Set(selectedFiles);
-      filesToToggle.forEach(file => newSet.add(file));
-      newSelection = Array.from(newSet);
-    } else {
-      // Remove files
-      const filesToRemoveSet = new Set(filesToToggle);
-      newSelection = selectedFiles.filter(p => !filesToRemoveSet.has(p));
+    const descendantFiles: string[] = [];
+    if (node.type === 'directory' && node.children) {
+      Object.values(node.children).forEach(child => {
+        descendantFiles.push(...getDescendantFiles(child));
+      });
     }
+    
+    return descendantFiles;
+  };
 
-    setSelectedFiles(newSelection);
-  }, [fileTree, selectedFiles, setSelectedFiles]);
+  // Handle toggling selection
+  const handleSelectionToggle = useCallback((path: string, isSelected: boolean) => {
+    // Find the node with the given path
+    const node = findNode(fileTree!, path);
+    if (!node) return;
 
-  const findNode = (tree: { [key: string]: TreeNode }, targetPath: string): TreeNode | null => {
-    for (const node of Object.values(tree)) {
-      if (node.path === targetPath) return node;
-      if (node.children) {
-        const found = findNode(node.children, targetPath);
-        if (found) return found;
+    if (node.type === 'file') {
+      // For files, just toggle their selection
+      setSelectedFiles(prev => 
+        isSelected ? Array.from(new Set([...prev, node.path])) : prev.filter(p => p !== node.path)
+      );
+    } else if (node.type === 'directory') {
+      // For directories, toggle selection of all descendant files
+      const descendantFiles = getDescendantFiles(node);
+      
+      if (isSelected) {
+        // Select all descendant files that aren't already selected
+        setSelectedFiles(prev => Array.from(new Set([...prev, ...descendantFiles])));
+      } else {
+        // Deselect all descendant files
+        setSelectedFiles(prev => prev.filter(p => !descendantFiles.includes(p)));
       }
     }
-    return null;
+  }, [fileTree, setSelectedFiles]); // Added dependencies
+
+  // Find a node in the file tree by path
+  const findNode = (tree: { [key: string]: TreeNode }, targetPath: string): TreeNode | null => {
+    const parts = targetPath.split('/');
+    let current: { [key: string]: TreeNode } | undefined = tree;
+    let currentNode: TreeNode | null = null;
+
+    for (const part of parts) {
+      if (!current || !current[part]) return null;
+      currentNode = current[part];
+      current = currentNode.children;
+    }
+
+    return currentNode;
   };
 
-  const clearSelection = () => {
+  const clearSelection = useCallback(() => {
     setSelectedFiles([]);
-  };
+  }, [setSelectedFiles]);
 
-  const selectAll = (): void => setSelectedFiles(files.map(f => f.path));
-  const deselectAll = (): void => setSelectedFiles([]);
+  const selectAll = useCallback((): void => setSelectedFiles(files.map(f => f.path)), [files, setSelectedFiles]);
+  const deselectAll = useCallback((): void => setSelectedFiles([]), [setSelectedFiles]);
 
-  const generateProjectTreeString = (tree: { [key: string]: TreeNode }): string => {
+  const generateProjectTreeString = useCallback((tree: { [key: string]: TreeNode }): string => {
     const buildString = (nodes: { [key: string]: TreeNode }, prefix = ''): string => {
-      let result = '';
-      const entries = Object.entries(nodes).sort(([, a], [, b]) => {
-        // Sort directories first, then files
-        if (!!a.children !== !!b.children) return a.children ? -1 : 1;
-        return a.name.localeCompare(b.name);
-      });
-
-      entries.forEach(([key, node], index) => {
-        const isLast = index === entries.length - 1;
-        const icon = node.type === 'directory' ? '📁' : '📄';
-        result += `${prefix}${isLast ? '└── ' : '├── '}${icon} ${node.name}${node.lines ? ` (${node.lines.toLocaleString()} lines)` : ''}\n`;
-        if (node.children) {
-          result += buildString(node.children, `${prefix}${isLast ? '    ' : '│   '}`);
-        }
-      });
-      return result;
+      const nodeStrings = Object.entries(nodes)
+        .sort(([, a], [, b]) => {
+          if (a.type !== b.type) return a.type === 'directory' ? -1 : 1;
+          return a.name.localeCompare(b.name);
+        })
+        .map(([key, node]) => {
+          const nodeLine = prefix + (node.type === 'directory' ? `📁 ${node.name}/` : `📄 ${node.name}`);
+          if (node.type === 'directory' && node.children) {
+            return nodeLine + '\n' + buildString(node.children, prefix + '  ');
+          }
+          return nodeLine;
+        });
+      
+      return nodeStrings.join('\n');
     };
-
+    
     return buildString(tree);
-  };
+  }, []);
 
-  const handleAiSuggest = async () => {
-    if (!fileTree || isAiLoading || tokenizerLoading) return;
-
+  const handleAiSuggest = useCallback(async () => {
+    if (!fileTree) return;
+    
     setIsAiLoading(true);
     setAiError(null);
-
+    
     try {
-      const projectTreeString = generateProjectTreeString(fileTree);
+      // Generate a text representation of the project tree
+      const treeString = generateProjectTreeString(fileTree);
       
+      // Call the AI Smart Select API
       const response = await fetch('/api/ai-smart-select', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ projectTree: projectTreeString }),
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ projectTree: treeString }),
       });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || `API request failed with status ${response.status}`);
-      }
-
-      const data = await response.json();
-      const suggestedPaths: string[] = data.selectedFiles || [];
-
-      // Filter suggested paths to only include files that actually exist in the input `files` array
-      const validPaths = suggestedPaths.filter(aiPath => 
-        files.some(file => file.path === aiPath)
-      );
       
-      console.log("AI Suggested Valid Paths:", validPaths);
-      setSelectedFiles(validPaths); // Update selection with valid paths from AI
-
+      if (!response.ok) {
+        throw new Error(`Error: ${response.statusText}`);
+      }
+      
+      const data = await response.json();
+      
+      if (data.selectedFiles && Array.isArray(data.selectedFiles) && data.selectedFiles.length > 0) {
+        // Filter out any suggested files that don't exist in our actual files
+        const existingPaths = new Set(files.map(f => f.path));
+        const validSelections = data.selectedFiles.filter((path: string) => existingPaths.has(path));
+        
+        if (validSelections.length > 0) {
+          setSelectedFiles(validSelections);
+        } else {
+          setAiError("AI couldn't find relevant files that match your project structure.");
+        }
+      } else {
+        setAiError("AI returned no file suggestions.");
+      }
     } catch (error) {
-      console.error("AI Suggestion failed:", error);
-      setAiError(error instanceof Error ? error.message : "An unknown error occurred during AI suggestion.");
+      console.error("Error during AI suggestion:", error);
+      setAiError(error instanceof Error ? error.message : "Unknown error during AI processing");
     } finally {
       setIsAiLoading(false);
     }
-  };
+  }, [fileTree, generateProjectTreeString, files, setSelectedFiles]); // Added dependencies
 
-  const minifyCode = (code: string): string => {
+  const minifyCode = useCallback((code: string): string => {
+    if (!code) return '';
+    
+    // Very basic minification for various languages
     return code
-      // Remove all comments (single-line, multi-line, and JSDoc)
-      .replace(/\/\*[\s\S]*?\*\/|\/\/.*/g, '')
-      // Remove empty lines and normalize whitespace
-      .split('\n')
-      .map(line => line.trim())
-      .filter(line => line.length > 0)
-      // Remove multiple consecutive newlines (after joining)
-      .join('\n')
-      .replace(/\n{2,}/g, '\n')
-      // Trim the final result
+      // Remove single-line comments (// for JS/TS/Java/C#, # for Python/Ruby)
+      .replace(/\/\/.*|#.*/g, '')
+      // Remove multi-line comments (/* ... */ for many languages)
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      // Remove empty lines
+      .replace(/^\s*[\r\n]/gm, '')
+      // Collapse multiple spaces to single space
+      .replace(/\s{2,}/g, ' ')
+      // Collapse spaces around brackets and parentheses
+      .replace(/\s*([{}()[\]])\s*/g, '$1')
+      // Trim leading/trailing whitespace
       .trim();
-  };
+  }, []);
 
-  const copySelectedFilesToClipboard = () => {
-    if (fileTree) {
-      // Create a new tree containing only selected files and their parent directories
-      const selectedTreeNodes: { [key: string]: TreeNode } = {};
+  const copySelectedFilesToClipboard = useCallback(() => {
+    if (!fileTree || selectedFiles.length === 0) return;
+    
+    // Convert the selected files into a filtered tree
+    const filteredTree: { [key: string]: TreeNode } = {};
+    selectedFiles.forEach(path => {
+      const file = files.find(f => f.path === path);
+      if (!file) return;
       
-      selectedFiles.forEach(filePath => {
-        const parts = filePath.split('/');
-        let currentPath = '';
-        let currentLevel = selectedTreeNodes;
+      const parts = file.path.split('/');
+      let current = filteredTree;
+      let currentPath = '';
+      
+      parts.forEach((part, i) => {
+        currentPath = currentPath ? `${currentPath}/${part}` : part;
         
-        parts.forEach((part, index) => {
-          currentPath = currentPath ? `${currentPath}/${part}` : part;
-          const isLastPart = index === parts.length - 1;
-          
-          if (!currentLevel[part]) {
-            const originalNode = (() => {
-              let node = fileTree;
-              const nodePath = currentPath.split('/');
-              for (const p of nodePath) {
-                if (!node[p]) return null;
-                node = node[p].children || {};
-              }
-              return node;
-            })();
-
-            currentLevel[part] = {
+        if (i === parts.length - 1) {
+          // This is a file
+          current[part] = {
+            name: part,
+            path: currentPath,
+            type: 'file',
+            lines: file.lines,
+            content: file.content
+          };
+        } else {
+          // This is a directory
+          if (!current[part]) {
+            current[part] = {
               name: part,
               path: currentPath,
-              type: isLastPart ? 'file' : 'directory',
-              ...(isLastPart ? {
-                lines: files.find(f => f.path === filePath)?.lines,
-                content: files.find(f => f.path === filePath)?.content
-              } : {
-                children: {}
-              })
+              type: 'directory',
+              children: {}
             };
+          } else if (!current[part].children) {
+            current[part].children = {};
           }
-          
-          currentLevel = currentLevel[part].children || {};
-        });
+          current = current[part].children as { [key: string]: TreeNode };
+        }
       });
-
-      const projectTreeString = generateProjectTreeString(selectedTreeNodes);
+    });
+    
+    // Generate the project tree string
+    const treeString = generateProjectTreeString(filteredTree);
+    
+    // Combine the content of selected files
+    const selectedContents = selectedFiles.map(path => {
+      const file = files.find(f => f.path === path);
+      if (!file) return '';
       
-      const selectedContents = selectedFiles
-        .sort()
-        .map(path => {
-          const file = files.find(f => f.path === path);
-          if (!file) return '';
-          
-          const separator = '='.repeat(80);
-          const content = minifyOnCopy ? minifyCode(file.content) : file.content;
-          return `${separator}\n${file.path}\n${separator}\n${content}\n\n`;
-        })
-        .join('');
-
-      const fullContent = `Selected Project Structure:\n${projectTreeString}\n\nSelected Files Content:\n\n${selectedContents}`;
-
-      navigator.clipboard.writeText(fullContent).then(() => {
+      const content = minifyOnCopy ? minifyCode(file.content || '') : file.content || '';
+      return `// ${file.path}\n${content}\n`;
+    }).join('\n');
+    
+    // Copy tree structure and file contents to clipboard
+    const clipboardText = `Project Structure:\n${treeString}\n\nFile Contents:\n${selectedContents}`;
+    
+    navigator.clipboard.writeText(clipboardText)
+      .then(() => {
         setCopySuccess(true);
         setTimeout(() => setCopySuccess(false), 2000);
-      }, (err) => {
+      })
+      .catch(err => {
         console.error('Could not copy text: ', err);
       });
-    }
-  };
+  }, [fileTree, selectedFiles, files, generateProjectTreeString, minifyOnCopy, minifyCode]); // Added dependencies
 
-  const toggleExpand = (path: string) => {
+  const toggleExpand = useCallback((path: string) => {
     setExpandedNodes(prev => {
       const newSet = new Set(prev);
       if (newSet.has(path)) {
@@ -449,215 +599,294 @@ const FileSelector = ({ files, selectedFiles, setSelectedFiles, maxTokens, onTok
       }
       return newSet;
     });
-  };
+  }, []);
 
-  const expandAll = () => {
-    if (fileTree) {
-      const allPaths = new Set<string>();
-      const addAllPaths = (tree: { [key: string]: TreeNode }) => {
-        Object.values(tree).forEach(node => {
+  const expandAll = useCallback(() => {
+    if (!fileTree) return;
+    
+    const allPaths = new Set<string>();
+    
+    const addAllPaths = (tree: { [key: string]: TreeNode }) => {
+      Object.values(tree).forEach(node => {
+        if (node.type === 'directory') {
           allPaths.add(node.path);
           if (node.children) {
             addAllPaths(node.children);
           }
-        });
-      };
-      addAllPaths(fileTree);
-      setExpandedNodes(allPaths);
-    }
-  };
+        }
+      });
+    };
+    
+    addAllPaths(fileTree);
+    setExpandedNodes(allPaths);
+  }, [fileTree]);
 
-  const collapseAll = () => {
+  const collapseAll = useCallback(() => {
     setExpandedNodes(new Set());
-  };
+  }, []);
 
-  const selectAllVisible = useCallback(() => {
+  // Get all currently visible files (respecting search and expanded state)
+  const getVisibleFiles = useCallback((node: TreeNode): string[] => {
+    if (node.type === 'file') {
+      // Respect search filter: only include if matching or no search term
+      if (!searchTerm || filteredNodes.has(node.path)) {
+        return [node.path];
+      }
+    }
+    
+    // For directories:
+    // 1. Must be expanded
+    // 2. Must have children
+    // 3. Must be visible based on search (either itself or a descendant matches)
+    if (node.type === 'directory' && expandedNodes.has(node.path) && node.children && (!searchTerm || filteredNodes.has(node.path))) {
+      return Object.values(node.children).flatMap(child => getVisibleFiles(child));
+    }
+    
+    return [];
+  }, [expandedNodes, searchTerm, filteredNodes]); // Added dependencies
+
+
+  const selectVisibleFiles = useCallback(() => {
     if (!fileTree) return;
     
-    const getVisibleFiles = (node: TreeNode): string[] => {
-      if (!node.children) {
-        if (!searchTerm || node.name.toLowerCase().includes(searchTerm.toLowerCase())) {
-          return [node.path];
-        }
-        return [];
-      }
-      
-      return Object.values(node.children)
-        .flatMap(child => getVisibleFiles(child));
-    };
+    const visibleFiles = Object.values(fileTree).flatMap(getVisibleFiles);
+    setSelectedFiles(prev => Array.from(new Set([...prev, ...visibleFiles])));
+  }, [fileTree, getVisibleFiles, setSelectedFiles]); // Added dependencies
 
-    const visibleFiles = Object.values(fileTree).flatMap(node => getVisibleFiles(node));
-    setSelectedFiles(prev => {
-      const newSelection = new Set([...prev, ...visibleFiles]);
-      return Array.from(newSelection);
-    });
-  }, [searchTerm, files]);
+  const deselectVisibleFiles = useCallback(() => {
+    if (!fileTree) return;
+    
+    const visibleFiles = new Set(Object.values(fileTree).flatMap(getVisibleFiles));
+    setSelectedFiles(prev => prev.filter(path => !visibleFiles.has(path)));
+  }, [fileTree, getVisibleFiles, setSelectedFiles]); // Added dependencies
+
+
+  // Memoize the file tree nodes to render only when necessary
+  const treeNodesToRender = useMemo(() => {
+    if (!fileTree) return [];
+    
+    // Recursively filter the tree based on the searchTerm and filteredNodes
+    const filterTree = (tree: { [key: string]: TreeNode }): { [key: string]: TreeNode } => {
+      if (!searchTerm) return tree; // No filtering needed if no search term
+      
+      const filtered: { [key: string]: TreeNode } = {};
+      Object.entries(tree).forEach(([key, node]) => {
+        if (filteredNodes.has(node.path)) {
+          // If the node itself matches, include it
+          // If it's a directory, recursively filter its children
+          if (node.type === 'directory' && node.children) {
+            filtered[key] = {
+              ...node,
+              children: filterTree(node.children),
+            };
+          } else {
+            filtered[key] = node;
+          }
+        }
+      });
+      return filtered;
+    };
+    
+    const treeToDisplay = filterTree(fileTree);
+    
+    return Object.values(treeToDisplay)
+      .sort((a, b) => {
+        if (a.type !== b.type) return a.type === 'directory' ? -1 : 1;
+        return a.name.localeCompare(b.name);
+      })
+      .map((node) => (
+        <FileTreeNode
+          key={node.path}
+          node={node}
+          selectedFiles={selectedFiles}
+          onToggle={handleSelectionToggle}
+          expandedNodes={expandedNodes}
+          toggleExpand={toggleExpand}
+          averageLines={averageSelectedLines}
+          searchTerm={searchTerm}
+          highlightSearch={highlightSearch}
+        />
+      ));
+  }, [fileTree, searchTerm, filteredNodes, selectedFiles, handleSelectionToggle, expandedNodes, toggleExpand, averageSelectedLines, highlightSearch]);
+
+
+  if (tokenizerLoading) {
+    return <div className="flex justify-center p-4"><Loader2 className="animate-spin h-6 w-6 text-muted-foreground" /></div>;
+  }
 
   if (!fileTree) {
-    return <div>Loading file tree...</div>;
+    return <div className="p-4 text-muted-foreground">No files to display.</div>;
   }
 
   return (
-    <Card className="flex-1 flex flex-col h-full overflow-hidden">
-      <CardHeader className="py-3 px-4 border-b">
-        <div className="flex justify-between items-center">
-          <CardTitle className="text-lg font-semibold">Select Files</CardTitle>
-          <div className="flex items-center space-x-1">
-            {tokenizerLoading && (
-              <TooltipProvider>
-                <Tooltip delayDuration={100}>
-                  <TooltipTrigger>
-                    <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    <p>Loading Tokenizer...</p>
-                  </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
-            )}
-             {isCalculatingTokens && !tokenizerLoading && (
-              <TooltipProvider>
-                <Tooltip delayDuration={100}>
-                  <TooltipTrigger>
-                    <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    <p>Calculating Tokens...</p>
-                  </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
-            )}
-            <TooltipProvider>
-              <Tooltip delayDuration={100}>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-7 w-7"
-                    onClick={handleAiSuggest}
-                    disabled={isAiLoading || tokenizerLoading || Object.keys(fileTree).length === 0}
-                  >
-                    {isAiLoading ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                      <Brain className="h-4 w-4" />
-                    )}
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>
-                  <p>AI Suggest Files (Experimental)</p>
-                </TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
-            <TooltipProvider>
-                 <Tooltip delayDuration={100}>
-                    <TooltipTrigger asChild>
-                        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={expandAll}>
-                            <ChevronDownSquare className="h-4 w-4" />
-                        </Button>
-                    </TooltipTrigger>
-                    <TooltipContent><p>Expand All</p></TooltipContent>
-                 </Tooltip>
-            </TooltipProvider>
-             <TooltipProvider>
-                 <Tooltip delayDuration={100}>
-                    <TooltipTrigger asChild>
-                        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={collapseAll}>
-                            <ChevronUpSquare className="h-4 w-4" />
-                        </Button>
-                    </TooltipTrigger>
-                    <TooltipContent><p>Collapse All</p></TooltipContent>
-                 </Tooltip>
-            </TooltipProvider>
-
-            <DropdownMenu>
-              <TooltipProvider>
-                  <Tooltip delayDuration={100}>
-                    <TooltipTrigger asChild>
-                      <DropdownMenuTrigger asChild>
-                         <Button variant="ghost" size="icon" className="h-7 w-7">
-                            <ChevronsUpDown className="h-4 w-4" />
-                         </Button>
-                      </DropdownMenuTrigger>
-                    </TooltipTrigger>
-                    <TooltipContent><p>Selection Options</p></TooltipContent>
-                  </Tooltip>
-              </TooltipProvider>
-              <DropdownMenuContent align="end">
-                <DropdownMenuItem onClick={selectAll}>
-                  <Check className="mr-2 h-4 w-4" />
-                  <span>Select All</span>
-                </DropdownMenuItem>
-                 <DropdownMenuItem onClick={deselectAll}>
-                  <span className="mr-2 h-4 w-4"></span>
-                  <span>Deselect All</span>
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
+    <div className="space-y-4">
+      <div className="flex items-center gap-2 mb-4">
+        <div className="relative flex-1">
+          <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground pointer-events-none" />
+          <Input
+            type="text"
+            placeholder="Search files and content..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="pl-8 pr-8 h-9"
+          />
+          {searchTerm && (
+            <button 
+              onClick={() => setSearchTerm('')} 
+              className="absolute right-2 top-2.5 text-muted-foreground hover:text-foreground"
+              aria-label="Clear search"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          )}
         </div>
-        {aiError && (
-          <div className="text-red-600 text-xs mt-1 p-1 bg-red-50 rounded border border-red-200">
-            AI Suggest Error: {aiError}
-          </div>
+        {searchTerm && (
+          <span className="text-xs text-muted-foreground whitespace-nowrap">
+            {filteredNodes.size} match{filteredNodes.size !== 1 ? 'es' : ''}
+          </span>
         )}
-      </CardHeader>
-      <CardContent className="p-2 flex-1 overflow-y-auto">
-        {Object.values(fileTree).length > 0 ? (
-          Object.values(fileTree)
-            .sort((a, b) => {
-               const aIsFolder = a.type === 'directory';
-               const bIsFolder = b.type === 'directory';
-               if (aIsFolder && !bIsFolder) return -1;
-               if (!aIsFolder && bIsFolder) return 1;
-               return a.name.localeCompare(b.name);
-             })
-            .map(node => (
-              <FileTreeNode
-                key={node.path}
-                node={node}
-                selectedFiles={selectedFiles}
-                onToggle={handleToggle}
-                expandedNodes={expandedNodes}
-                toggleExpand={toggleExpand}
-                averageLines={averageSelectedLines}
-              />
-            ))
-        ) : (
-          <div className="text-center text-gray-500 mt-4">No files or folders found.</div>
-        )}
-      </CardContent>
-      <div className="p-3 border-t flex items-center justify-between space-x-2">
-          <div className="flex items-center space-x-2">
-            <Checkbox
-                id="minify"
-                checked={minifyOnCopy}
-                onCheckedChange={(checked) => setMinifyOnCopy(checked as boolean)}
-            />
-            <label htmlFor="minify" className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
-                Minify on Copy
-            </label>
-             <TooltipProvider>
-                 <Tooltip delayDuration={100}>
-                    <TooltipTrigger className="cursor-help">
-                        <Info className="h-4 w-4 text-muted-foreground" />
-                    </TooltipTrigger>
-                    <TooltipContent>
-                        <p>Removes comments and extra whitespace. <br />May be slow or break complex code.</p>
-                    </TooltipContent>
-                 </Tooltip>
-            </TooltipProvider>
-          </div>
-          <Button
-            onClick={copySelectedFilesToClipboard}
-            disabled={selectedFiles.length === 0 || tokenizerLoading}
-            size="sm"
-          >
-            <Copy className="mr-2 h-4 w-4" />
-            {copySuccess ? 'Copied!' : 'Copy Selected'}
-          </Button>
       </div>
-    </Card>
+
+      <div className="flex flex-wrap gap-2 mb-4">
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="outline" size="sm" className="h-8">
+              <ChevronsUpDown className="mr-2 h-3.5 w-3.5" />
+              <span>Tree</span>
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start">
+            <DropdownMenuItem onClick={expandAll}>
+              <ChevronDownSquare className="mr-2 h-4 w-4" />
+              <span>Expand All</span>
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={collapseAll}>
+              <ChevronUpSquare className="mr-2 h-4 w-4" />
+              <span>Collapse All</span>
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="outline" size="sm" className="h-8">
+              <FileSearch className="mr-2 h-3.5 w-3.5" />
+              <span>Selection</span>
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start">
+            <DropdownMenuItem onClick={selectAll}>
+              Select All Files ({files.length})
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={deselectAll}>
+              Deselect All ({selectedFiles.length})
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={selectVisibleFiles}>
+              Select Visible Files
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={deselectVisibleFiles}>
+              Deselect Visible Files
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button 
+                variant="outline" 
+                size="sm" 
+                className="h-8" 
+                onClick={handleAiSuggest}
+                disabled={isAiLoading}
+              >
+                {isAiLoading ? (
+                  <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Brain className="mr-2 h-3.5 w-3.5" />
+                )}
+                <span>AI Suggest</span>
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>
+              <p>Use AI to suggest important files for LLM context</p>
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button 
+                variant="default"
+                size="sm" 
+                className="h-8 ml-auto" 
+                onClick={copySelectedFilesToClipboard}
+                disabled={selectedFiles.length === 0}
+              >
+                {copySuccess ? (
+                  <Check className="mr-2 h-3.5 w-3.5" />
+                ) : (
+                  <Copy className="mr-2 h-3.5 w-3.5" />
+                )}
+                <span>{copySuccess ? 'Copied!' : 'Copy Selected'}</span>
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>
+              <p>Copy selected files ({selectedFiles.length}) to clipboard</p>
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+      </div>
+
+      {aiError && (
+        <div className="text-destructive text-sm mb-4 p-2 bg-destructive/10 rounded-md">
+          Error: {aiError}
+        </div>
+      )}
+
+      <div className="border rounded-lg p-2 max-h-[500px] overflow-y-auto custom-scrollbar">
+        {searchTerm && filteredNodes.size === 0 ? (
+          <div className="text-center py-8 text-muted-foreground">
+            <FileSearch className="h-10 w-10 mx-auto mb-2 opacity-40" />
+            <p>No files match your search "{searchTerm}"</p>
+          </div>
+        ) : (
+          treeNodesToRender.length > 0 ? treeNodesToRender : (
+            <div className="text-center py-8 text-muted-foreground">Loading tree...</div>
+          )
+        )}
+      </div>
+
+      <div className="flex items-center justify-between mt-2">
+        <div className="flex items-center">
+          <Checkbox
+            id="minify-code"
+            checked={minifyOnCopy}
+            onCheckedChange={(checked) => {
+              if (checked !== "indeterminate") {
+                setMinifyOnCopy(checked);
+              }
+            }}
+            className="h-4 w-4 mr-2"
+          />
+          <label
+            htmlFor="minify-code"
+            className="text-sm cursor-pointer text-muted-foreground"
+          >
+            Minify code on copy
+          </label>
+        </div>
+        <div className="text-xs text-muted-foreground">
+          {selectedFiles.length} files selected ({isCalculatingTokens ? 
+            <span className="text-muted-foreground inline-flex items-center">
+              <Loader2 className="animate-spin h-3 w-3 mr-1" /> Calculating...
+            </span> : 
+            <span>~{maxTokens.toLocaleString()} tokens</span>
+          })
+        </div>
+      </div>
+    </div>
   );
 };
 
