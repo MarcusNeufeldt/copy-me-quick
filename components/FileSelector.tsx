@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
-import { Folder, File, ChevronRight, ChevronDown, Info, Copy, ChevronDownSquare, ChevronUpSquare, Brain, Check, ChevronsUpDown } from 'lucide-react';
+import { Folder, File, ChevronRight, ChevronDown, Info, Copy, ChevronDownSquare, ChevronUpSquare, Brain, Check, ChevronsUpDown, Loader2 } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -20,19 +20,6 @@ interface TreeNode {
   lines?: number;
   content?: string;
 }
-
-const estimateTokens = async (content: string): Promise<number> => {
-  // Simple estimation: count words and add 20% for special tokens
-  const wordCount = content.split(/\s+/).length;
-  const estimatedTokens = Math.ceil(wordCount * 1.2);
-  return estimatedTokens;
-};
-
-// Synchronous version for immediate UI feedback
-const estimateTokensSync = (content: string): number => {
-  const wordCount = content.split(/\s+/).length;
-  return Math.ceil(wordCount * 1.2);
-};
 
 const FileTreeNode: React.FC<{
   node: TreeNode;
@@ -160,6 +147,9 @@ const FileSelector = ({ files, selectedFiles, setSelectedFiles, maxTokens, onTok
   const [copySuccess, setCopySuccess] = useState(false);
   const [isCalculatingTokens, setIsCalculatingTokens] = useState(false);
   const [minifyOnCopy, setMinifyOnCopy] = useState(true);
+  const [tokenizerLoading, setTokenizerLoading] = useState(false);
+  const [isAiLoading, setIsAiLoading] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
 
   // Calculate average lines for selected non-folder files
   const averageSelectedLines = useMemo(() => {
@@ -170,40 +160,53 @@ const FileSelector = ({ files, selectedFiles, setSelectedFiles, maxTokens, onTok
     return total / selectedFilesData.length;
   }, [files, selectedFiles]);
 
+  // Replace tiktoken initialization with simpler approach
+  useEffect(() => {
+    // No need to initialize tiktoken
+    setTokenizerLoading(false);
+  }, []);
+
   useEffect(() => {
     const tree = buildFileTree(files);
     setFileTree(tree);
   }, [files]);
 
+  // Simplified token estimation function that doesn't rely on tiktoken
   useEffect(() => {
     let isMounted = true;
+    setIsCalculatingTokens(true);
 
-    const estimateTokenCount = async (): Promise<void> => {
-      setIsCalculatingTokens(true);
+    // Simple timeout to not block the UI
+    const calculationTimeout = setTimeout(() => {
       try {
-        const counts = await Promise.all(
-          selectedFiles.map(async (path) => {
-            const file = files.find(f => f.path === path);
-            if (!file) return 0;
-            return await estimateTokens(file.content);
-          })
-        );
+        let currentTokenCount = 0;
+        selectedFiles.forEach(path => {
+          const file = files.find(f => f.path === path);
+          if (file && file.content) {
+            // Simple estimation: roughly 4 chars per token for code
+            currentTokenCount += Math.ceil(file.content.length / 4);
+          }
+        });
+
         if (isMounted) {
-          const newTokenCount = counts.reduce((sum, count) => sum + count, 0);
-          onTokenCountChange(newTokenCount);
+          onTokenCountChange(currentTokenCount);
         }
       } catch (error) {
         console.error("Error calculating tokens:", error);
+        if (isMounted) {
+          onTokenCountChange(0);
+        }
       } finally {
         if (isMounted) {
           setIsCalculatingTokens(false);
         }
       }
-    };
+    }, 0);
 
-    estimateTokenCount();
     return () => {
       isMounted = false;
+      clearTimeout(calculationTimeout);
+      setIsCalculatingTokens(false);
     };
   }, [selectedFiles, files, onTokenCountChange]);
 
@@ -270,7 +273,7 @@ const FileSelector = ({ files, selectedFiles, setSelectedFiles, maxTokens, onTok
     }
 
     setSelectedFiles(newSelection);
-  }, [fileTree, selectedFiles]);
+  }, [fileTree, selectedFiles, setSelectedFiles]);
 
   const findNode = (tree: { [key: string]: TreeNode }, targetPath: string): TreeNode | null => {
     for (const node of Object.values(tree)) {
@@ -313,78 +316,60 @@ const FileSelector = ({ files, selectedFiles, setSelectedFiles, maxTokens, onTok
     return buildString(tree);
   };
 
+  const handleAiSuggest = async () => {
+    if (!fileTree || isAiLoading || tokenizerLoading) return;
+
+    setIsAiLoading(true);
+    setAiError(null);
+
+    try {
+      const projectTreeString = generateProjectTreeString(fileTree);
+      
+      const response = await fetch('/api/ai-smart-select', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ projectTree: projectTreeString }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || `API request failed with status ${response.status}`);
+      }
+
+      const data = await response.json();
+      const suggestedPaths: string[] = data.selectedFiles || [];
+
+      // Filter suggested paths to only include files that actually exist in the input `files` array
+      const validPaths = suggestedPaths.filter(aiPath => 
+        files.some(file => file.path === aiPath)
+      );
+      
+      console.log("AI Suggested Valid Paths:", validPaths);
+      setSelectedFiles(validPaths); // Update selection with valid paths from AI
+
+    } catch (error) {
+      console.error("AI Suggestion failed:", error);
+      setAiError(error instanceof Error ? error.message : "An unknown error occurred during AI suggestion.");
+    } finally {
+      setIsAiLoading(false);
+    }
+  };
+
   const minifyCode = (code: string): string => {
     return code
       // Remove all comments (single-line, multi-line, and JSDoc)
       .replace(/\/\*[\s\S]*?\*\/|\/\/.*/g, '')
-      // Remove console.log statements
-      .replace(/console\.(log|debug|info|warn|error|trace)\s*\([^)]*\);?/g, '')
       // Remove empty lines and normalize whitespace
       .split('\n')
       .map(line => line.trim())
       .filter(line => line.length > 0)
-      // Combine imports
-      .map(line => {
-        if (line.startsWith('import {')) {
-          // Combine multi-line imports into single line
-          return line.replace(/\s*,\s*/g, ',').replace(/\s*}\s*from/, '}from');
-        }
-        if (line.startsWith('import ')) {
-          // Remove spaces around braces in imports
-          return line.replace(/\s*{\s*/g, '{').replace(/\s*}\s*/g, '}');
-        }
-        return line;
-      })
-      // Remove unnecessary whitespace
-      .map(line => {
-        return line
-          // Remove spaces around operators
-          .replace(/\s*([=+\-*/<>!&|,;:?])\s*/g, '$1')
-          // Keep one space after keywords
-          .replace(/\b(if|for|while|switch|catch|return|function|class|const|let|var)\b\s*/g, '$1 ')
-          // Remove spaces inside parentheses
-          .replace(/\(\s+/g, '(').replace(/\s+\)/g, ')')
-          // Remove spaces inside brackets
-          .replace(/\[\s+/g, '[').replace(/\s+\]/g, ']')
-          // Remove spaces inside braces (except in object literals)
-          .replace(/{\s+(?=[^:]*})/g, '{').replace(/\s+}/g, '}')
-          // Preserve space after commas in lists
-          .replace(/,(\S)/g, ', $1')
-          // Remove extra semicolons
-          .replace(/;;+/g, ';')
-          // Remove trailing semicolon at end of block
-          .replace(/;}/g, '}')
-          // Remove newlines after opening braces and before closing braces
-          .replace(/{\n/g, '{')
-          .replace(/\n}/g, '}')
-          // Remove newlines after semicolons
-          .replace(/;\n/g, ';')
-          // Remove newlines around operators
-          .replace(/\n*([=+\-*/<>!&|])\n*/g, '$1')
-          // Remove multiple consecutive newlines
-          .replace(/\n{2,}/g, '\n')
-          // Remove redundant parentheses in simple conditions
-          .replace(/if\s*\(\(([^()]*)\)\)/g, 'if($1)')
-          // Remove unnecessary template literals
-          .replace(/`([^${}]*)`/g, (_, content) => {
-            // Only convert to string if it doesn't contain expressions
-            return `'${content}'`;
-          })
-          // Shorten boolean expressions
-          .replace(/===\s*true\b/g, '')
-          .replace(/===\s*false\b/g, '===false')
-          .replace(/!==\s*true\b/g, '===false')
-          .replace(/!==\s*false\b/g, '')
-          // Remove unnecessary 'return' in arrow functions
-          .replace(/=>\s*{\s*return\s+([^;{}]*)\s*;\s*}/g, '=>$1')
-          // Remove unnecessary 'void' in async arrow functions
-          .replace(/async\s*\(\)\s*=>\s*void/g, 'async()=>')
-          // Remove type annotations in JavaScript files
-          .replace(/:\s*(string|number|boolean|any|void|never)\b\s*/g, '')
-          // Trim the final result
-          .trim()
-      })
-      .join('\n'); // Join the array back into a string
+      // Remove multiple consecutive newlines (after joining)
+      .join('\n')
+      .replace(/\n{2,}/g, '\n')
+      // Trim the final result
+      .trim();
   };
 
   const copySelectedFilesToClipboard = () => {
@@ -508,145 +493,170 @@ const FileSelector = ({ files, selectedFiles, setSelectedFiles, maxTokens, onTok
     });
   }, [searchTerm, files]);
 
-  return (
-    <Card className="w-full">
-      <CardHeader className="pb-3">
-        <div className="flex items-center justify-between">
-          <CardTitle className="text-base font-medium">Project Files</CardTitle>
-          <div className="flex items-center gap-2">
-            {/* Tree Control Group */}
-            <div className="flex items-center gap-1">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={expandAll}
-                className="flex items-center space-x-1"
-              >
-                <ChevronDownSquare className="h-4 w-4" />
-                <span>Expand All</span>
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={collapseAll}
-                className="flex items-center space-x-1"
-              >
-                <ChevronUpSquare className="h-4 w-4" />
-                <span>Collapse All</span>
-              </Button>
-            </div>
+  if (!fileTree) {
+    return <div>Loading file tree...</div>;
+  }
 
-            {/* Selection Group */}
+  return (
+    <Card className="flex-1 flex flex-col h-full overflow-hidden">
+      <CardHeader className="py-3 px-4 border-b">
+        <div className="flex justify-between items-center">
+          <CardTitle className="text-lg font-semibold">Select Files</CardTitle>
+          <div className="flex items-center space-x-1">
+            {tokenizerLoading && (
+              <TooltipProvider>
+                <Tooltip delayDuration={100}>
+                  <TooltipTrigger>
+                    <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p>Loading Tokenizer...</p>
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            )}
+             {isCalculatingTokens && !tokenizerLoading && (
+              <TooltipProvider>
+                <Tooltip delayDuration={100}>
+                  <TooltipTrigger>
+                    <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p>Calculating Tokens...</p>
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            )}
+            <TooltipProvider>
+              <Tooltip delayDuration={100}>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7"
+                    onClick={handleAiSuggest}
+                    disabled={isAiLoading || tokenizerLoading || Object.keys(fileTree).length === 0}
+                  >
+                    {isAiLoading ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Brain className="h-4 w-4" />
+                    )}
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>AI Suggest Files (Experimental)</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+            <TooltipProvider>
+                 <Tooltip delayDuration={100}>
+                    <TooltipTrigger asChild>
+                        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={expandAll}>
+                            <ChevronDownSquare className="h-4 w-4" />
+                        </Button>
+                    </TooltipTrigger>
+                    <TooltipContent><p>Expand All</p></TooltipContent>
+                 </Tooltip>
+            </TooltipProvider>
+             <TooltipProvider>
+                 <Tooltip delayDuration={100}>
+                    <TooltipTrigger asChild>
+                        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={collapseAll}>
+                            <ChevronUpSquare className="h-4 w-4" />
+                        </Button>
+                    </TooltipTrigger>
+                    <TooltipContent><p>Collapse All</p></TooltipContent>
+                 </Tooltip>
+            </TooltipProvider>
+
             <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="outline" size="sm" className="flex items-center space-x-1">
-                  <ChevronsUpDown className="h-4 w-4" />
-                  <span>Selection</span>
-                </Button>
-              </DropdownMenuTrigger>
+              <TooltipProvider>
+                  <Tooltip delayDuration={100}>
+                    <TooltipTrigger asChild>
+                      <DropdownMenuTrigger asChild>
+                         <Button variant="ghost" size="icon" className="h-7 w-7">
+                            <ChevronsUpDown className="h-4 w-4" />
+                         </Button>
+                      </DropdownMenuTrigger>
+                    </TooltipTrigger>
+                    <TooltipContent><p>Selection Options</p></TooltipContent>
+                  </Tooltip>
+              </TooltipProvider>
               <DropdownMenuContent align="end">
                 <DropdownMenuItem onClick={selectAll}>
-                  <Checkbox className="h-4 w-4 mr-2" checked={true} />
-                  Select All
+                  <Check className="mr-2 h-4 w-4" />
+                  <span>Select All</span>
                 </DropdownMenuItem>
-                <DropdownMenuItem onClick={deselectAll}>
-                  <Checkbox className="h-4 w-4 mr-2" checked={false} />
-                  Deselect All
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={selectAllVisible}>
-                  <Checkbox className="h-4 w-4 mr-2" />
-                  Select All Visible
+                 <DropdownMenuItem onClick={deselectAll}>
+                  <span className="mr-2 h-4 w-4"></span>
+                  <span>Deselect All</span>
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
-
-            {/* Copy Group */}
-            <div className="flex items-center gap-1">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setMinifyOnCopy(!minifyOnCopy)}
-                className={`flex items-center space-x-1 ${minifyOnCopy ? 'bg-blue-50 border-blue-200 dark:bg-blue-900/20' : ''}`}
-              >
-                <Brain className="h-4 w-4" />
-                <span>Minify</span>
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={copySelectedFilesToClipboard}
-                className={`flex items-center space-x-1 ${copySuccess ? 'bg-green-50 border-green-200 dark:bg-green-900/20' : ''}`}
-                disabled={selectedFiles.length === 0}
-              >
-                {copySuccess ? (
-                  <Check className="h-4 w-4 text-green-500" />
-                ) : (
-                  <Copy className="h-4 w-4" />
-                )}
-                <span className={copySuccess ? 'text-green-600 dark:text-green-400' : ''}>
-                  {copySuccess ? 'Copied!' : 'Copy'}
-                </span>
-              </Button>
-            </div>
           </div>
         </div>
-        <div className="flex items-center space-x-4 mt-4">
-          <div className="flex-1">
-            <input
-              type="text"
-              placeholder="Search files..."
-              className="w-full px-3 py-2 border rounded-md text-sm"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-            />
+        {aiError && (
+          <div className="text-red-600 text-xs mt-1 p-1 bg-red-50 rounded border border-red-200">
+            AI Suggest Error: {aiError}
           </div>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={selectAllVisible}
-            disabled={isCalculatingTokens}
-          >
-            Select All Visible
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={clearSelection}
-          >
-            Clear Selection
-          </Button>
-        </div>
+        )}
       </CardHeader>
-      <CardContent>
-        <div className="overflow-auto max-h-[600px] -mx-6 px-6">
-          {fileTree && Object.keys(fileTree).length > 0 ? (
-            Object.values(fileTree)
-              .sort((a, b) => {
-                // Folders first, then files
-                const aIsFolder = a.type === 'directory';
-                const bIsFolder = b.type === 'directory';
-                if (aIsFolder && !bIsFolder) return -1;
-                if (!aIsFolder && bIsFolder) return 1;
-                return a.name.localeCompare(b.name);
-              })
-              .map((node) => (
-                <FileTreeNode
-                  key={node.path}
-                  node={node}
-                  selectedFiles={selectedFiles}
-                  onToggle={handleToggle}
-                  expandedNodes={expandedNodes}
-                  toggleExpand={toggleExpand}
-                  averageLines={averageSelectedLines}
-                />
-              ))
-          ) : (
-            <div className="text-center py-4 text-gray-500">
-              No files are loaded.
-            </div>
-          )}
-        </div>
+      <CardContent className="p-2 flex-1 overflow-y-auto">
+        {Object.values(fileTree).length > 0 ? (
+          Object.values(fileTree)
+            .sort((a, b) => {
+               const aIsFolder = a.type === 'directory';
+               const bIsFolder = b.type === 'directory';
+               if (aIsFolder && !bIsFolder) return -1;
+               if (!aIsFolder && bIsFolder) return 1;
+               return a.name.localeCompare(b.name);
+             })
+            .map(node => (
+              <FileTreeNode
+                key={node.path}
+                node={node}
+                selectedFiles={selectedFiles}
+                onToggle={handleToggle}
+                expandedNodes={expandedNodes}
+                toggleExpand={toggleExpand}
+                averageLines={averageSelectedLines}
+              />
+            ))
+        ) : (
+          <div className="text-center text-gray-500 mt-4">No files or folders found.</div>
+        )}
       </CardContent>
+      <div className="p-3 border-t flex items-center justify-between space-x-2">
+          <div className="flex items-center space-x-2">
+            <Checkbox
+                id="minify"
+                checked={minifyOnCopy}
+                onCheckedChange={(checked) => setMinifyOnCopy(checked as boolean)}
+            />
+            <label htmlFor="minify" className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
+                Minify on Copy
+            </label>
+             <TooltipProvider>
+                 <Tooltip delayDuration={100}>
+                    <TooltipTrigger className="cursor-help">
+                        <Info className="h-4 w-4 text-muted-foreground" />
+                    </TooltipTrigger>
+                    <TooltipContent>
+                        <p>Removes comments and extra whitespace. <br />May be slow or break complex code.</p>
+                    </TooltipContent>
+                 </Tooltip>
+            </TooltipProvider>
+          </div>
+          <Button
+            onClick={copySelectedFilesToClipboard}
+            disabled={selectedFiles.length === 0 || tokenizerLoading}
+            size="sm"
+          >
+            <Copy className="mr-2 h-4 w-4" />
+            {copySuccess ? 'Copied!' : 'Copy Selected'}
+          </Button>
+      </div>
     </Card>
   );
 };

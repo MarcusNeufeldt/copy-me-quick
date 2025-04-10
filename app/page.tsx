@@ -7,7 +7,15 @@ import FileUploadSection from '@/components/FileUploadSection';
 import BackupManagement from '@/components/BackupManagement';
 import AnalysisResult from '@/components/AnalysisResult';
 import { AppState, Project } from '@/components/types';
-import { Analytics } from "@vercel/analytics/react"
+import dynamic from 'next/dynamic';
+import { Button } from "@/components/ui/button";
+import { RotateCcw } from 'lucide-react';
+
+// Dynamically import Analytics with error handling
+const AnalyticsComponent = dynamic(
+  () => import('@vercel/analytics/react').then((mod) => mod.Analytics).catch(() => () => null),
+  { ssr: false, loading: () => null }
+);
 
 const MAX_TOKENS = 4096;
 
@@ -44,84 +52,131 @@ const defaultProjectTypes = [
   { value: "dotnet", label: ".NET", excludeFolders: [...baseExclusions, 'packages', 'TestResults'], fileTypes: ['.cs', '.cshtml', '.csproj', '.sln', '.json', '.md'] },
 ];
 
-export default function CodebaseReader() {
-  const [projects, setProjects] = useState<Project[]>(() => {
-    if (typeof window !== 'undefined') {
-      const savedProjects = localStorage.getItem('codebaseReaderProjects');
-      return savedProjects ? JSON.parse(savedProjects) : [];
-    }
-    return [];
-  });
+// Default initial state, safe for server rendering
+const initialAppState: AppState = {
+  analysisResult: null,
+  selectedFiles: [],
+  excludeFolders: 'node_modules,.git,dist,.next',
+  fileTypes: '.js,.jsx,.ts,.tsx,.py',
+  backups: [],
+};
 
-  const [currentProjectId, setCurrentProjectId] = useState<string | null>(() => {
-    if (typeof window !== 'undefined') {
-      return localStorage.getItem('currentProjectId');
-    }
-    return null;
-  });
-
-  const [state, setState] = useState<AppState>(() => {
-    if (currentProjectId) {
-      const currentProject = projects.find(p => p.id === currentProjectId);
-      if (currentProject) {
-        return currentProject.state;
-      }
-    }
-    return {
-      analysisResult: null,
-      selectedFiles: [],
-      excludeFolders: 'node_modules,.git,dist,.next',
-      fileTypes: '.js,.jsx,.ts,.tsx,.py',
-      backups: [],
-    };
-  });
-
-  const [projectTypes, setProjectTypes] = useState(() => {
-    if (typeof window !== 'undefined') {
-      const savedTemplates = localStorage.getItem('projectTemplates');
-      return savedTemplates ? JSON.parse(savedTemplates) : defaultProjectTypes;
-    }
-    return defaultProjectTypes;
-  });
+export default function ClientPageRoot() {
+  // Initialize state with server-safe defaults
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [currentProjectId, setCurrentProjectId] = useState<string | null>(null);
+  const [state, setState] = useState<AppState>(initialAppState);
+  const [projectTypes, setProjectTypes] = useState(() => defaultProjectTypes); // Keep default types initially
+  const [isMounted, setIsMounted] = useState(false); // Track client-side mount
 
   const [error, setError] = useState<string | null>(null);
   const [tokenCount, setTokenCount] = useState(0);
   const [projectTypeSelected, setProjectTypeSelected] = useState(false);
 
+  // Load state from localStorage only on the client after mount
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('codebaseReaderProjects', JSON.stringify(projects));
-      localStorage.setItem('currentProjectId', currentProjectId || '');
-      localStorage.setItem('projectTemplates', JSON.stringify(projectTypes));
+    setIsMounted(true); // Mark as mounted
+
+    const savedProjectsStr = localStorage.getItem('codebaseReaderProjects');
+    const loadedProjects = savedProjectsStr ? JSON.parse(savedProjectsStr) : [];
+    setProjects(loadedProjects);
+
+    const savedProjectId = localStorage.getItem('currentProjectId'); // Corrected typo
+    setCurrentProjectId(savedProjectId);
+
+    const savedTemplatesStr = localStorage.getItem('projectTemplates'); // Corrected typo
+    if (savedTemplatesStr) {
+      setProjectTypes(JSON.parse(savedTemplatesStr));
     }
-  }, [projects, currentProjectId, projectTypes]);
+
+    // Load the state for the current project
+    if (savedProjectId) {
+      const currentProject = loadedProjects.find((p: Project) => p.id === savedProjectId);
+      if (currentProject) {
+        // Ensure backups is always an array when loading state
+        const loadedState = currentProject.state;
+        if (!Array.isArray(loadedState.backups)) {
+          console.warn("Loaded state backups is not an array, resetting to empty array.");
+          loadedState.backups = [];
+        }
+        setState(loadedState);
+      } else {
+         setState(initialAppState); // Reset if project not found
+      }
+    } else {
+      setState(initialAppState); // Reset if no project ID
+    }
+
+  }, []); // Empty dependency array ensures this runs only once on mount
+
+  // Persist state changes to localStorage
+  useEffect(() => {
+    // Only run persistence logic after initial mount/load is complete
+    if (!isMounted) return;
+
+    localStorage.setItem('codebaseReaderProjects', JSON.stringify(projects));
+    localStorage.setItem('currentProjectId', currentProjectId || '');
+    localStorage.setItem('projectTemplates', JSON.stringify(projectTypes));
+
+    // Also update the current project's state within the projects array for persistence
+    if (currentProjectId) {
+        const updatedProjects = projects.map(p =>
+            p.id === currentProjectId ? { ...p, state: state } : p
+        );
+        // Avoid infinite loop by checking if the state actually changed
+        if (JSON.stringify(updatedProjects) !== JSON.stringify(projects)) {
+            setProjects(updatedProjects); // Update the projects state itself
+        }
+    }
+
+  }, [state, projects, currentProjectId, projectTypes, isMounted]); // Re-run whenever relevant state changes *after* mount
+
 
   const updateCurrentProject = (newState: AppState) => {
-    setProjects(prevProjects =>
-      prevProjects.map(project =>
-        project.id === currentProjectId
-          ? { ...project, state: newState }
-          : project
-      )
-    );
+    // This function now primarily updates the 'state' object.
+    // The persistence useEffect will handle updating the 'projects' array in localStorage.
+    setState(newState);
   };
 
   const handleUploadComplete = (newState: AppState) => {
     console.log('Upload complete.');
     setState(newState);
-    updateCurrentProject(newState);
+    // updateCurrentProject(newState); // No longer needed here, persistence useEffect handles it
   };
 
   const handleProjectTemplateUpdate = (updatedTemplates: typeof projectTypes) => {
     setProjectTypes(updatedTemplates);
   };
 
+  // Handler function for the new Reset button
+  const handleResetWorkspace = () => {
+    if (confirm('Are you sure you want to clear the current workspace? This will reset the current view but not delete backups or saved project types.')) {
+      setState(initialAppState);
+      setCurrentProjectId(null); // Clear the current project ID
+      setProjectTypeSelected(false); // Reset project type selection
+      setTokenCount(0); // Reset token count
+      setError(null); // Clear errors
+      // The persistence useEffect will automatically handle saving the cleared currentProjectId
+      // and the reset state for the (now non-current) project in the projects array.
+      console.log('Workspace cleared.');
+    }
+  };
+
+  // Prevent rendering potentially mismatched UI before mount
+  if (!isMounted) {
+    // Optionally return a loading spinner or null
+    return null;
+    // Or return the basic structure with default values if preferred,
+    // but ensure it matches the server render exactly.
+    // Returning null is often safer during the hydration phase.
+  }
+
   return (
     <div className="container mx-auto p-4">
       <h1 className="text-3xl font-bold mb-6 text-center text-gray-800">Copy Me Quick</h1>
 
       <Card className="mb-6">
-        <CardContent className="pt-6">
+        <CardContent className="pt-6 space-y-4">
           <ProjectSelector
             setState={setState}
             onProjectTypeSelected={setProjectTypeSelected}
@@ -141,6 +196,15 @@ export default function CodebaseReader() {
             setState={setState}
             updateCurrentProject={updateCurrentProject}
           />
+          <Button
+            variant="outline"
+            onClick={handleResetWorkspace}
+            className="w-full"
+            disabled={!state.analysisResult && !currentProjectId}
+          >
+            <RotateCcw className="mr-2 h-4 w-4" />
+            Clear Current Workspace
+          </Button>
         </CardContent>
       </Card>
 
@@ -150,17 +214,18 @@ export default function CodebaseReader() {
         </Alert>
       )}
 
+      {/* Conditionally render AnalysisResult only when data is ready */}
       {state.analysisResult && (
         <AnalysisResult
           state={state}
-          setState={setState}
-          updateCurrentProject={updateCurrentProject}
+          setState={setState} // Pass setState
+          updateCurrentProject={updateCurrentProject} // Keep if needed
           tokenCount={tokenCount}
           setTokenCount={setTokenCount}
           maxTokens={MAX_TOKENS}
         />
       )}
-    <Analytics />
+      <AnalyticsComponent />
     </div>
   );
 }

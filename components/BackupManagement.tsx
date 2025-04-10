@@ -152,7 +152,7 @@ const BackupManagement: React.FC<BackupManagementProps> = ({
             </Button>
             <Separator />
             <div className="space-y-4">
-              {state.backups.map(backup => (
+              {(Array.isArray(state.backups) ? state.backups : []).map(backup => (
                 <div key={backup.id} className="flex flex-col space-y-2 p-4 border rounded-lg">
                   <div className="font-semibold">{backup.description}</div>
                   <div className="text-sm text-gray-500">{new Date(backup.timestamp).toLocaleString()}</div>

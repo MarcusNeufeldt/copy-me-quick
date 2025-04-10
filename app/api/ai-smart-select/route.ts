@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import fs from 'fs/promises';
 import path from 'path';
 
-const OPENROUTER_API_KEY = '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';
+const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
 
 async function logToFile(message: string) {
   const logDir = path.join(process.cwd(), 'logs');
@@ -17,6 +17,19 @@ async function logToFile(message: string) {
 }
 
 export async function POST(request: NextRequest) {
+  // Check if the API key is configured
+  if (!OPENROUTER_API_KEY) {
+    const errorMessage = "FATAL: OPENROUTER_API_KEY environment variable is not set. AI Smart Select cannot function.";
+    console.error(errorMessage);
+    // Attempt to log to file, but handle potential errors if logging fails early
+    try {
+      await logToFile(errorMessage);
+    } catch (logError) {
+      console.error('Failed to write API key error to log file:', logError);
+    }
+    return NextResponse.json({ error: 'Server configuration error: Missing API key.' }, { status: 500 });
+  }
+
   try {
     const { projectTree } = await request.json();
 

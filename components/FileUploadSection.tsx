@@ -48,6 +48,7 @@ const FileUploadSection: React.FC<FileUploadSectionProps> = ({
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [showInfoBox, setShowInfoBox] = useState(true);
   const [rememberPreference, setRememberPreference] = useState(false);
+  const [processingStatus, setProcessingStatus] = useState<string | null>(null);
 
   useEffect(() => {
     const savedPreference = localStorage.getItem('showUploadInfoBox');
@@ -62,6 +63,7 @@ const FileUploadSection: React.FC<FileUploadSectionProps> = ({
     setProgress(0);
     setUploadStats({ total: 0, valid: 0 });
     setIsProcessing(true);
+    setProcessingStatus("Initializing...");
 
     const excludedFolders = state.excludeFolders.split(',').map(f => f.trim());
     const allowedFileTypes = state.fileTypes.split(',').map(t => t.trim());
@@ -77,13 +79,16 @@ const FileUploadSection: React.FC<FileUploadSectionProps> = ({
       setUploadStats(prev => ({ ...prev, total: prev.total + 1 }));
 
       if (excludedFolders.some(folder => relativePath.includes(folder))) {
+        setProcessingStatus(`Skipping excluded: ${relativePath}`);
         continue;
       }
 
       if (!allowedFileTypes.some(type => relativePath.endsWith(type))) {
+        setProcessingStatus(`Skipping type: ${relativePath}`);
         continue;
       }
 
+      setProcessingStatus(`Reading: ${relativePath}`);
       const content = await file.text();
       const lines = content.split('\n').length;
 
@@ -103,10 +108,16 @@ const FileUploadSection: React.FC<FileUploadSectionProps> = ({
     if (fileContents.length === 0) {
       setError(`No valid files found. Processed ${uploadStats.total} files, but none matched the allowed types.`);
       setIsProcessing(false);
+      setProcessingStatus(null);
       return;
     }
 
+    setProcessingStatus("Generating project tree...");
+    await new Promise(resolve => setTimeout(resolve, 10));
     const projectTree = generateProjectTree(fileContents);
+
+    setProcessingStatus("Finalizing...");
+    await new Promise(resolve => setTimeout(resolve, 10));
 
     const newState: AppState = {
       ...state,
@@ -125,6 +136,7 @@ const FileUploadSection: React.FC<FileUploadSectionProps> = ({
     updateCurrentProject(newState);
     onUploadComplete(newState);
     setIsProcessing(false);
+    setProcessingStatus(null);
   }, [state, setState, updateCurrentProject, onUploadComplete, setError, setUploadStats]);
 
   const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -316,7 +328,7 @@ const FileUploadSection: React.FC<FileUploadSectionProps> = ({
           <Alert>
             <Loader className="mr-2 h-4 w-4 animate-spin" />
             <AlertDescription>
-              Processing files... This may take a moment.
+              {processingStatus || "Processing files..."}
             </AlertDescription>
           </Alert>
         )}
