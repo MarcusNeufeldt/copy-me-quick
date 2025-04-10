@@ -414,7 +414,7 @@ const FileSelector = ({ files, selectedFiles, setSelectedFiles, maxTokens, onTok
         setSelectedFiles(prev => prev.filter(p => !descendantFiles.includes(p)));
       }
     }
-  }, [fileTree, setSelectedFiles]); // Added dependencies
+  }, [fileTree, setSelectedFiles, getDescendantFiles]);
 
   // Find a node in the file tree by path
   const findNode = (tree: { [key: string]: TreeNode }, targetPath: string): TreeNode | null => {
@@ -849,7 +849,7 @@ const FileSelector = ({ files, selectedFiles, setSelectedFiles, maxTokens, onTok
         {searchTerm && filteredNodes.size === 0 ? (
           <div className="text-center py-8 text-muted-foreground">
             <FileSearch className="h-10 w-10 mx-auto mb-2 opacity-40" />
-            <p>No files match your search "{searchTerm}"</p>
+            <p>No files match your search &quot;{searchTerm}&quot;</p>
           </div>
         ) : (
           treeNodesToRender.length > 0 ? treeNodesToRender : (

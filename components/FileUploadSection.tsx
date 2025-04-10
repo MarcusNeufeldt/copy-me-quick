@@ -352,7 +352,7 @@ const FileUploadSection: React.FC<FileUploadSectionProps> = ({
                 }}
               />
               <Label htmlFor="remember" className="text-sm font-normal">
-                Don't show this message again
+                Don&apos;t show this message again
               </Label>
             </div>
           </div>
