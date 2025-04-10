@@ -69,7 +69,7 @@ Example response format:
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      model: 'openai/o1-mini-2024-09-12',
+      model: 'x-ai/grok-3-mini-beta',
       messages: [
         { role: 'user', content: prompt }
       ]

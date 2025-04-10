@@ -18,7 +18,7 @@ const AnalyticsComponent = dynamic(
   { ssr: false, loading: () => null }
 );
 
-const MAX_TOKENS = 4096;
+const MAX_TOKENS = 1048576;
 
 const baseExclusions = [
   '.git',

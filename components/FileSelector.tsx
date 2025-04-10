@@ -468,24 +468,61 @@ const FileSelector = ({ files, selectedFiles, setSelectedFiles, maxTokens, onTok
     try {
       // Generate a text representation of the project tree
       const treeString = generateProjectTreeString(fileTree);
+      const requestBody = { projectTree: treeString };
+
+      // Log the request payload
+      console.log("AI Suggest Request Payload (Tree String):", treeString);
+      console.log("AI Suggest Request Payload (JSON Body):", JSON.stringify(requestBody));
       
       // Call the AI Smart Select API
       const response = await fetch('/api/ai-smart-select', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ projectTree: treeString }),
+        body: JSON.stringify(requestBody),
       });
+
+      // Clone the response to read the raw text without consuming the body
+      const responseClone = response.clone();
+      const rawResponseText = await responseClone.text();
+      console.log("AI Suggest Raw Response:", rawResponseText);
       
       if (!response.ok) {
-        throw new Error(`Error: ${response.statusText}`);
+        throw new Error(`Error: ${response.statusText} - ${rawResponseText}`); // Include raw response in error
       }
       
+      // Parse the JSON from the original response
       const data = await response.json();
       
       if (data.selectedFiles && Array.isArray(data.selectedFiles) && data.selectedFiles.length > 0) {
         // Filter out any suggested files that don't exist in our actual files
         const existingPaths = new Set(files.map(f => f.path));
-        const validSelections = data.selectedFiles.filter((path: string) => existingPaths.has(path));
+        
+        console.log("Existing file paths in frontend state:", existingPaths);
+        console.log("File paths received from AI:", data.selectedFiles);
+
+        // Attempt to determine the root folder prefix from the first file path
+        // Assumes all paths share the same root directory name
+        const firstPath = files[0]?.path;
+        const rootPrefix = firstPath && firstPath.includes('/') ? firstPath.split('/')[0] + '/' : ''; // e.g., "codebase-reader/" or ""
+        console.log("Deduced root prefix:", rootPrefix);
+
+        // --- START REVISED FIX: Path Prefix Adjustment & Mapping ---
+        const validSelections = data.selectedFiles
+          .map((aiPath: string) => {
+            // Create the full path to check against the existing set
+            const fullPathToCheck = rootPrefix + aiPath;
+            // Check if this prefixed path actually exists in the frontend state
+            if (existingPaths.has(fullPathToCheck)) {
+              // If it exists, return the *prefixed* path for the new selection state
+              return fullPathToCheck;
+            }
+            // If it doesn't exist, return null to filter out later
+            return null; 
+          })
+          .filter((path: string | null): path is string => path !== null); // Filter out the nulls, explicit type added
+        // --- END REVISED FIX ---
+
+        console.log("Valid selections after filtering (should have prefix):", validSelections);
         
         if (validSelections.length > 0) {
           setSelectedFiles(validSelections);
