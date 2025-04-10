@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import FileSelector from './FileSelector';
-import { AppState, FileData } from './types';
+import { AppState, FileData, DataSource } from './types';
 import { Copy, File, Folder, FileText, CheckCircle2, BarChart3, FileSymlink, Layers, AlertCircle } from 'lucide-react';
 
 interface AnalysisResultProps {
@@ -16,6 +16,7 @@ interface AnalysisResultProps {
   tokenCount: number;
   setTokenCount: React.Dispatch<React.SetStateAction<number>>;
   maxTokens: number;
+  dataSource?: DataSource;
 }
 
 interface TreeNodeData {
@@ -125,11 +126,33 @@ const AnalysisResult: React.FC<AnalysisResultProps> = ({
   updateCurrentProject,
   tokenCount,
   setTokenCount,
-  maxTokens
+  maxTokens,
+  dataSource
 }) => {
   const [totalSelectedFiles, setTotalSelectedFiles] = useState(0);
   const [totalSelectedLines, setTotalSelectedLines] = useState(0);
   const [copySuccess, setCopySuccess] = useState(false);
+
+  // Create internal dataSource if not provided
+  const effectiveDataSource = useMemo(() => {
+    if (dataSource) {
+      console.log("AnalysisResult: Using provided dataSource:", {
+        type: dataSource.type,
+        hasFiles: !!dataSource.files,
+        hasTree: !!dataSource.tree,
+        treeLength: dataSource.tree?.length || 0,
+        hasRepoInfo: !!dataSource.repoInfo
+      });
+      return dataSource;
+    }
+    
+    // Default to local dataSource using files from analysisResult
+    console.log("AnalysisResult: Creating default local dataSource");
+    return {
+      type: 'local' as const,
+      files: state.analysisResult?.files || []
+    };
+  }, [dataSource, state.analysisResult]);
 
   useEffect(() => {
     if (state.analysisResult) {
@@ -258,7 +281,7 @@ const AnalysisResult: React.FC<AnalysisResultProps> = ({
                   {totalSelectedLines.toLocaleString()}
                 </h3>
                 <span className="ml-2 text-sm text-muted-foreground">
-                  of {state.analysisResult.summary.total_lines.toLocaleString()}
+                  of {state.analysisResult.totalLines.toLocaleString()}
                 </span>
               </div>
             </div>
@@ -328,11 +351,13 @@ const AnalysisResult: React.FC<AnalysisResultProps> = ({
             </CardHeader>
             <CardContent>
               <FileSelector
-                files={state.analysisResult.files}
+                dataSource={effectiveDataSource}
                 selectedFiles={state.selectedFiles}
                 setSelectedFiles={handleSetSelectedFiles}
                 maxTokens={maxTokens}
                 onTokenCountChange={setTokenCount}
+                state={state}
+                setState={setState}
               />
             </CardContent>
           </Card>

@@ -1,5 +1,5 @@
 "use client";
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Card, CardContent } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { ModeToggle } from "@/components/ui/mode-toggle";
@@ -7,10 +7,13 @@ import ProjectSelector from '@/components/ProjectSelector';
 import FileUploadSection from '@/components/FileUploadSection';
 import BackupManagement from '@/components/BackupManagement';
 import AnalysisResult from '@/components/AnalysisResult';
-import { AppState, Project } from '@/components/types';
+import { AppState, Project, FileData, AnalysisResultData } from '@/components/types';
 import dynamic from 'next/dynamic';
 import { Button } from "@/components/ui/button";
-import { GithubIcon, RotateCcw, Code2, GitBranchPlus, LayoutGrid } from 'lucide-react';
+import { GithubIcon, RotateCcw, Code2, GitBranchPlus, LayoutGrid, Github, CheckCircle, XCircle, GitBranch, BookMarked } from 'lucide-react';
+import Image from 'next/image';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import FileSelector from '@/components/FileSelector';
 
 // Dynamically import Analytics with error handling
 const AnalyticsComponent = dynamic(
@@ -62,6 +65,39 @@ const initialAppState: AppState = {
   backups: [],
 };
 
+interface GitHubUser {
+  login: string;
+  avatarUrl?: string;
+  name?: string;
+}
+
+interface GitHubRepo {
+  id: number;
+  name: string;
+  full_name: string;
+  private: boolean;
+  owner: {
+    login: string;
+  };
+  default_branch: string;
+}
+
+interface GitHubBranch {
+  name: string;
+  commit: {
+    sha: string;
+  };
+}
+
+interface GitHubTreeItem {
+  path: string;
+  mode: string; // e.g., "100644"
+  type: 'blob' | 'tree' | 'commit'; // file | folder | submodule
+  sha: string;
+  size?: number; // Only present for blobs
+  url: string;
+}
+
 export default function ClientPageRoot() {
   // Initialize state with server-safe defaults
   const [projects, setProjects] = useState<Project[]>([]);
@@ -73,10 +109,55 @@ export default function ClientPageRoot() {
   const [error, setError] = useState<string | null>(null);
   const [tokenCount, setTokenCount] = useState(0);
   const [projectTypeSelected, setProjectTypeSelected] = useState(false);
+  const [githubUser, setGithubUser] = useState<GitHubUser | null>(null);
+  const [githubError, setGithubError] = useState<string | null>(null);
+  const [isLoadingGithubUser, setIsLoadingGithubUser] = useState(true); // Start loading initially
+
+  // State for GitHub repo/branch selection
+  const [repos, setRepos] = useState<GitHubRepo[]>([]);
+  const [selectedRepoFullName, setSelectedRepoFullName] = useState<string | null>(null);
+  const [isLoadingRepos, setIsLoadingRepos] = useState(false);
+  const [branches, setBranches] = useState<GitHubBranch[]>([]);
+  const [selectedBranchName, setSelectedBranchName] = useState<string | null>(null);
+  const [isLoadingBranches, setIsLoadingBranches] = useState(false);
+  const [githubSelectionError, setGithubSelectionError] = useState<string | null>(null); // Separate error state for selection
+
+  const [isLoadingTree, setIsLoadingTree] = useState(false);
+  const [githubTree, setGithubTree] = useState<GitHubTreeItem[] | null>(null);
+  const [isGithubTreeTruncated, setIsGithubTreeTruncated] = useState(false);
 
   // Load state from localStorage only on the client after mount
   useEffect(() => {
     setIsMounted(true); // Mark as mounted
+
+    // Fetch GitHub user data if token might exist (client-side)
+    const checkGitHubAuth = async () => {
+      setIsLoadingGithubUser(true);
+      setGithubError(null);
+      try {
+        const response = await fetch('/api/auth/github/user');
+        if (response.ok) {
+          const user: GitHubUser = await response.json();
+          setGithubUser(user);
+        } else if (response.status === 401) {
+          // Not authenticated or token invalid
+          setGithubUser(null);
+        } else {
+          // Other API error
+          const errorData = await response.json();
+          setGithubError(errorData.error || 'Failed to check GitHub status');
+          setGithubUser(null);
+        }
+      } catch (err) {
+        console.error("Error checking GitHub auth:", err);
+        setGithubError('Network error checking GitHub status');
+        setGithubUser(null);
+      } finally {
+        setIsLoadingGithubUser(false);
+      }
+    };
+
+    checkGitHubAuth();
 
     const savedProjectsStr = localStorage.getItem('codebaseReaderProjects');
     const loadedProjects = savedProjectsStr ? JSON.parse(savedProjectsStr) : [];
@@ -108,30 +189,168 @@ export default function ClientPageRoot() {
       setState(initialAppState); // Reset if no project ID
     }
 
-  }, []); // Empty dependency array ensures this runs only once on mount
+  }, []); // Initial load effect - dependency array is empty
+
+  // Fetch Repos when GitHub user is loaded
+  useEffect(() => {
+    if (!githubUser) {
+      setRepos([]); // Clear repos if user logs out
+      setSelectedRepoFullName(null); // Clear selection
+      return;
+    }
+
+    const fetchRepos = async () => {
+      setIsLoadingRepos(true);
+      setGithubSelectionError(null);
+      setRepos([]); // Clear previous repos
+      try {
+        const response = await fetch('/api/github/repos');
+        if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.error || 'Failed to fetch repositories');
+        }
+        const repoData: GitHubRepo[] = await response.json();
+        setRepos(repoData);
+      } catch (error: any) {
+        console.error("Error fetching repos:", error);
+        setGithubSelectionError(error.message);
+        if (error.message === 'Invalid GitHub token') setGithubUser(null); // Log out if token is invalid
+      } finally {
+        setIsLoadingRepos(false);
+      }
+    };
+
+    fetchRepos();
+  }, [githubUser]); // Fetch repos when githubUser changes
+
+  // Fetch Branches when a repo is selected
+  const handleRepoChange = useCallback((repoFullName: string) => {
+    setSelectedRepoFullName(repoFullName);
+    setSelectedBranchName(null); // Reset branch selection
+    setBranches([]); // Clear old branches
+    setGithubSelectionError(null);
+
+    if (!repoFullName) {
+      return;
+    }
+
+    const selectedRepo = repos.find(r => r.full_name === repoFullName);
+    if (!selectedRepo) return;
+
+    const fetchBranches = async () => {
+      setIsLoadingBranches(true);
+      setGithubSelectionError(null);
+      try {
+        const response = await fetch(`/api/github/branches?owner=${selectedRepo.owner.login}&repo=${selectedRepo.name}`);
+        if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.error || 'Failed to fetch branches');
+        }
+        const branchData: GitHubBranch[] = await response.json();
+        setBranches(branchData);
+        // Automatically select the default branch if it exists
+        const defaultBranch = branchData.find(b => b.name === selectedRepo.default_branch);
+        if (defaultBranch) {
+            setSelectedBranchName(defaultBranch.name);
+        }
+
+      } catch (error: any) {
+        console.error("Error fetching branches:", error);
+        setGithubSelectionError(error.message);
+        if (error.message === 'Invalid GitHub token') setGithubUser(null); // Log out
+      } finally {
+        setIsLoadingBranches(false);
+      }
+    };
+
+    fetchBranches();
+  }, [repos]); // This depends on the list of repos to find the selected one
+
+  // Handle Branch Selection - Modified to fetch tree
+  const handleBranchChange = useCallback((branchName: string) => {
+    // Remove alert and debugging status
+    setSelectedBranchName(branchName);
+    setGithubSelectionError(null);
+    setGithubTree(null);
+    setState(prevState => ({ ...prevState, analysisResult: null, selectedFiles: [] }));
+    setIsLoadingTree(false);
+    setIsGithubTreeTruncated(false);
+
+    if (!branchName || !selectedRepoFullName) {
+      return;
+    }
+
+    const selectedRepo = repos.find(r => r.full_name === selectedRepoFullName);
+    if (!selectedRepo) return;
+
+    const fetchTree = async () => {
+      setIsLoadingTree(true);
+      setGithubSelectionError(null);
+      try {
+        const apiUrl = `/api/github/tree?owner=${selectedRepo.owner.login}&repo=${selectedRepo.name}&branch=${branchName}`;
+        
+        const response = await fetch(apiUrl);
+        const data = await response.json();
+
+        if (!response.ok) {
+             throw new Error(data.error || 'Failed to fetch file tree');
+        }
+        
+        setGithubTree(data.tree);
+        setIsGithubTreeTruncated(data.truncated ?? false);
+        
+        // Create a proper dataSource for the GitHub tree
+        const repoInfo = {
+          owner: selectedRepo.owner.login,
+          repo: selectedRepo.name,
+          branch: branchName
+        };
+        
+        // Create pseudoAnalysis object structure
+        const pseudoAnalysis = {
+            totalFiles: data.tree.filter((item: any) => item.type === 'blob').length,
+            totalLines: 0, // Placeholder
+            totalTokens: 0, // Placeholder
+            summary: `GitHub repo: ${selectedRepoFullName}, Branch: ${branchName}`,
+            project_tree: `GitHub Tree Structure for ${selectedRepoFullName}/${branchName}`,
+            files: [], // Initially empty, FileSelector will populate based on tree
+        };
+        
+        setState(prevState => ({
+             ...prevState, 
+             analysisResult: pseudoAnalysis, 
+             selectedFiles: [],
+        }));
+
+      } catch (error) {
+        console.error("Error fetching GitHub tree:", error);
+        setGithubSelectionError(error instanceof Error ? error.message : String(error));
+        setGithubTree(null);
+        if (error instanceof Error && error.message === 'Invalid GitHub token') setGithubUser(null);
+      } finally {
+        setIsLoadingTree(false);
+      }
+    };
+
+    fetchTree();
+
+  }, [repos, selectedRepoFullName]);
 
   // Persist state changes to localStorage
   useEffect(() => {
-    // Only run persistence logic after initial mount/load is complete
     if (!isMounted) return;
-
     localStorage.setItem('codebaseReaderProjects', JSON.stringify(projects));
     localStorage.setItem('currentProjectId', currentProjectId || '');
     localStorage.setItem('projectTemplates', JSON.stringify(projectTypes));
-
-    // Also update the current project's state within the projects array for persistence
     if (currentProjectId) {
-        const updatedProjects = projects.map(p =>
+        const updatedProjects = projects.map((p: Project) =>
             p.id === currentProjectId ? { ...p, state: state } : p
         );
-        // Avoid infinite loop by checking if the state actually changed
         if (JSON.stringify(updatedProjects) !== JSON.stringify(projects)) {
-            setProjects(updatedProjects); // Update the projects state itself
+            setProjects(updatedProjects);
         }
     }
-
-  }, [state, projects, currentProjectId, projectTypes, isMounted]); // Re-run whenever relevant state changes *after* mount
-
+  }, [state, projects, currentProjectId, projectTypes, isMounted]);
 
   const updateCurrentProject = (newState: AppState) => {
     // This function now primarily updates the 'state' object.
@@ -147,6 +366,23 @@ export default function ClientPageRoot() {
 
   const handleProjectTemplateUpdate = (updatedTemplates: typeof projectTypes) => {
     setProjectTypes(updatedTemplates);
+  };
+
+  const handleGitHubLogin = () => {
+    // Redirect the user to the Next.js API route that starts the OAuth flow
+    window.location.href = '/api/auth/github/login';
+  };
+
+  const handleGitHubLogout = async () => {
+    // TODO: Add an API route to clear the cookie server-side
+    // For now, just clear client-side state and redirect to trigger cookie removal via API if needed
+    setGithubUser(null);
+    setGithubError(null);
+    // Optionally clear GitHub related state like selected repo/branch if stored
+    // Redirect or call a specific logout endpoint that clears the cookie
+    window.location.href = '/'; // Simple refresh/redirect might trigger cookie check
+    console.log("GitHub logout initiated (client-side)");
+    // We might need a proper /api/auth/github/logout endpoint later
   };
 
   // Handler function for the new Reset button
@@ -165,11 +401,7 @@ export default function ClientPageRoot() {
 
   // Prevent rendering potentially mismatched UI before mount
   if (!isMounted) {
-    // Optionally return a loading spinner or null
     return null;
-    // Or return the basic structure with default values if preferred,
-    // but ensure it matches the server render exactly.
-    // Returning null is often safer during the hydration phase.
   }
 
   return (
@@ -213,14 +445,138 @@ export default function ClientPageRoot() {
                   onProjectTemplatesUpdate={handleProjectTemplateUpdate}
                 />
                 
-                <FileUploadSection
-                  state={state}
-                  setState={setState}
-                  updateCurrentProject={updateCurrentProject}
-                  setError={setError}
-                  onUploadComplete={handleUploadComplete}
-                  projectTypeSelected={projectTypeSelected}
-                />
+                {/* --- GitHub Integration Start --- */}
+                <div className="space-y-4">
+                  <h3 className="text-sm font-medium text-muted-foreground">Load From</h3>
+                  <FileUploadSection
+                    state={state}
+                    setState={setState}
+                    updateCurrentProject={updateCurrentProject}
+                    setError={setError}
+                    onUploadComplete={handleUploadComplete}
+                    projectTypeSelected={projectTypeSelected}
+                  />
+                  {/* Separator */}
+                  <div className="relative my-4">
+                    <div className="absolute inset-0 flex items-center">
+                      <span className="w-full border-t" />
+                    </div>
+                    <div className="relative flex justify-center text-xs uppercase">
+                      <span className="bg-card px-2 text-muted-foreground">
+                        Or
+                      </span>
+                    </div>
+                  </div>
+                  {/* GitHub Section */}
+                  {isLoadingGithubUser ? (
+                    <div className="text-center text-muted-foreground text-sm">Checking GitHub connection...</div>
+                  ) : githubUser ? (
+                    <div className="space-y-4 text-sm border-t pt-4 mt-4">
+                       <div className="flex items-center justify-between mb-2">
+                         <div className="flex items-center gap-2">
+                           {githubUser.avatarUrl && (
+                              <Image 
+                                 src={githubUser.avatarUrl} 
+                                 alt={`${githubUser.login} avatar`} 
+                                 width={24} 
+                                 height={24} 
+                                 className="rounded-full" 
+                              />
+                           )}
+                           <span className="font-medium">{githubUser.login}</span>
+                           <CheckCircle className="h-4 w-4 text-green-500" />
+                         </div>
+                         <Button variant="ghost" size="sm" onClick={handleGitHubLogout} title="Disconnect GitHub">
+                           <XCircle className="h-4 w-4" />
+                         </Button>
+                       </div>
+                       
+                       {/* Repo Selector */} 
+                       <div className="space-y-1">
+                         <label htmlFor="github-repo-select" className="flex items-center gap-1 text-xs font-medium text-muted-foreground">
+                            <BookMarked className="h-3 w-3" /> Repository
+                         </label>
+                         <Select 
+                           value={selectedRepoFullName || ''} 
+                           onValueChange={handleRepoChange}
+                           disabled={isLoadingRepos || repos.length === 0}
+                         >
+                            <SelectTrigger id="github-repo-select">
+                                <SelectValue placeholder={isLoadingRepos ? "Loading repos..." : "Select repository..."} />
+                            </SelectTrigger>
+                            <SelectContent>
+                                {repos.map((repo: GitHubRepo) => (
+                                <SelectItem key={repo.id} value={repo.full_name}>
+                                    {repo.full_name}
+                                </SelectItem>
+                                ))}
+                            </SelectContent>
+                         </Select>
+                       </div>
+
+                       {/* Branch Selector */} 
+                       {selectedRepoFullName && (
+                         <div className="space-y-1">
+                           <label htmlFor="github-branch-select" className="flex items-center gap-1 text-xs font-medium text-muted-foreground">
+                             <GitBranch className="h-3 w-3" /> Branch
+                           </label>
+                           
+                           {/* Direct branch selection buttons */}
+                           {isLoadingBranches ? (
+                             <div className="text-center text-muted-foreground text-xs py-2">Loading branches...</div>
+                           ) : branches.length > 0 ? (
+                             <div className="border rounded-md p-2 max-h-48 overflow-y-auto">
+                               {branches.map((branch: GitHubBranch) => (
+                                 <Button
+                                   key={branch.name}
+                                   size="sm"
+                                   variant={selectedBranchName === branch.name ? "default" : "ghost"}
+                                   className="w-full justify-start text-xs mb-1"
+                                   onClick={() => handleBranchChange(branch.name)}
+                                 >
+                                   <GitBranch className="h-3 w-3 mr-1" />
+                                   {branch.name}
+                                 </Button>
+                               ))}
+                             </div>
+                           ) : (
+                             <div className="text-center text-muted-foreground text-xs py-2">No branches found</div>
+                           )}
+                         </div>
+                       )}
+
+                       {/* Error Display for Selection */}
+                       {githubSelectionError && (
+                         <p className="text-xs text-destructive">Error: {githubSelectionError}</p>
+                       )}
+
+                       {/* Loading indicator for tree */}
+                       {isLoadingTree && (
+                           <div className="text-center text-muted-foreground text-xs py-2">Loading file tree...</div>
+                       )}
+                       {isGithubTreeTruncated && (
+                          <Alert variant="default" className="text-xs mt-2">
+                             <AlertDescription>Warning: Repository tree is large and was truncated. Some files/folders might be missing.</AlertDescription>
+                          </Alert>
+                       )}
+                       {/* FileSelector will now be rendered conditionally based on githubTree */} 
+                    </div>
+                  ) : (
+                    <>
+                      <Button
+                         variant="outline"
+                         className="w-full"
+                         onClick={handleGitHubLogin}
+                      >
+                        <Github className="mr-2 h-4 w-4" /> Connect to GitHub
+                      </Button>
+                      {githubError && (
+                         <p className="text-xs text-destructive">Error: {githubError}</p>
+                      )}
+                    </>
+                  )}
+                </div>
+                {/* --- GitHub Integration End --- */}
                 
                 <BackupManagement
                   state={state}
@@ -249,16 +605,27 @@ export default function ClientPageRoot() {
               </Alert>
             )}
 
-            {/* Conditionally render AnalysisResult only when data is ready */}
-            {state.analysisResult ? (
-              <AnalysisResult
-                state={state}
-                setState={setState}
-                updateCurrentProject={updateCurrentProject}
-                tokenCount={tokenCount}
-                setTokenCount={setTokenCount}
-                maxTokens={MAX_TOKENS}
-              />
+            {/* Conditionally render AnalysisResult */} 
+            {state.analysisResult || githubTree ? (
+              <>
+                <AnalysisResult
+                  state={state}
+                  setState={setState}
+                  updateCurrentProject={updateCurrentProject}
+                  tokenCount={tokenCount}
+                  setTokenCount={setTokenCount}
+                  maxTokens={MAX_TOKENS}
+                  dataSource={githubTree ? {
+                    type: 'github' as const,
+                    tree: githubTree,
+                    repoInfo: selectedRepoFullName && selectedBranchName ? {
+                      owner: selectedRepoFullName.split('/')[0],
+                      repo: selectedRepoFullName.split('/')[1],
+                      branch: selectedBranchName
+                    } : undefined
+                  } : undefined}
+                />
+              </>
             ) : (
               <Card className="glass-card flex flex-col items-center justify-center p-12 text-center h-[400px]">
                 <LayoutGrid className="h-12 w-12 text-muted-foreground mb-4" />

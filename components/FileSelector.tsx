@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, Dispatch, SetStateAction } from 'react';
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -28,19 +28,21 @@ import {
   FileSearch,
   FileWarning 
 } from 'lucide-react';
-import { FileData } from './types';
+import { FileData, AppState, DataSource, GitHubTreeItem, GitHubRepoInfo, FileSelectorProps } from './types';
 
-interface TreeNode {
+interface InternalTreeNode {
   name: string;
   path: string;
   type: 'file' | 'directory';
-  children?: { [key: string]: TreeNode };
+  children?: { [key: string]: InternalTreeNode };
   lines?: number;
   content?: string;
+  sha?: string;
+  size?: number;
 }
 
 const FileTreeNode: React.FC<{
-  node: TreeNode;
+  node: InternalTreeNode;
   selectedFiles: string[];
   onToggle: (path: string, isSelected: boolean) => void;
   expandedNodes: Set<string>;
@@ -52,7 +54,7 @@ const FileTreeNode: React.FC<{
   const isFolder = node.type === 'directory';
   const isExpanded = expandedNodes.has(node.path);
 
-  const getAllDescendants = (node: TreeNode): string[] => {
+  const getAllDescendants = (node: InternalTreeNode): string[] => {
     if (node.type === 'file') return [node.path];
     if (!node.children) return [];
     return Object.values(node.children).flatMap(getAllDescendants);
@@ -181,46 +183,132 @@ const FileTreeNode: React.FC<{
   );
 };
 
-interface FileSelectorProps {
-  files: FileData[];
-  selectedFiles: string[];
-  setSelectedFiles: React.Dispatch<React.SetStateAction<string[]>>;
-  maxTokens: number;
-  onTokenCountChange: (count: number) => void;
-}
-
-const FileSelector = ({ files, selectedFiles, setSelectedFiles, maxTokens, onTokenCountChange }: FileSelectorProps) => {
-  const [fileTree, setFileTree] = useState<{ [key: string]: TreeNode } | null>(null);
+const FileSelector = ({ 
+  dataSource,
+  selectedFiles, 
+  setSelectedFiles, 
+  maxTokens, 
+  onTokenCountChange, 
+  state,
+  setState 
+}: FileSelectorProps) => {
+  const [fileTree, setFileTree] = useState<{ [key: string]: InternalTreeNode } | null>(null);
   const [expandedNodes, setExpandedNodes] = useState<Set<string>>(new Set());
   const [searchTerm, setSearchTerm] = useState('');
   const [filteredNodes, setFilteredNodes] = useState<Set<string>>(new Set());
   const [copySuccess, setCopySuccess] = useState(false);
-  const [isCalculatingTokens, setIsCalculatingTokens] = useState(false);
+  const [isCopying, setIsCopying] = useState(false);
   const [minifyOnCopy, setMinifyOnCopy] = useState<boolean>(true);
   const [tokenizerLoading, setTokenizerLoading] = useState(false);
+  const [isCalculatingTokens, setIsCalculatingTokens] = useState(false);
   const [isAiLoading, setIsAiLoading] = useState(false);
   const [aiError, setAiError] = useState<string | null>(null);
   const [highlightSearch, setHighlightSearch] = useState(false);
 
+  // Get tokenCount from parent state for display
+  const currentTokenCount = state.analysisResult?.totalTokens ?? 0;
+
+  // Helper function to get all FileData from current dataSource (local or github processed)
+  const getAllFilesFromDataSource = useCallback((): FileData[] => {
+    if (dataSource.type === 'local' && dataSource.files) {
+      // Add dataSourceType for local files
+      return dataSource.files.map(f => ({ ...f, dataSourceType: 'local' }));
+    } else if (dataSource.type === 'github' && dataSource.tree) {
+      // Convert GitHub tree items to minimal FileData structure
+      return dataSource.tree
+        .filter(item => item.type === 'blob')
+        .map(item => ({
+          path: item.path,
+          lines: 0, // Placeholder
+          content: '', // Placeholder
+          size: item.size,
+          sha: item.sha,
+          dataSourceType: 'github' // Mark as GitHub file
+        }));
+    } else if (state.analysisResult?.files) { // Fallback to analysisResult if dataSource is weird
+        console.warn("Falling back to analysisResult.files in FileSelector");
+        // Ensure fallback files also get dataSourceType marked (assume local)
+        return state.analysisResult.files.map(f => ({ ...f, dataSourceType: 'local' }));
+    }
+    return [];
+  }, [dataSource, state.analysisResult]);
+
   // Calculate average lines for selected non-folder files
   const averageSelectedLines = useMemo(() => {
-    if (!selectedFiles.length) return 0;
-    const selectedFilesData = files.filter(f => selectedFiles.includes(f.path) && f.lines && f.lines > 0);
+    const allFiles = getAllFilesFromDataSource(); // Use helper
+    if (!selectedFiles.length || !allFiles.length) return 0;
+    const selectedFilesData = allFiles.filter(f => selectedFiles.includes(f.path) && f.lines && f.lines > 0);
     if (!selectedFilesData.length) return 0;
     const total = selectedFilesData.reduce((sum, file) => sum + (file.lines || 0), 0);
     return total / selectedFilesData.length;
-  }, [files, selectedFiles]);
+  }, [selectedFiles, getAllFilesFromDataSource]); // Use helper in deps
 
-  // Replace tiktoken initialization with simpler approach
+  // Token estimation - needs adaptation for GitHub (async fetch)
   useEffect(() => {
-    // No need to initialize tiktoken
-    setTokenizerLoading(false);
-  }, []);
+    let isMounted = true;
+    setIsCalculatingTokens(true);
+
+    const estimateTokens = async () => {
+        let currentTokenCount = 0;
+        const allFiles = getAllFilesFromDataSource(); // Use helper
+        const filesToProcess = allFiles.filter(f => selectedFiles.includes(f.path));
+
+        for (const file of filesToProcess) {
+            let content = file.content;
+            // For GitHub files, content is initially empty. TODO: Fetch later.
+            if (file.dataSourceType === 'github') {
+                // Placeholder: Assume a small token count or size based count?
+                // For now, just count based on size if available, rough estimate
+                 currentTokenCount += Math.ceil((file.size || 0) / 4); 
+            } else if (content) {
+              // Local file with content
+              currentTokenCount += Math.ceil(content.length / 4);
+            }
+        }
+        
+        if (isMounted) {
+            onTokenCountChange(currentTokenCount);
+            setIsCalculatingTokens(false);
+        }
+    };
+
+    const timeoutId = setTimeout(estimateTokens, 50);
+
+    return () => { isMounted = false; clearTimeout(timeoutId); };
+  }, [selectedFiles, getAllFilesFromDataSource, onTokenCountChange]); // Use helper in deps
 
   useEffect(() => {
-    const tree = buildFileTree(files);
-    setFileTree(tree);
-  }, [files]);
+    console.log("DataSource changed, rebuilding tree:", dataSource.type);
+    if (dataSource.type === 'local' && dataSource.files) {
+       console.log(`Building local tree with ${dataSource.files.length} files.`);
+      setFileTree(buildLocalFileTree(dataSource.files));
+    } else if (dataSource.type === 'github' && dataSource.tree) {
+       console.log(`Building GitHub tree with ${dataSource.tree.length} items.`);
+       console.log("Sample GitHub tree items:", dataSource.tree.slice(0, 3));
+       const builtTree = buildGitHubTree(dataSource.tree);
+       console.log("Built tree structure:", Object.keys(builtTree).length, "root items");
+       setFileTree(builtTree);
+    } else {
+       if (state.analysisResult?.files && state.analysisResult.files.length > 0) {
+           console.warn("DataSource invalid/incomplete, falling back to building tree from analysisResult.files");
+           setFileTree(buildLocalFileTree(state.analysisResult.files));
+       } else {
+          console.warn("DataSource invalid and no fallback files available, clearing tree.");
+          console.log("DataSource details:", {
+            type: dataSource.type,
+            hasFiles: !!dataSource.files,
+            hasTree: !!dataSource.tree,
+            hasRepoInfo: !!dataSource.repoInfo
+          });
+          setFileTree(null); // Clear tree if no valid data
+       }
+    }
+    // Reset expansion and selection when data source changes fundamentally
+    setExpandedNodes(new Set());
+    // Avoid resetting selection if only content/lines updated in local files
+    // setSelectedFiles([]); 
+
+  }, [dataSource, state.analysisResult]); // Removed setSelectedFiles from deps for now
 
   // Filter nodes when search term changes
   useEffect(() => {
@@ -233,7 +321,7 @@ const FileSelector = ({ files, selectedFiles, setSelectedFiles, maxTokens, onTok
     const matchingNodes = new Set<string>();
 
     // Helper function to check if a node or any of its descendants match
-    const checkNodeAndDescendants = (node: TreeNode): boolean => {
+    const checkNodeAndDescendants = (node: InternalTreeNode): boolean => {
       // Check if this node matches
       const nameMatches = node.name.toLowerCase().includes(term);
       // Ensure contentMatches is always boolean
@@ -298,87 +386,71 @@ const FileSelector = ({ files, selectedFiles, setSelectedFiles, maxTokens, onTok
     }
   }, [searchTerm, fileTree, expandedNodes]); // Added expandedNodes dependency
 
-  // Simplified token estimation function that doesn't rely on tiktoken
-  useEffect(() => {
-    let isMounted = true;
-    setIsCalculatingTokens(true);
-
-    // Simple timeout to not block the UI
-    const calculationTimeout = setTimeout(() => {
-      try {
-        let currentTokenCount = 0;
-        selectedFiles.forEach(path => {
-          const file = files.find(f => f.path === path);
-          if (file && file.content) {
-            // Simple estimation: roughly 4 chars per token for code
-            currentTokenCount += Math.ceil(file.content.length / 4);
-          }
-        });
-
-        if (isMounted) {
-          onTokenCountChange(currentTokenCount);
-        }
-      } catch (error) {
-        console.error("Error calculating tokens:", error);
-        if (isMounted) {
-          onTokenCountChange(0);
-        }
-      } finally {
-        if (isMounted) {
-          setIsCalculatingTokens(false);
-        }
-      }
-    }, 100);
-
-    return () => {
-      isMounted = false;
-      clearTimeout(calculationTimeout);
-    };
-  }, [selectedFiles, files, onTokenCountChange]);
-
-  const buildFileTree = (files: FileData[]): { [key: string]: TreeNode } => {
-    const tree: { [key: string]: TreeNode } = {};
-
-    files.forEach(file => {
+  const buildLocalFileTree = (localFiles: FileData[]): { [key: string]: InternalTreeNode } => {
+    const tree: { [key: string]: InternalTreeNode } = {};
+    localFiles.forEach(file => {
       const parts = file.path.split('/');
-      let current = tree;
+      let current: { [key: string]: InternalTreeNode } | undefined = tree;
       let currentPath = '';
-
-      // Process each part of the path
       parts.forEach((part, i) => {
         currentPath = currentPath ? `${currentPath}/${part}` : part;
-
+        if (!current) return; 
         if (i === parts.length - 1) {
-          // This is a file
-          current[part] = {
-            name: part,
-            path: currentPath,
-            type: 'file',
-            lines: file.lines,
-            content: file.content
-          };
+          current[part] = { name: part, path: currentPath, type: 'file', lines: file.lines, content: file.content, size: file.size };
         } else {
-          // This is a directory
           if (!current[part]) {
-            current[part] = {
-              name: part,
-              path: currentPath,
-              type: 'directory',
-              children: {}
-            };
+            current[part] = { name: part, path: currentPath, type: 'directory', children: {} };
+          } else if (current[part].type === 'file') {
+             console.warn(`Path conflict: Directory path ${currentPath} conflicts with existing file path.`);
+             if (!current[part].children) current[part].children = {}; 
           } else if (!current[part].children) {
-            current[part].children = {};
+             current[part].children = {};
           }
-          current = current[part].children as { [key: string]: TreeNode };
+          current = current[part].children;
         }
       });
     });
+    return tree;
+  };
 
+  const buildGitHubTree = (githubTreeItems: GitHubTreeItem[]): { [key: string]: InternalTreeNode } => {
+    const tree: { [key: string]: InternalTreeNode } = {};
+    githubTreeItems.sort((a, b) => a.path.localeCompare(b.path)); 
+    githubTreeItems.forEach(item => {
+      const parts = item.path.split('/');
+      let current: { [key: string]: InternalTreeNode } | undefined = tree;
+      let currentPath = '';
+      parts.forEach((part, i) => {
+        currentPath = currentPath ? `${currentPath}/${part}` : part;
+        if (!current) return; 
+        if (i === parts.length - 1) {
+          if (item.type === 'blob') {
+            current[part] = { name: part, path: item.path, type: 'file', sha: item.sha, size: item.size };
+          } else if (item.type === 'tree') {
+            if (!current[part]) {
+                current[part] = { name: part, path: item.path, type: 'directory', children: {}, sha: item.sha };
+            } else {
+                 current[part].type = 'directory';
+                 if(!current[part].children) current[part].children = {};
+                 current[part].sha = item.sha; 
+            }
+          } 
+        } else {
+          if (!current[part]) {
+            current[part] = { name: part, path: currentPath, type: 'directory', children: {} };
+          } else if (!current[part].children) {
+             current[part].type = 'directory';
+             current[part].children = {};
+          }
+          current = current[part].children;
+        }
+      });
+    });
     return tree;
   };
 
   // Get all descendant files of a node 
-  const getDescendantFiles = (node: TreeNode): string[] => {
+  const getDescendantFiles = (node: InternalTreeNode): string[] => {
     if (node.type === 'file') return [node.path];
     
     const descendantFiles: string[] = [];
@@ -417,10 +489,10 @@ const FileSelector = ({ files, selectedFiles, setSelectedFiles, maxTokens, onTok
   }, [fileTree, setSelectedFiles, getDescendantFiles]);
 
   // Find a node in the file tree by path
-  const findNode = (tree: { [key: string]: TreeNode }, targetPath: string): TreeNode | null => {
+  const findNode = (tree: { [key: string]: InternalTreeNode }, targetPath: string): InternalTreeNode | null => {
     const parts = targetPath.split('/');
-    let current: { [key: string]: TreeNode } | undefined = tree;
-    let currentNode: TreeNode | null = null;
+    let current: { [key: string]: InternalTreeNode } | undefined = tree;
+    let currentNode: InternalTreeNode | null = null;
 
     for (const part of parts) {
       if (!current || !current[part]) return null;
@@ -435,11 +507,15 @@ const FileSelector = ({ files, selectedFiles, setSelectedFiles, maxTokens, onTok
     setSelectedFiles([]);
   }, [setSelectedFiles]);
 
-  const selectAll = useCallback((): void => setSelectedFiles(files.map(f => f.path)), [files, setSelectedFiles]);
+  const selectAll = useCallback((): void => {
+      const allFiles = getAllFilesFromDataSource(); // Use helper
+      setSelectedFiles(allFiles.map(f => f.path));
+  }, [getAllFilesFromDataSource, setSelectedFiles]); // Use helper in deps
+
   const deselectAll = useCallback((): void => setSelectedFiles([]), [setSelectedFiles]);
 
-  const generateProjectTreeString = useCallback((tree: { [key: string]: TreeNode }): string => {
-    const buildString = (nodes: { [key: string]: TreeNode }, prefix = ''): string => {
+  const generateProjectTreeString = useCallback((tree: { [key: string]: InternalTreeNode }): string => {
+    const buildString = (nodes: { [key: string]: InternalTreeNode }, prefix = ''): string => {
       const nodeStrings = Object.entries(nodes)
         .sort(([, a], [, b]) => {
           if (a.type !== b.type) return a.type === 'directory' ? -1 : 1;
@@ -461,73 +537,29 @@ const FileSelector = ({ files, selectedFiles, setSelectedFiles, maxTokens, onTok
 
   const handleAiSuggest = useCallback(async () => {
     if (!fileTree) return;
-    
     setIsAiLoading(true);
     setAiError(null);
-    
     try {
-      // Generate a text representation of the project tree
       const treeString = generateProjectTreeString(fileTree);
       const requestBody = { projectTree: treeString };
-
-      // Log the request payload
-      console.log("AI Suggest Request Payload (Tree String):", treeString);
-      console.log("AI Suggest Request Payload (JSON Body):", JSON.stringify(requestBody));
-      
-      // Call the AI Smart Select API
-      const response = await fetch('/api/ai-smart-select', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(requestBody),
-      });
-
-      // Clone the response to read the raw text without consuming the body
+      const response = await fetch('/api/ai-smart-select', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(requestBody) });
       const responseClone = response.clone();
       const rawResponseText = await responseClone.text();
-      console.log("AI Suggest Raw Response:", rawResponseText);
-      
-      if (!response.ok) {
-        throw new Error(`Error: ${response.statusText} - ${rawResponseText}`); // Include raw response in error
-      }
-      
-      // Parse the JSON from the original response
+      if (!response.ok) throw new Error(`Error: ${response.statusText} - ${rawResponseText}`);
       const data = await response.json();
-      
+
       if (data.selectedFiles && Array.isArray(data.selectedFiles) && data.selectedFiles.length > 0) {
-        // Filter out any suggested files that don't exist in our actual files
-        const existingPaths = new Set(files.map(f => f.path));
-        
-        console.log("Existing file paths in frontend state:", existingPaths);
-        console.log("File paths received from AI:", data.selectedFiles);
-
-        // Attempt to determine the root folder prefix from the first file path
-        // Assumes all paths share the same root directory name
-        const firstPath = files[0]?.path;
-        const rootPrefix = firstPath && firstPath.includes('/') ? firstPath.split('/')[0] + '/' : ''; // e.g., "codebase-reader/" or ""
-        console.log("Deduced root prefix:", rootPrefix);
-
-        // --- START REVISED FIX: Path Prefix Adjustment & Mapping ---
+        const allFiles = getAllFilesFromDataSource(); // Use helper
+        const existingPaths = new Set(allFiles.map(f => f.path));
+        // Check AI paths against existing paths derived from current data source
         const validSelections = data.selectedFiles
-          .map((aiPath: string) => {
-            // Create the full path to check against the existing set
-            const fullPathToCheck = rootPrefix + aiPath;
-            // Check if this prefixed path actually exists in the frontend state
-            if (existingPaths.has(fullPathToCheck)) {
-              // If it exists, return the *prefixed* path for the new selection state
-              return fullPathToCheck;
-            }
-            // If it doesn't exist, return null to filter out later
-            return null; 
-          })
-          .filter((path: string | null): path is string => path !== null); // Filter out the nulls, explicit type added
-        // --- END REVISED FIX ---
-
-        console.log("Valid selections after filtering (should have prefix):", validSelections);
+          .map((aiPath: string) => existingPaths.has(aiPath) ? aiPath : null)
+          .filter((path: string | null): path is string => path !== null);
         
         if (validSelections.length > 0) {
           setSelectedFiles(validSelections);
         } else {
-          setAiError("AI couldn't find relevant files that match your project structure.");
+          setAiError("AI couldn't find relevant files matching your project structure.");
         }
       } else {
         setAiError("AI returned no file suggestions.");
@@ -538,7 +570,7 @@ const FileSelector = ({ files, selectedFiles, setSelectedFiles, maxTokens, onTok
     } finally {
       setIsAiLoading(false);
     }
-  }, [fileTree, generateProjectTreeString, files, setSelectedFiles]); // Added dependencies
+  }, [fileTree, generateProjectTreeString, setSelectedFiles, getAllFilesFromDataSource]); // Use helper in deps
 
   const minifyCode = useCallback((code: string): string => {
     if (!code) return '';
@@ -559,72 +591,94 @@ const FileSelector = ({ files, selectedFiles, setSelectedFiles, maxTokens, onTok
       .trim();
   }, []);
 
-  const copySelectedFilesToClipboard = useCallback(() => {
-    if (!fileTree || selectedFiles.length === 0) return;
+  // Define content fetching API route
+  const GITHUB_CONTENT_API = '/api/github/content'; // Define once
+
+  const copySelectedFilesToClipboard = useCallback(async () => {
+    if (!fileTree || selectedFiles.length === 0 || isCopying) return;
     
-    // Convert the selected files into a filtered tree
-    const filteredTree: { [key: string]: TreeNode } = {};
+    setIsCopying(true); // Set loading state
+    setCopySuccess(false); // Reset success state
+
+    // Build the filtered tree string (unchanged)
+    const filteredTreeForCopy: { [key: string]: InternalTreeNode } = {};
     selectedFiles.forEach(path => {
-      const file = files.find(f => f.path === path);
-      if (!file) return;
-      
-      const parts = file.path.split('/');
-      let current = filteredTree;
-      let currentPath = '';
-      
-      parts.forEach((part, i) => {
-        currentPath = currentPath ? `${currentPath}/${part}` : part;
-        
-        if (i === parts.length - 1) {
-          // This is a file
-          current[part] = {
-            name: part,
-            path: currentPath,
-            type: 'file',
-            lines: file.lines,
-            content: file.content
-          };
-        } else {
-          // This is a directory
-          if (!current[part]) {
-            current[part] = {
-              name: part,
-              path: currentPath,
-              type: 'directory',
-              children: {}
-            };
-          } else if (!current[part].children) {
-            current[part].children = {};
-          }
-          current = current[part].children as { [key: string]: TreeNode };
-        }
-      });
+        const node = findNode(fileTree, path);
+        if (!node || node.type !== 'file') return; 
+        const parts = path.split('/');
+        let current = filteredTreeForCopy;
+        let currentPath = '';
+        parts.forEach((part, i) => {
+             currentPath = currentPath ? `${currentPath}/${part}` : part;
+             if (i === parts.length - 1) {
+                 current[part] = node; 
+             } else {
+                 if (!current[part]) {
+                     current[part] = { name: part, path: currentPath, type: 'directory', children: {} };
+                 } else if (!current[part].children) {
+                     current[part].children = {};
+                 }
+                 current = current[part].children as { [key: string]: InternalTreeNode };
+             }
+        });
     });
+    const treeString = generateProjectTreeString(filteredTreeForCopy);
     
-    // Generate the project tree string
-    const treeString = generateProjectTreeString(filteredTree);
+    let combinedContent = '';
+    const allFiles = getAllFilesFromDataSource(); // Use helper
+    const filesToCopy = allFiles.filter(f => selectedFiles.includes(f.path));
     
-    // Combine the content of selected files
-    const selectedContents = selectedFiles.map(path => {
-      const file = files.find(f => f.path === path);
-      if (!file) return '';
+    try {
+      for (const file of filesToCopy) {
+        let content = file.content;
+        // Fetch GitHub content if it's missing
+        if (file.dataSourceType === 'github' && !content && file.path && dataSource.type === 'github' && dataSource.repoInfo) {
+          try {
+            const { owner, repo, branch } = dataSource.repoInfo;
+            // Use encodeURIComponent for the file path param
+            const contentUrl = `${GITHUB_CONTENT_API}?owner=${owner}&repo=${repo}&path=${encodeURIComponent(file.path)}`;
+            console.log(`Fetching content: ${contentUrl}`); // Debug log
+            const response = await fetch(contentUrl);
+            
+            if (!response.ok) {
+              const errorData = await response.json();
+              throw new Error(errorData.error || `Failed to fetch content (${response.status})`);
+            }
+            
+            const data = await response.json();
+            content = data.content;
+            
+            // Cache the content in the component's internal fileTree structure
+            // Find the node and update its content if possible
+            const node = findNode(fileTree, file.path);
+            if (node && node.type === 'file') {
+              node.content = content;
+              // Also update lines count for display
+              node.lines = content.split('\n').length;
+            }
+          } catch (err) {
+            console.error(`Failed to fetch content for ${file.path}:`, err);
+            content = `// Error fetching content for ${file.path}: ${err instanceof Error ? err.message : 'Unknown error'}`;
+          }
+        }
+        
+        const processedContent = minifyOnCopy ? minifyCode(content || '') : content || '';
+        combinedContent += `// ${file.path}\n${processedContent}\n\n`;
+      }
       
-      const content = minifyOnCopy ? minifyCode(file.content || '') : file.content || '';
-      return `// ${file.path}\n${content}\n`;
-    }).join('\n');
-    
-    // Copy tree structure and file contents to clipboard
-    const clipboardText = `Project Structure:\n${treeString}\n\nFile Contents:\n${selectedContents}`;
-    
-    navigator.clipboard.writeText(clipboardText)
-      .then(() => {
-        setCopySuccess(true);
-        setTimeout(() => setCopySuccess(false), 2000);
-      })
-      .catch(err => {
-        console.error('Could not copy text: ', err);
-      });
-  }, [fileTree, selectedFiles, files, generateProjectTreeString, minifyOnCopy, minifyCode]); // Added dependencies
+      const clipboardText = `Project Structure:\n${treeString}\n\n---\n\nFile Contents:\n${combinedContent}`;
+      
+      await navigator.clipboard.writeText(clipboardText);
+      setCopySuccess(true);
+      setTimeout(() => setCopySuccess(false), 2000);
+    } catch (err) {
+      console.error('Could not copy text: ', err);
+      // Optionally show an error to the user
+    } finally {
+      setIsCopying(false); // Clear loading state regardless of success/failure
+    }
+
+  }, [fileTree, selectedFiles, isCopying, findNode, generateProjectTreeString, minifyOnCopy, minifyCode, dataSource, getAllFilesFromDataSource]);
 
   const toggleExpand = useCallback((path: string) => {
     setExpandedNodes(prev => {
@@ -643,7 +697,7 @@ const FileSelector = ({ files, selectedFiles, setSelectedFiles, maxTokens, onTok
     
     const allPaths = new Set<string>();
     
-    const addAllPaths = (tree: { [key: string]: TreeNode }) => {
+    const addAllPaths = (tree: { [key: string]: InternalTreeNode }) => {
       Object.values(tree).forEach(node => {
         if (node.type === 'directory') {
           allPaths.add(node.path);
@@ -663,7 +717,7 @@ const FileSelector = ({ files, selectedFiles, setSelectedFiles, maxTokens, onTok
   }, []);
 
   // Get all currently visible files (respecting search and expanded state)
-  const getVisibleFiles = useCallback((node: TreeNode): string[] => {
+  const getVisibleFiles = useCallback((node: InternalTreeNode): string[] => {
     if (node.type === 'file') {
       // Respect search filter: only include if matching or no search term
       if (!searchTerm || filteredNodes.has(node.path)) {
@@ -703,10 +757,10 @@ const FileSelector = ({ files, selectedFiles, setSelectedFiles, maxTokens, onTok
     if (!fileTree) return [];
     
     // Recursively filter the tree based on the searchTerm and filteredNodes
-    const filterTree = (tree: { [key: string]: TreeNode }): { [key: string]: TreeNode } => {
+    const filterTree = (tree: { [key: string]: InternalTreeNode }): { [key: string]: InternalTreeNode } => {
       if (!searchTerm) return tree; // No filtering needed if no search term
       
-      const filtered: { [key: string]: TreeNode } = {};
+      const filtered: { [key: string]: InternalTreeNode } = {};
       Object.entries(tree).forEach(([key, node]) => {
         if (filteredNodes.has(node.path)) {
           // If the node itself matches, include it
@@ -813,7 +867,7 @@ const FileSelector = ({ files, selectedFiles, setSelectedFiles, maxTokens, onTok
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start">
             <DropdownMenuItem onClick={selectAll}>
-              Select All Files ({files.length})
+              Select All Files ({getAllFilesFromDataSource().length})
             </DropdownMenuItem>
             <DropdownMenuItem onClick={deselectAll}>
               Deselect All ({selectedFiles.length})
@@ -859,14 +913,16 @@ const FileSelector = ({ files, selectedFiles, setSelectedFiles, maxTokens, onTok
                 size="sm" 
                 className="h-8 ml-auto" 
                 onClick={copySelectedFilesToClipboard}
-                disabled={selectedFiles.length === 0}
+                disabled={selectedFiles.length === 0 || isCopying}
               >
-                {copySuccess ? (
+                {isCopying ? (
+                  <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
+                ) : copySuccess ? (
                   <Check className="mr-2 h-3.5 w-3.5" />
                 ) : (
                   <Copy className="mr-2 h-3.5 w-3.5" />
                 )}
-                <span>{copySuccess ? 'Copied!' : 'Copy Selected'}</span>
+                <span>{isCopying ? 'Copying...' : copySuccess ? 'Copied!' : 'Copy Selected'}</span>
               </Button>
             </TooltipTrigger>
             <TooltipContent>
@@ -916,10 +972,8 @@ const FileSelector = ({ files, selectedFiles, setSelectedFiles, maxTokens, onTok
         </div>
         <div className="text-xs text-muted-foreground">
           {selectedFiles.length} files selected ({isCalculatingTokens ? 
-            <span className="text-muted-foreground inline-flex items-center">
-              <Loader2 className="animate-spin h-3 w-3 mr-1" /> Calculating...
-            </span> : 
-            <span>~{maxTokens.toLocaleString()} tokens</span>
+            <span className="text-muted-foreground inline-flex items-center"><Loader2 className="animate-spin h-3 w-3 mr-1" /> Calculating...</span> : 
+            <span>~{currentTokenCount.toLocaleString()} tokens (GitHub est. needs fetch)</span>
           })
         </div>
       </div>
