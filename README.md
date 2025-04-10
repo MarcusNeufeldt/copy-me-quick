@@ -51,6 +51,24 @@ Copy Me Quick solves this by:
 *   **🔄 Advanced Features:**
     *   **Backup & Restore:** Save and load multiple project states to quickly switch between different analysis scenarios.
     *   **Export/Import:** Share your project configurations as JSON files for collaboration or reproducibility.
+    *   **GitHub Integration:** Connect to your GitHub account to browse and select files directly from your repositories.
+    *   **Line Count Display:** See the number of lines in each file to help prioritize which files to include.
+    *   **AI-Powered File Suggestion:** Use AI to suggest which files are most relevant for your context.
+
+## 🆕 Recent Updates
+
+*   **🔗 GitHub Integration:**
+    *   **OAuth Authentication:** Securely connect to your GitHub account.
+    *   **Repository Browser:** Browse your repositories and their branches.
+    *   **Smart File Fetching:** View and select files directly from your GitHub repositories.
+    *   **Line Count Analytics:** Displays line counts for each file to help you prioritize.
+    *   **Batch Content Loading:** Efficiently fetch file contents with progress indicators.
+
+*   **💪 User Experience Improvements:**
+    *   **Persistent Tree Expansion:** Tree structure maintains its expanded state when selecting files.
+    *   **Improved File Filtering:** Better performance when searching through large codebases.
+    *   **Enhanced File Selection:** Select all files, visible files, or use AI to suggest important files.
+    *   **Visual Indicators:** Files with high line counts are highlighted to identify potential token-heavy files.
 
 ## 🛠️ Technical Stack
 
@@ -63,6 +81,7 @@ Copy Me Quick solves this by:
 *   **[JSZip](https://stuk.github.io/jszip/):** Create, read, and edit zip archives.
 *   **[tiktoken](https://www.npmjs.com/package/tiktoken):**  Byte pair encoding tokenization library used by OpenAI.
 *   **[Vercel Analytics](https://vercel.com/analytics):**  Track website traffic and performance.
+*   **[GitHub API](https://docs.github.com/en/rest):** Integration with GitHub repositories.
 *   **Deployment:** [Vercel](https://vercel.com/)
 
 ## 🚀 Getting Started
@@ -118,12 +137,15 @@ Copy Me Quick solves this by:
     *   Choose a preset based on your project's framework (Next.js, React, Vue, etc.).
     *   Select "None" to manually configure filters.
 
-2. **Choose Your Project Folder:**
-    *   Click the "Choose Project Folder" button and select the root directory of your codebase.
+2. **Choose Your Source:**
+    *   **Local Project:** Click the "Choose Project Folder" button and select the root directory of your codebase.
+    *   **GitHub Repository:** Connect to GitHub and select a repository and branch to browse.
 
 3. **Fine-Tune Your Selection:**
     *   Use the interactive file tree to include or exclude specific files or folders.
     *   Expand and collapse folders to navigate the project structure.
+    *   Use file search to quickly find specific files or file types.
+    *   Look at line counts to identify large files that might consume more tokens.
 
 4. **Enable Minification (Optional):**
     *   Toggle the "Minify" option to reduce the token count of your code.

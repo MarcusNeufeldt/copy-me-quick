@@ -153,12 +153,12 @@ const FileUploadSection: React.FC<FileUploadSectionProps> = ({
     const newState: AppState = {
       ...state,
       analysisResult: {
-        summary: {
-          total_files: finalFiles.length,
-          total_lines: newTotalLines
-        },
-        files: finalFiles,
-        project_tree: newProjectTree
+        totalFiles: finalFiles.length,
+        totalLines: newTotalLines,
+        totalTokens: 0, // Will be calculated later
+        summary: `Project contains ${finalFiles.length} files with ${newTotalLines} total lines of code.`,
+        project_tree: newProjectTree,
+        files: finalFiles
       },
       selectedFiles: preservedSelectedFiles,
     };
