@@ -301,66 +301,6 @@ const FileUploadSection: React.FC<FileUploadSectionProps> = ({
         </div>
       )}
       
-      {(state.excludeFolders || state.fileTypes) && (
-        <div className="flex flex-col sm:flex-row gap-2 sm:gap-4 mt-3 text-xs">
-          <div className="flex-1">
-            <div className="flex items-center">
-              <Label htmlFor="excludeFolders" className="mr-1 text-muted-foreground">Exclude:</Label>
-              <TooltipProvider>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Info className="h-3 w-3 text-muted-foreground" />
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    <p className="max-w-xs text-xs">
-                      A comma-separated list of folder names to exclude.
-                      These are applied globally (any path component match will be excluded).
-                    </p>
-                  </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
-            </div>
-            <Input
-              id="excludeFolders"
-              value={state.excludeFolders}
-              onChange={(e) => 
-                setState(prev => ({ ...prev, excludeFolders: e.target.value }))
-              }
-              className="h-7 text-xs"
-              placeholder="e.g., node_modules,.git,dist"
-            />
-          </div>
-          
-          <div className="flex-1">
-            <div className="flex items-center">
-              <Label htmlFor="fileTypes" className="mr-1 text-muted-foreground">Include:</Label>
-              <TooltipProvider>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Info className="h-3 w-3 text-muted-foreground" />
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    <p className="max-w-xs text-xs">
-                      A comma-separated list of file extensions to include.
-                      Files must end with one of these extensions.
-                    </p>
-                  </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
-            </div>
-            <Input
-              id="fileTypes"
-              value={state.fileTypes}
-              onChange={(e) => 
-                setState(prev => ({ ...prev, fileTypes: e.target.value }))
-              }
-              className="h-7 text-xs"
-              placeholder="e.g., .js,.jsx,.ts,.tsx"
-            />
-          </div>
-        </div>
-      )}
-      
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>

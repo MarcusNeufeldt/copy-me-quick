@@ -148,7 +148,8 @@ const AnalysisResult: React.FC<AnalysisResultProps> = ({
   const [copySuccess, setCopySuccess] = useState(false);
   const [showBackupDialog, setShowBackupDialog] = useState(false);
   const [backupName, setBackupName] = useState('');
-  const [activeTab, setActiveTab] = useState('output');
+  const [activeFileTab, setActiveFileTab] = useState('selector');
+  const [activeOutputTab, setActiveOutputTab] = useState('output');
 
   // Create internal dataSource if not provided
   const effectiveDataSource = useMemo(() => {
@@ -401,7 +402,7 @@ ${selectedFiles.map(file => `- \`${file.path}\` (${file.lines} lines)`).join('\n
       </div>
 
       {/* File Selector Tabs */}
-      <Tabs value={activeTab} onValueChange={setActiveTab} className="animate-fade-in animation-delay-200">
+      <Tabs value={activeFileTab} onValueChange={setActiveFileTab} className="animate-fade-in animation-delay-200">
         <TabsList className="grid w-full grid-cols-2 mb-6">
           <TabsTrigger value="selector" className="flex items-center gap-2">
             <FileSymlink className="h-4 w-4" />
@@ -457,7 +458,7 @@ ${selectedFiles.map(file => `- \`${file.path}\` (${file.lines} lines)`).join('\n
       </Tabs>
 
       {/* Tabs for different output formats */}
-      <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+      <Tabs value={activeOutputTab} onValueChange={setActiveOutputTab} className="w-full">
         <TabsList className="grid grid-cols-3 mb-4">
           <TabsTrigger value="output" className="text-xs sm:text-sm">Output Options</TabsTrigger>
           <TabsTrigger value="summary" className="text-xs sm:text-sm">Summary</TabsTrigger>

@@ -127,6 +127,7 @@ export default function ClientPageRoot() {
   const [fileLoadingProgress, setFileLoadingProgress] = useState({ current: 0, total: 0 });
   const [githubTree, setGithubTree] = useState<GitHubTreeItem[] | null>(null);
   const [isGithubTreeTruncated, setIsGithubTreeTruncated] = useState(false);
+  const [fileLoadingMessage, setFileLoadingMessage] = useState<string | null>(null);
 
   // Load state from localStorage only on the client after mount
   useEffect(() => {
@@ -329,14 +330,25 @@ export default function ClientPageRoot() {
              selectedFiles: [],
         }));
 
-        // Step 2: Batch fetch content for all smaller files to get line counts
-        // Only filter out very large files (> 100KB) to avoid excessive loading times
+        // Step 2: Batch fetch content for ALL files to get line counts
+        // No size filtering - fetch all files regardless of size
         const filesToFetch = data.tree
-          .filter((item: any) => item.type === 'blob' && item.size && item.size < 100000);
+          .filter((item: any) => item.type === 'blob');
           
         if (filesToFetch.length > 0) {
           setIsLoadingTree(false); // Tree is loaded, now loading file contents
           setIsLoadingFileContents(true); // Start file content loading state
+          
+          // Check if there are any large files and warn the user
+          const largeFiles = filesToFetch.filter((item: any) => item.size && item.size > 500000);
+          if (largeFiles.length > 0) {
+            console.warn(`Loading ${largeFiles.length} large files (>500KB). This may take longer.`);
+            // Show a temporary warning message to the user
+            setFileLoadingMessage(`Loading ${largeFiles.length} large files. This may take a moment...`);
+            // Clear the message after 5 seconds
+            setTimeout(() => setFileLoadingMessage(null), 5000);
+          }
+          
           setFileLoadingProgress({ current: 0, total: filesToFetch.length });
           
           let totalLineCount = 0;
@@ -702,6 +714,11 @@ export default function ClientPageRoot() {
                                 }} 
                               />
                             </div>
+                            {fileLoadingMessage && (
+                              <div className="text-center text-amber-500 text-xs mt-2 font-medium">
+                                {fileLoadingMessage}
+                              </div>
+                            )}
                           </div>
                        )}
                        

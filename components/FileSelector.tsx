@@ -26,7 +26,8 @@ import {
   Search, 
   X, 
   FileSearch,
-  FileWarning 
+  FileWarning,
+  Ban
 } from 'lucide-react';
 import { FileData, AppState, DataSource, GitHubTreeItem, GitHubRepoInfo, FileSelectorProps } from './types';
 
@@ -77,6 +78,28 @@ const FileTreeNode: React.FC<{
     onToggle(node.path, checked);
   };
 
+  // Determine file size level relative to average
+  const getFileSizeLevel = (): 'normal' | 'moderate' | 'large' => {
+    if (isFolder || !node.lines || averageLines <= 0) return 'normal';
+    if (node.lines > averageLines * 2.5) return 'large';
+    if (node.lines > averageLines * 1.25) return 'moderate';
+    return 'normal';
+  };
+
+  const fileSizeLevel = getFileSizeLevel();
+  const isLargeFile = fileSizeLevel === 'large';
+  const isModerateFile = fileSizeLevel === 'moderate';
+  const isWarningFile = isLargeFile || isModerateFile; // Files needing a warning icon
+
+  // Calculate size ratio for progress indicator
+  const getSizeRatio = (): number => {
+    if (isFolder || !node.lines || averageLines <= 0) return 0;
+    const ratio = Math.min(node.lines / (averageLines * 3), 1); // Cap at 3x average
+    return ratio * 100; // Return as percentage
+  };
+  
+  const sizeRatio = getSizeRatio();
+
   // Determine if this node matches the search
   const matchesSearch = searchTerm && node.name.toLowerCase().includes(searchTerm.toLowerCase());
   // For files, also check content
@@ -86,17 +109,39 @@ const FileTreeNode: React.FC<{
   // 1. It matches the search term
   // 2. It's a folder with children that match the search term
   // 3. There's no search term
-  const isAboveLargeSize = !isFolder && node.lines && averageLines > 0 && node.lines > averageLines * 1.5;
+  // const isAboveLargeSize = !isFolder && node.lines && averageLines > 0 && node.lines > averageLines * 1.5; // OLD logic removed
+
+  // Define styles based on level
+  let selectedBgClass = 'bg-muted/30 dark:bg-muted/10'; // Default selected BG
+  let iconComponent = <File className="h-4 w-4 text-muted-foreground/70" />;
+  let tooltipWarning = '';
+  let progressBarColor = 'bg-sky-200 dark:bg-sky-900';
+  let progressBarHeight = 'h-[3px]';
+  let progressBarStyle = '';
+
+  if (isLargeFile) {
+    selectedBgClass = 'bg-rose-50/60 dark:bg-rose-950/30';
+    iconComponent = <FileWarning className="h-4 w-4 text-rose-500" />;
+    tooltipWarning = 'Very large file (may use many tokens)';
+    progressBarColor = 'bg-rose-500 dark:bg-rose-600';
+    progressBarHeight = 'h-[4px]';
+    progressBarStyle = 'animate-pulse';
+  } else if (isModerateFile) {
+    selectedBgClass = 'bg-yellow-50/60 dark:bg-yellow-950/30';
+    iconComponent = <FileWarning className="h-4 w-4 text-yellow-500" />;
+    tooltipWarning = 'Moderately large file (may use more tokens)';
+    progressBarColor = 'bg-yellow-300 dark:bg-yellow-700';
+  }
   
   return (
     <div className={`${isFolder ? 'mb-1' : ''} ${highlightSearch && (matchesSearch || contentMatches) ? 'animate-pulse-subtle' : ''}`}>
-      <div className={`flex items-center space-x-2 py-1 px-2 rounded-md transition-colors hover:bg-muted/50 ${
-        selectedFiles.includes(node.path) 
-          ? !isFolder && isAboveLargeSize
-            ? 'bg-amber-50/60 dark:bg-amber-950/30 gradient-border' 
-            : 'bg-muted/30 dark:bg-muted/10'
-          : ''
+      <div className={`relative flex items-center space-x-2 py-1 px-2 rounded-md transition-colors hover:bg-muted/50 ${
+        selectedFiles.includes(node.path) ? selectedBgClass : '' // Apply dynamic selected BG class
       }`}>
+        {!isFolder && node.lines && averageLines > 0 && (
+          <div className={`absolute bottom-0 left-0 ${progressBarHeight} rounded-b-md opacity-60 ${progressBarStyle}`} 
+               style={{ width: `${sizeRatio}%`, backgroundColor: getComputedStyle(document.documentElement).getPropertyValue(`--${progressBarColor.split('-')[1]}-500`) }}></div>
+        )}
         <div className="flex items-center">
           {isFolder ? (
             <Button
@@ -109,11 +154,7 @@ const FileTreeNode: React.FC<{
             </Button>
           ) : (
             <div className="w-6 flex justify-center">
-              {isAboveLargeSize ? (
-                <FileWarning className="h-4 w-4 text-amber-500" />
-              ) : (
-                <File className="h-4 w-4 text-muted-foreground/70" />
-              )}
+              {iconComponent} {/* Use dynamic icon */}
             </div>
           )}
         </div>
@@ -156,8 +197,18 @@ const FileTreeNode: React.FC<{
             </TooltipTrigger>
             <TooltipContent side="right" align="start">
               <p className="text-xs break-all">{node.path}</p>
-              {!isFolder && isAboveLargeSize && (
-                <p className="text-xs text-amber-500 mt-1">Large file (may use more tokens)</p>
+              {!isFolder && node.lines && averageLines > 0 && (
+                <p className="text-xs mt-1">
+                  <span>{node.lines.toLocaleString()} lines</span>
+                  <span className="ml-2 text-muted-foreground">
+                    ({(node.lines / averageLines).toFixed(1)}x avg)
+                  </span>
+                </p>
+              )}
+              {tooltipWarning && (
+                <p className={`text-xs mt-1 ${isLargeFile ? 'text-rose-500' : 'text-yellow-600 dark:text-yellow-400'}`}>
+                  {tooltipWarning}
+                </p>
               )}
             </TooltipContent>
           </Tooltip>
@@ -250,15 +301,29 @@ const FileSelector = ({
     return [];
   }, [dataSource, state.analysisResult]);
 
-  // Calculate average lines for selected non-folder files
-  const averageSelectedLines = useMemo(() => {
-    const allFiles = getAllFilesFromDataSource(); // Use helper
-    if (!selectedFiles.length || !allFiles.length) return 0;
+  // Calculate average lines for ALL files in the data source (fallback)
+  const projectWideAverageLines = useMemo(() => {
+    const allFiles = getAllFilesFromDataSource();
+    if (!allFiles || allFiles.length === 0) return 0;
+
+    const filesWithLines = allFiles.filter(f => f.lines !== undefined && f.lines > 0);
+    if (filesWithLines.length === 0) return 0;
+
+    const totalLines = filesWithLines.reduce((sum, file) => sum + (file.lines || 0), 0);
+    return totalLines / filesWithLines.length;
+  }, [getAllFilesFromDataSource]);
+
+  // Calculate average lines using selected files, fallback to project-wide if needed
+  const averageLines = useMemo(() => {
+    const allFiles = getAllFilesFromDataSource();
+    if (!selectedFiles.length || !allFiles.length) return projectWideAverageLines;
+    
     const selectedFilesData = allFiles.filter(f => selectedFiles.includes(f.path) && f.lines && f.lines > 0);
-    if (!selectedFilesData.length) return 0;
+    if (!selectedFilesData.length) return projectWideAverageLines;
+    
     const total = selectedFilesData.reduce((sum, file) => sum + (file.lines || 0), 0);
     return total / selectedFilesData.length;
-  }, [selectedFiles, getAllFilesFromDataSource]); // Use helper in deps
+  }, [selectedFiles, getAllFilesFromDataSource, projectWideAverageLines]);
 
   // Token estimation - needs adaptation for GitHub (async fetch)
   useEffect(() => {
@@ -851,7 +916,7 @@ const FileSelector = ({
             onToggle={handleSelectionToggle}
             expandedNodes={expandedNodes}
             toggleExpand={toggleExpand}
-            averageLines={averageSelectedLines}
+            averageLines={averageLines}
             searchTerm={searchTerm}
             highlightSearch={highlightSearch}
           />
@@ -894,12 +959,12 @@ const FileSelector = ({
           onToggle={handleSelectionToggle}
           expandedNodes={expandedNodes}
           toggleExpand={toggleExpand}
-          averageLines={averageSelectedLines}
+          averageLines={averageLines}
           searchTerm={searchTerm}
           highlightSearch={highlightSearch}
         />
       ));
-  }, [fileTree, searchTerm, filteredNodes, selectedFiles, handleSelectionToggle, expandedNodes, toggleExpand, averageSelectedLines, highlightSearch]);
+  }, [fileTree, searchTerm, filteredNodes, selectedFiles, handleSelectionToggle, expandedNodes, toggleExpand, averageLines, highlightSearch]);
 
 
   if (tokenizerLoading) {
@@ -919,13 +984,13 @@ const FileSelector = ({
             type="text"
             placeholder="Search files and content..."
             value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="pl-8 pr-8 h-9"
+            onChange={e => setSearchTerm(e.target.value)}
+            className="bg-background"
           />
           {searchTerm && (
             <button 
               onClick={() => setSearchTerm('')} 
-              className="absolute right-2 top-2.5 text-muted-foreground hover:text-foreground"
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
               aria-label="Clear search"
             >
               <X className="h-4 w-4" />
@@ -937,6 +1002,25 @@ const FileSelector = ({
             {filteredNodes.size} match{filteredNodes.size !== 1 ? 'es' : ''}
           </span>
         )}
+      </div>
+
+      {/* File Size Legend */}
+      <div className="px-2 pt-1 pb-2 text-xs flex items-center gap-2 border-b border-border/50">
+        <span className="text-muted-foreground">File size:</span>
+        <div className="flex items-center gap-1">
+          <File className="h-3 w-3 text-muted-foreground/70" />
+          <span>Normal</span>
+        </div>
+        <div className="flex items-center gap-1">
+          <FileWarning className="h-3 w-3 text-yellow-500" />
+          <span>Moderate</span>
+          <span className="text-muted-foreground">(1.25-2.5x avg)</span>
+        </div>
+        <div className="flex items-center gap-1">
+          <FileWarning className="h-3 w-3 text-rose-500" />
+          <span className="text-rose-500 font-medium">Large</span>
+          <span className="text-muted-foreground">({'>'}2.5x avg)</span>
+        </div>
       </div>
 
       <div className="flex flex-wrap gap-2 mb-4">
@@ -1076,6 +1160,17 @@ const FileSelector = ({
             <span className="text-muted-foreground inline-flex items-center"><Loader2 className="animate-spin h-3 w-3 mr-1" /> Calculating...</span> : 
             <span>~{currentTokenCount.toLocaleString()} tokens (GitHub est. needs fetch)</span>
           })
+        </div>
+      </div>
+
+      <div className="flex items-center py-1 px-2 border-b border-border/40">
+        <div className="flex items-center gap-1 text-xs text-muted-foreground">
+          <div>{fileTree ? Object.keys(fileTree).length : 0} roots,</div>
+          <div>{state.analysisResult?.totalFiles || 0} files,</div>
+          <div>{(state.analysisResult?.totalLines || 0).toLocaleString()} lines</div>
+          {selectedFiles.length > 0 && (
+            <div className="ml-1 text-primary">({selectedFiles.length} selected)</div>
+          )}
         </div>
       </div>
     </div>
