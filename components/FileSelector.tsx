@@ -735,6 +735,19 @@ const FileSelector = ({
 
   // Define content fetching API route
   const GITHUB_CONTENT_API = '/api/github/content'; // Define once
+  
+  // Helper to check if a file is likely binary based on extension
+  const isBinaryFile = useCallback((filePath: string): boolean => {
+    const binaryExtensions = [
+      '.ico', '.png', '.jpg', '.jpeg', '.gif', '.bmp', '.tiff', 
+      '.webp', '.svg', '.pdf', '.zip', '.tar', '.gz', '.rar',
+      '.exe', '.dll', '.so', '.dylib', '.bin', '.dat', '.db',
+      '.woff', '.woff2', '.eot', '.ttf', '.otf'
+    ];
+    
+    const extension = filePath.substring(filePath.lastIndexOf('.')).toLowerCase();
+    return binaryExtensions.includes(extension);
+  }, []);
 
   const copySelectedFilesToClipboard = useCallback(async () => {
     if (!fileTree || selectedFiles.length === 0 || isCopying) return;
@@ -766,45 +779,86 @@ const FileSelector = ({
     });
     const treeString = generateProjectTreeString(filteredTreeForCopy);
     
-    let combinedContent = '';
-    const allFiles = getAllFilesFromDataSource(); // Use helper
-    const filesToCopy = allFiles.filter(f => selectedFiles.includes(f.path));
-    
     try {
+      const allFiles = getAllFilesFromDataSource(); // Get all files
+      const filesToCopy = allFiles.filter(f => selectedFiles.includes(f.path));
+      console.log(`Preparing to copy ${filesToCopy.length} files`);
+      
+      // First fetch all GitHub content if needed (in parallel)
+      const fetchPromises = [];
+      const fileContentMap = new Map<string, string>();
+      
       for (const file of filesToCopy) {
-        let content = file.content;
-        // Fetch GitHub content if it's missing
-        if (file.dataSourceType === 'github' && !content && file.path && dataSource.type === 'github' && dataSource.repoInfo) {
-          try {
-            const { owner, repo, branch } = dataSource.repoInfo;
-            // Use encodeURIComponent for the file path param
-            const contentUrl = `${GITHUB_CONTENT_API}?owner=${owner}&repo=${repo}&path=${encodeURIComponent(file.path)}`;
-            console.log(`Fetching content: ${contentUrl}`); // Debug log
-            const response = await fetch(contentUrl);
-            
-            if (!response.ok) {
-              const errorData = await response.json();
-              throw new Error(errorData.error || `Failed to fetch content (${response.status})`);
-            }
-            
-            const data = await response.json();
-            content = data.content;
-            
-            // Cache the content in the component's internal fileTree structure
-            // Find the node and update its content if possible
-            const node = findNode(fileTree, file.path);
-            if (node && node.type === 'file') {
-              node.content = content;
-              // Also update lines count for display
-              node.lines = content.split('\n').length;
-            }
-          } catch (err) {
-            console.error(`Failed to fetch content for ${file.path}:`, err);
-            content = `// Error fetching content for ${file.path}: ${err instanceof Error ? err.message : 'Unknown error'}`;
-          }
+        // Skip binary files
+        if (isBinaryFile(file.path)) {
+          console.log(`Skipping binary file: ${file.path}`);
+          fileContentMap.set(file.path, `// [Binary file not included: ${file.path}]`);
+          continue;
         }
         
-        const processedContent = minifyOnCopy ? minifyCode(content || '') : content || '';
+        // If GitHub file with no content, fetch it
+        if (file.dataSourceType === 'github' && !file.content && file.path && dataSource.type === 'github' && dataSource.repoInfo) {
+          const { owner, repo, branch } = dataSource.repoInfo;
+          const fetchPromise = (async () => {
+            try {
+              const contentUrl = `${GITHUB_CONTENT_API}?owner=${owner}&repo=${repo}&path=${encodeURIComponent(file.path)}`;
+              console.log(`Fetching content: ${contentUrl}`);
+              const response = await fetch(contentUrl);
+              
+              if (!response.ok) {
+                const errorData = await response.json();
+                throw new Error(errorData.error || `Failed to fetch content (${response.status})`);
+              }
+              
+              const data = await response.json();
+              const content = data.content;
+              
+              // Cache the content in the map
+              fileContentMap.set(file.path, content);
+              
+              // Also update the node in the fileTree
+              const node = findNode(fileTree, file.path);
+              if (node && node.type === 'file') {
+                node.content = content;
+                // Also update lines count for display
+                node.lines = content.split('\n').length;
+              }
+            } catch (err) {
+              console.error(`Failed to fetch content for ${file.path}:`, err);
+              fileContentMap.set(file.path, `// Error fetching content for ${file.path}: ${err instanceof Error ? err.message : 'Unknown error'}`);
+            }
+          })();
+          fetchPromises.push(fetchPromise);
+        } else {
+          // For local files or GitHub files with content already loaded
+          fileContentMap.set(file.path, file.content || '');
+        }
+      }
+      
+      // Wait for all content fetches to complete
+      if (fetchPromises.length > 0) {
+        console.log(`Fetching content for ${fetchPromises.length} GitHub files...`);
+        await Promise.all(fetchPromises);
+        console.log('All content fetches completed');
+      }
+      
+      // Now that we have all content, build the combined string
+      let combinedContent = '';
+      for (const file of filesToCopy) {
+        const content = fileContentMap.get(file.path) || '';
+        // Skip empty content or just use placeholder for binary files
+        if (!content && !isBinaryFile(file.path)) {
+          combinedContent += `// ${file.path}\n// [Empty file]\n\n`;
+          continue;
+        }
+        
+        // For binary files, just use the placeholder
+        if (isBinaryFile(file.path)) {
+          combinedContent += `// ${file.path}\n// [Binary file not included]\n\n`;
+          continue;
+        }
+        
+        const processedContent = minifyOnCopy ? minifyCode(content) : content;
         combinedContent += `// ${file.path}\n${processedContent}\n\n`;
       }
       
@@ -819,8 +873,7 @@ const FileSelector = ({
     } finally {
       setIsCopying(false); // Clear loading state regardless of success/failure
     }
-
-  }, [fileTree, selectedFiles, isCopying, findNode, generateProjectTreeString, minifyOnCopy, minifyCode, dataSource, getAllFilesFromDataSource]);
+  }, [fileTree, selectedFiles, isCopying, findNode, generateProjectTreeString, minifyOnCopy, minifyCode, dataSource, getAllFilesFromDataSource, isBinaryFile]);
 
   const toggleExpand = useCallback((path: string) => {
     setExpandedNodes(prev => {
