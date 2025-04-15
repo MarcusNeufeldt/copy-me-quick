@@ -64,14 +64,26 @@ const FileUploadSection: React.FC<FileUploadSectionProps> = ({
   }, []);
 
   const processFiles = useCallback(async (files: FileList) => {
+    console.log('processFiles using filters:', state.fileTypes);
     setError(null);
     setProgress(0);
     setUploadStats(prev => ({ total: files.length, valid: 0 }));
     setIsProcessing(true);
     setProcessingStatus("Initializing refresh...");
 
-    const excludedFolders = state.excludeFolders.split(',').map(f => f.trim());
-    const allowedFileTypes = state.fileTypes.split(',').map(t => t.trim());
+    // Get the latest state directly using a function-style setState getter
+    // to ensure we're always using the most current state values
+    let currentState = state; // Initialize with current state
+    setState(latestState => {
+      currentState = latestState;
+      return latestState;
+    });
+    
+    // Use values from currentState which has the latest state
+    const excludedFolders = currentState.excludeFolders.split(',').map(f => f.trim());
+    const allowedFileTypes = currentState.fileTypes.split(',').map(t => t.trim());
+    
+    console.log('Using latest file type filters:', allowedFileTypes);
 
     const newFileContentsMap = new Map<string, FileData>();
     let newTotalLines = 0;
