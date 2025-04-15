@@ -7,7 +7,7 @@ import { Progress } from "@/components/ui/progress";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import FileSelector from './FileSelector';
 import { AppState, FileData, DataSource } from './types';
-import { Copy, File, Folder, FileText, CheckCircle2, BarChart3, FileSymlink, Layers, AlertCircle, CopyCheck, Download, Save, AlertTriangle, Archive } from 'lucide-react';
+import { Copy, File, Folder, FileText, CheckCircle2, BarChart3, FileSymlink, Layers, AlertCircle, CopyCheck, Download, Save, AlertTriangle, Archive, ClipboardList } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -150,6 +150,7 @@ const AnalysisResult: React.FC<AnalysisResultProps> = ({
   const [backupName, setBackupName] = useState('');
   const [activeFileTab, setActiveFileTab] = useState('selector');
   const [activeOutputTab, setActiveOutputTab] = useState('output');
+  const [copyTreeSuccess, setCopyTreeSuccess] = useState(false);
 
   // Create internal dataSource if not provided
   const effectiveDataSource = useMemo(() => {
@@ -268,6 +269,19 @@ const AnalysisResult: React.FC<AnalysisResultProps> = ({
 
     return buildTreeString(tree);
   };
+
+  // Handler for copying the project tree structure
+  const handleCopyTreeStructure = useCallback(() => {
+    if (state.analysisResult?.files) {
+      const treeString = generateProjectTree(state.analysisResult.files);
+      navigator.clipboard.writeText(treeString).then(() => {
+        setCopyTreeSuccess(true);
+        setTimeout(() => setCopyTreeSuccess(false), 2000); // Reset after 2 seconds
+      }).catch(err => {
+        console.error('Failed to copy tree structure: ', err);
+      });
+    }
+  }, [state.analysisResult, generateProjectTree]);
 
   const tokenPercentage = Math.min(100, (tokenCount / maxTokens) * 100);
   const isTokenWarning = tokenPercentage > 75;
@@ -438,7 +452,30 @@ ${selectedFiles.map(file => `- \`${file.path}\` (${file.lines} lines)`).join('\n
         <TabsContent value="tree" className="mt-0 animate-slide-up">
           <Card className="glass-card">
             <CardHeader className="pb-2">
-              <CardTitle className="text-xl font-heading">Selected Files Tree</CardTitle>
+              <div className="flex justify-between items-center">
+                <CardTitle className="text-xl font-heading">Selected Files Tree</CardTitle>
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button 
+                        variant="outline"
+                        size="sm"
+                        onClick={handleCopyTreeStructure}
+                      >
+                        {copyTreeSuccess ? (
+                          <CopyCheck className="h-4 w-4 mr-2 text-green-500" />
+                        ) : (
+                          <ClipboardList className="h-4 w-4 mr-2" />
+                        )}
+                        <span>Copy Tree</span>
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p>Copy Tree Structure to Clipboard</p>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              </div>
             </CardHeader>
             <CardContent>
               {state.selectedFiles.length > 0 ? (
