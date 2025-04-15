@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
@@ -53,6 +53,7 @@ const FileUploadSection: React.FC<FileUploadSectionProps> = ({
   const [showInfoBox, setShowInfoBox] = useState(true);
   const [rememberPreference, setRememberPreference] = useState(false);
   const [processingStatus, setProcessingStatus] = useState<string | null>(null);
+  const formRef = useRef<HTMLFormElement>(null);
 
   useEffect(() => {
     const savedPreference = localStorage.getItem('showUploadInfoBox');
@@ -176,6 +177,7 @@ const FileUploadSection: React.FC<FileUploadSectionProps> = ({
   }, [state, setState, updateCurrentProject, onUploadComplete, setError]);
 
   const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+    console.log('handleFileUpload triggered:', event.target.files);
     if (event.target.files && event.target.files.length > 0) {
       setIsDialogOpen(false);
       processFiles(event.target.files);
@@ -183,9 +185,13 @@ const FileUploadSection: React.FC<FileUploadSectionProps> = ({
   };
 
   const handleRefreshClick = () => {
+    // Reset the form to clear the file input state completely
+    if (formRef.current) {
+      formRef.current.reset();
+    }
+    
     const fileInput = document.getElementById('fileInput') as HTMLInputElement | null;
     if (fileInput) {
-      fileInput.value = '';
       fileInput.click();
     } else {
       setError("Could not find the file input element.");
@@ -256,14 +262,16 @@ const FileUploadSection: React.FC<FileUploadSectionProps> = ({
 
   return (
     <div className="space-y-3">
-      <input
-        id="fileInput"
-        type="file"
-        webkitdirectory=""
-        directory=""
-        style={{ display: 'none' }}
-        onChange={handleFileUpload}
-      />
+      <form ref={formRef}>
+        <input
+          id="fileInput"
+          type="file"
+          webkitdirectory=""
+          directory=""
+          style={{ display: 'none' }}
+          onChange={handleFileUpload}
+        />
+      </form>
       
       <div className="flex flex-col sm:flex-row gap-2">
         <TooltipProvider>
