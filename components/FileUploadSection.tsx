@@ -34,6 +34,7 @@ interface FileUploadSectionProps {
   setError: React.Dispatch<React.SetStateAction<string | null>>;
   onUploadComplete: (newState: AppState) => void;
   projectTypeSelected: boolean;
+  buttonTooltip?: string;
 }
 
 const FileUploadSection: React.FC<FileUploadSectionProps> = ({
@@ -42,7 +43,8 @@ const FileUploadSection: React.FC<FileUploadSectionProps> = ({
   updateCurrentProject,
   setError,
   onUploadComplete,
-  projectTypeSelected
+  projectTypeSelected,
+  buttonTooltip
 }) => {
   const [progress, setProgress] = useState(0);
   const [uploadStats, setUploadStats] = useState<{ total: number; valid: number }>({ total: 0, valid: 0 });
@@ -264,22 +266,33 @@ const FileUploadSection: React.FC<FileUploadSectionProps> = ({
       />
       
       <div className="flex flex-col sm:flex-row gap-2">
-        <Button
-          variant="outline"
-          size="sm"
-          className="w-full text-xs sm:text-sm flex items-center justify-center"
-          onClick={handleChooseFolder}
-          disabled={isProcessing || !projectTypeSelected}
-        >
-          <FolderOpen className="h-3.5 w-3.5 mr-1.5" />
-          Choose Folder
-        </Button>
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="outline"
+                size="sm"
+                className="w-full text-xs sm:text-sm flex items-center justify-center sm:w-1/2"
+                onClick={handleChooseFolder}
+                disabled={isProcessing || !projectTypeSelected}
+              >
+                <FolderOpen className="h-3.5 w-3.5 mr-1.5" />
+                Choose Folder
+              </Button>
+            </TooltipTrigger>
+            {buttonTooltip && (
+              <TooltipContent side="top">
+                <p>{buttonTooltip}</p>
+              </TooltipContent>
+            )}
+          </Tooltip>
+        </TooltipProvider>
         
         {state.analysisResult && (
           <Button
             variant="outline"
             size="sm"
-            className="w-full text-xs sm:text-sm flex items-center justify-center"
+            className="w-full text-xs sm:text-sm flex items-center justify-center sm:w-1/2"
             onClick={handleRefreshClick}
             disabled={isProcessing}
           >

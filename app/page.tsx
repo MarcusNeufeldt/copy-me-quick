@@ -10,10 +10,11 @@ import AnalysisResult from '@/components/AnalysisResult';
 import { AppState, Project, FileData, AnalysisResultData, Backup } from '@/components/types';
 import dynamic from 'next/dynamic';
 import { Button } from "@/components/ui/button";
-import { GithubIcon, RotateCcw, Code2, GitBranchPlus, LayoutGrid, Github, CheckCircle, XCircle, GitBranch, BookMarked } from 'lucide-react';
+import { GithubIcon, RotateCcw, Code2, GitBranchPlus, LayoutGrid, Github, CheckCircle, XCircle, GitBranch, BookMarked, Computer } from 'lucide-react';
 import Image from 'next/image';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import FileSelector from '@/components/FileSelector';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
 // Dynamically import Analytics with error handling
 const AnalyticsComponent = dynamic(
@@ -580,173 +581,192 @@ export default function ClientPageRoot() {
                   <h2 className="font-heading font-semibold text-sm sm:text-base">Project Configuration</h2>
                 </div>
                 
-                <ProjectSelector
-                  setState={setState}
-                  onProjectTypeSelected={setProjectTypeSelected}
-                  projectTypes={projectTypes}
-                  onProjectTemplatesUpdate={handleProjectTemplateUpdate}
-                />
-                
-                {/* --- GitHub Integration Start --- */}
-                <div className="space-y-3 sm:space-y-4">
-                  <h3 className="text-xs sm:text-sm font-medium text-muted-foreground">Load From</h3>
-                  <FileUploadSection
-                    state={state}
-                    setState={setState}
-                    updateCurrentProject={updateCurrentProject}
-                    setError={setError}
-                    onUploadComplete={handleUploadComplete}
-                    projectTypeSelected={projectTypeSelected}
-                  />
-                  {/* Separator */}
-                  <div className="relative my-3 sm:my-4">
-                    <div className="absolute inset-0 flex items-center">
-                      <span className="w-full border-t" />
-                    </div>
-                    <div className="relative flex justify-center text-xs uppercase">
-                      <span className="bg-card px-2 text-muted-foreground">
-                        Or
-                      </span>
-                    </div>
+                {/* --- Load From Section --- */}
+                <div className="space-y-4">
+                  {/* Section 1: Local Folder */}
+                  <div className="border rounded-lg p-3 space-y-3 bg-muted/10"> {/* Increased space-y slightly */}
+                    <h4 className="flex items-center gap-1.5 text-sm font-semibold">
+                      <Computer className="h-4 w-4 text-blue-500" />
+                      Local Folder
+                    </h4>
+                    <ProjectSelector
+                      setState={setState}
+                      onProjectTypeSelected={setProjectTypeSelected}
+                      projectTypes={projectTypes}
+                      onProjectTemplatesUpdate={handleProjectTemplateUpdate}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Reads the <i>current state</i> of your files (including uncommitted changes). Processed locally.
+                    </p>
+                    <FileUploadSection
+                      state={state}
+                      setState={setState}
+                      updateCurrentProject={updateCurrentProject}
+                      setError={setError}
+                      onUploadComplete={handleUploadComplete}
+                      projectTypeSelected={projectTypeSelected}
+                      buttonTooltip="Reads current files from your disk, including uncommitted changes."
+                    />
                   </div>
-                  {/* GitHub Section */}
-                  {isLoadingGithubUser ? (
-                    <div className="text-center text-muted-foreground text-xs sm:text-sm">Checking GitHub connection...</div>
-                  ) : githubUser ? (
-                    <div className="space-y-3 sm:space-y-4 text-xs sm:text-sm border-t pt-3 sm:pt-4 mt-3 sm:mt-4">
-                       <div className="flex items-center justify-between mb-2">
-                         <div className="flex items-center gap-2">
-                           {githubUser.avatarUrl && (
-                              <Image 
-                                 src={githubUser.avatarUrl} 
-                                 alt={`${githubUser.login} avatar`} 
-                                 width={24} 
-                                 height={24} 
-                                 className="rounded-full" 
-                              />
-                           )}
-                           <span className="font-medium">{githubUser.login}</span>
-                           <CheckCircle className="h-4 w-4 text-green-500" />
-                         </div>
-                         <Button variant="ghost" size="sm" onClick={handleGitHubLogout} title="Disconnect GitHub">
-                           <XCircle className="h-4 w-4" />
-                         </Button>
-                       </div>
-                       
-                       {/* Repo Selector */} 
-                       <div className="space-y-1">
-                         <label htmlFor="github-repo-select" className="flex items-center gap-1 text-xs font-medium text-muted-foreground">
-                            <BookMarked className="h-3 w-3" /> Repository
-                         </label>
-                         <Select 
-                           value={selectedRepoFullName || ''} 
-                           onValueChange={handleRepoChange}
-                           disabled={isLoadingRepos || repos.length === 0}
-                         >
-                            <SelectTrigger id="github-repo-select" className="text-xs sm:text-sm">
-                                <SelectValue placeholder={isLoadingRepos ? "Loading repos..." : "Select repository..."} />
-                            </SelectTrigger>
-                            <SelectContent>
-                                {repos.map((repo: GitHubRepo) => (
-                                <SelectItem key={repo.id} value={repo.full_name} className="text-xs sm:text-sm">
-                                    {repo.full_name}
-                                </SelectItem>
-                                ))}
-                            </SelectContent>
-                         </Select>
-                       </div>
+                  {/* --- End of Local Folder Section --- */}
 
-                       {/* Branch Selector */} 
-                       {selectedRepoFullName && (
+                  {/* NEW Section 2: GitHub Wrapper */}
+                   <div className="border rounded-lg p-3 space-y-2 bg-muted/10">
+                     <h4 className="flex items-center gap-1.5 text-sm font-semibold">
+                      <Github className="h-4 w-4 text-purple-500" />
+                      GitHub Repository
+                    </h4>
+                    <p className="text-xs text-muted-foreground pb-1">
+                      <b>GitHub:</b> Reads the <i>committed files</i> directly from the selected repository and branch.
+                    </p>
+                    {/* GitHub Connection Logic */}
+                    {isLoadingGithubUser ? (
+                      <div className="text-center text-muted-foreground text-xs sm:text-sm pt-2">Checking GitHub connection...</div>
+                    ) : githubUser ? (
+                      <div className="space-y-3 sm:space-y-4 text-xs sm:text-sm border-t pt-3 sm:pt-4 mt-3 sm:mt-4">
+                         <div className="flex items-center justify-between mb-2">
+                           <div className="flex items-center gap-2">
+                             {githubUser.avatarUrl && (
+                                <Image 
+                                   src={githubUser.avatarUrl} 
+                                   alt={`${githubUser.login} avatar`} 
+                                   width={24} 
+                                   height={24} 
+                                   className="rounded-full" 
+                                />
+                             )}
+                             <span className="font-medium">{githubUser.login}</span>
+                             <CheckCircle className="h-4 w-4 text-green-500" />
+                           </div>
+                           <Button variant="ghost" size="sm" onClick={handleGitHubLogout} title="Disconnect GitHub">
+                             <XCircle className="h-4 w-4" />
+                           </Button>
+                         </div>
+                         
+                         {/* Repo Selector */} 
                          <div className="space-y-1">
-                           <label htmlFor="github-branch-select" className="flex items-center gap-1 text-xs font-medium text-muted-foreground">
-                             <GitBranch className="h-3 w-3" /> Branch
+                           <label htmlFor="github-repo-select" className="flex items-center gap-1 text-xs font-medium text-muted-foreground">
+                              <BookMarked className="h-3 w-3" /> Repository
                            </label>
-                           
-                           {/* Direct branch selection buttons */}
-                           {isLoadingBranches ? (
-                             <div className="text-center text-muted-foreground text-xs py-2">Loading branches...</div>
-                           ) : branches.length > 0 ? (
-                             <div className="border rounded-md p-2 max-h-36 sm:max-h-48 overflow-y-auto">
-                               {branches.map((branch: GitHubBranch) => (
-                                 <Button
-                                   key={branch.name}
-                                   size="sm"
-                                   variant={selectedBranchName === branch.name ? "default" : "ghost"}
-                                   className="w-full justify-start text-xs mb-1"
-                                   onClick={() => handleBranchChange(branch.name)}
-                                 >
-                                   <GitBranch className="h-3 w-3 mr-1" />
-                                   {branch.name}
-                                 </Button>
-                               ))}
-                             </div>
-                           ) : (
-                             <div className="text-center text-muted-foreground text-xs py-2">No branches found</div>
-                           )}
+                           <Select 
+                             value={selectedRepoFullName || ''} 
+                             onValueChange={handleRepoChange}
+                             disabled={isLoadingRepos || repos.length === 0}
+                           >
+                              <SelectTrigger id="github-repo-select" className="text-xs sm:text-sm">
+                                  <SelectValue placeholder={isLoadingRepos ? "Loading repos..." : "Select repository..."} />
+                              </SelectTrigger>
+                              <SelectContent>
+                                  {repos.map((repo: GitHubRepo) => (
+                                  <SelectItem key={repo.id} value={repo.full_name} className="text-xs sm:text-sm">
+                                      {repo.full_name}
+                                  </SelectItem>
+                                  ))}
+                              </SelectContent>
+                           </Select>
                          </div>
-                       )}
 
-                       {/* Error Display for Selection */}
-                       {githubSelectionError && (
-                         <p className="text-xs text-destructive">Error: {githubSelectionError}</p>
-                       )}
+                         {/* Branch Selector */} 
+                         {selectedRepoFullName && (
+                           <div className="space-y-1">
+                             <label htmlFor="github-branch-select" className="flex items-center gap-1 text-xs font-medium text-muted-foreground">
+                               <GitBranch className="h-3 w-3" /> Branch
+                             </label>
+                             
+                             {/* Direct branch selection buttons */}
+                             {isLoadingBranches ? (
+                               <div className="text-center text-muted-foreground text-xs py-2">Loading branches...</div>
+                             ) : branches.length > 0 ? (
+                               <div className="border rounded-md p-2 max-h-36 sm:max-h-48 overflow-y-auto">
+                                 {branches.map((branch: GitHubBranch) => (
+                                   <Button
+                                     key={branch.name}
+                                     size="sm"
+                                     variant={selectedBranchName === branch.name ? "default" : "ghost"}
+                                     className="w-full justify-start text-xs mb-1"
+                                     onClick={() => handleBranchChange(branch.name)}
+                                   >
+                                     <GitBranch className="h-3 w-3 mr-1" />
+                                     {branch.name}
+                                   </Button>
+                                 ))}
+                               </div>
+                             ) : (
+                               <div className="text-center text-muted-foreground text-xs py-2">No branches found</div>
+                             )}
+                           </div>
+                         )}
 
-                       {/* Loading indicator for tree */}
-                       {isLoadingTree && (
-                           <div className="text-center text-muted-foreground text-xs py-2">Loading file tree...</div>
-                       )}
-                       
-                       {/* File content loading progress */}
-                       {isLoadingFileContents && (
-                          <div className="space-y-2 animate-pulse">
-                            <div className="flex justify-between text-xs text-muted-foreground">
-                              <span>Loading file contents...</span>
-                              <span>{fileLoadingProgress.current}/{fileLoadingProgress.total} files</span>
-                            </div>
-                            <div className="w-full bg-muted rounded-full h-2">
-                              <div 
-                                className="bg-primary h-2 rounded-full transition-all duration-300" 
-                                style={{ 
-                                  width: `${fileLoadingProgress.total > 0 
-                                    ? Math.round((fileLoadingProgress.current / fileLoadingProgress.total) * 100) 
-                                    : 0}%` 
-                                }} 
-                              />
-                            </div>
-                            {fileLoadingMessage && (
-                              <div className="text-center text-amber-500 text-xs mt-2 font-medium">
-                                {fileLoadingMessage}
+                         {/* Error Display for Selection */}
+                         {githubSelectionError && (
+                           <p className="text-xs text-destructive">Error: {githubSelectionError}</p>
+                         )}
+
+                         {/* Loading indicator for tree */}
+                         {isLoadingTree && (
+                             <div className="text-center text-muted-foreground text-xs py-2">Loading file tree...</div>
+                         )}
+                         
+                         {/* File content loading progress */}
+                         {isLoadingFileContents && (
+                            <div className="space-y-2 animate-pulse">
+                              <div className="flex justify-between text-xs text-muted-foreground">
+                                <span>Loading file contents...</span>
+                                <span>{fileLoadingProgress.current}/{fileLoadingProgress.total} files</span>
                               </div>
-                            )}
-                          </div>
-                       )}
-                       
-                       {isGithubTreeTruncated && (
-                          <Alert variant="default" className="text-xs mt-2">
-                             <AlertDescription>Warning: Repository tree is large and was truncated. Some files/folders might be missing.</AlertDescription>
-                          </Alert>
-                       )}
-                       {/* FileSelector will now be rendered conditionally based on githubTree */} 
-                    </div>
-                  ) : (
-                    <div>
-                      <Button 
-                        size="sm" 
-                        variant="outline" 
-                        className="w-full flex items-center justify-center gap-2"
-                        onClick={handleGitHubLogin}
-                      >
-                        <Github className="h-4 w-4" />
-                        <span>Connect to GitHub</span>
-                      </Button>
-                      {githubError && (
-                        <p className="text-xs text-destructive mt-2">{githubError}</p>
-                      )}
-                    </div>
-                  )}
+                              <div className="w-full bg-muted rounded-full h-2">
+                                <div 
+                                  className="bg-primary h-2 rounded-full transition-all duration-300" 
+                                  style={{ 
+                                    width: `${fileLoadingProgress.total > 0 
+                                      ? Math.round((fileLoadingProgress.current / fileLoadingProgress.total) * 100) 
+                                      : 0}%` 
+                                  }} 
+                                />
+                              </div>
+                              {fileLoadingMessage && (
+                                <div className="text-center text-amber-500 text-xs mt-2 font-medium">
+                                  {fileLoadingMessage}
+                                </div>
+                              )}
+                            </div>
+                         )}
+                         
+                         {isGithubTreeTruncated && (
+                            <Alert variant="default" className="text-xs mt-2">
+                               <AlertDescription>Warning: Repository tree is large and was truncated. Some files/folders might be missing.</AlertDescription>
+                            </Alert>
+                         )}
+                         {/* FileSelector will now be rendered conditionally based on githubTree */} 
+                      </div>
+                    ) : (
+                      <div className="pt-2"> 
+                        <TooltipProvider>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button 
+                                size="sm" 
+                                variant="outline" 
+                                className="w-full flex items-center justify-center gap-2"
+                                onClick={handleGitHubLogin}
+                              >
+                                <Github className="h-4 w-4" />
+                                <span>Connect to GitHub</span>
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent side="top">
+                              <p>Reads committed files from your GitHub repository.</p>
+                            </TooltipContent>
+                          </Tooltip>
+                        </TooltipProvider>
+                        {githubError && (
+                          <p className="text-xs text-destructive mt-2">{githubError}</p>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                  {/* --- End of GitHub Section Wrapper --- */}
                 </div>
-                {/* --- GitHub Integration End --- */}
                 
                 <BackupManagement
                   state={state}
