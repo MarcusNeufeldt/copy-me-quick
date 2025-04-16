@@ -33,219 +33,7 @@ import {
   Ban
 } from 'lucide-react';
 import { FileData, AppState, DataSource, GitHubTreeItem, GitHubRepoInfo, FileSelectorProps } from './types';
-
-interface InternalTreeNode {
-  name: string;
-  path: string;
-  type: 'file' | 'directory';
-  children?: { [key: string]: InternalTreeNode };
-  lines?: number;
-  content?: string;
-  sha?: string;
-  size?: number;
-  formattedSize?: string;
-}
-
-const FileTreeNode: React.FC<{
-  node: InternalTreeNode;
-  selectedFiles: string[];
-  onToggle: (path: string, isSelected: boolean) => void;
-  expandedNodes: Set<string>;
-  toggleExpand: (path: string) => void;
-  averageLines: number;
-  searchTerm: string;
-  highlightSearch: boolean;
-}> = ({ node, selectedFiles, onToggle, expandedNodes, toggleExpand, averageLines, searchTerm, highlightSearch }) => {
-  const isFolder = node.type === 'directory';
-  const isExpanded = expandedNodes.has(node.path);
-
-  const getAllDescendants = (node: InternalTreeNode): string[] => {
-    if (node.type === 'file') return [node.path];
-    if (!node.children) return [];
-    return Object.values(node.children).flatMap(getAllDescendants);
-  };
-
-  const getSelectionState = () => {
-    if (!isFolder) {
-      return selectedFiles.includes(node.path) ? "checked" : "unchecked";
-    }
-    const allDescendants = getAllDescendants(node);
-    const selectedDescendants = allDescendants.filter(path => selectedFiles.includes(path));
-    if (selectedDescendants.length === 0) return "unchecked";
-    if (selectedDescendants.length === allDescendants.length) return "checked";
-    return "indeterminate";
-  };
-
-  const handleCheckboxChange = (checked: boolean) => {
-    // For indeterminate state, treat it as unchecked -> checked
-    onToggle(node.path, checked);
-  };
-
-  // Determine file size level relative to average
-  const getFileSizeLevel = (): 'normal' | 'moderate' | 'large' => {
-    if (isFolder || !node.lines || averageLines <= 0) return 'normal';
-    if (node.lines > averageLines * 2.5) return 'large';
-    if (node.lines > averageLines * 1.25) return 'moderate';
-    return 'normal';
-  };
-
-  const fileSizeLevel = getFileSizeLevel();
-  const isLargeFile = fileSizeLevel === 'large';
-  const isModerateFile = fileSizeLevel === 'moderate';
-  const isWarningFile = isLargeFile || isModerateFile; // Files needing a warning icon
-
-  // Calculate size ratio for progress indicator
-  const getSizeRatio = (): number => {
-    if (isFolder || !node.lines || averageLines <= 0) return 0;
-    const ratio = Math.min(node.lines / (averageLines * 3), 1); // Cap at 3x average
-    return ratio * 100; // Return as percentage
-  };
-  
-  const sizeRatio = getSizeRatio();
-
-  // Determine if this node matches the search
-  const matchesSearch = searchTerm && node.name.toLowerCase().includes(searchTerm.toLowerCase());
-  // For files, also check content
-  const contentMatches = !isFolder && searchTerm && !!(node.content?.toLowerCase().includes(searchTerm.toLowerCase()));
-  
-  // Only show this node if:
-  // 1. It matches the search term
-  // 2. It's a folder with children that match the search term
-  // 3. There's no search term
-  // const isAboveLargeSize = !isFolder && node.lines && averageLines > 0 && node.lines > averageLines * 1.5; // OLD logic removed
-
-  // Define styles based on level
-  let selectedBgClass = 'bg-muted/30 dark:bg-muted/10'; // Default selected BG
-  let iconComponent = <File className="h-4 w-4 text-muted-foreground/70" />;
-  let tooltipWarning = '';
-  let progressBarColor = 'bg-sky-200 dark:bg-sky-900';
-  let progressBarHeight = 'h-[3px]';
-  let progressBarStyle = '';
-
-  if (isLargeFile) {
-    selectedBgClass = 'bg-rose-50/60 dark:bg-rose-950/30';
-    iconComponent = <FileWarning className="h-4 w-4 text-rose-500" />;
-    tooltipWarning = 'Very large file (may use many tokens)';
-    progressBarColor = 'bg-rose-500 dark:bg-rose-600';
-    progressBarHeight = 'h-[4px]';
-    progressBarStyle = 'animate-pulse';
-  } else if (isModerateFile) {
-    selectedBgClass = 'bg-yellow-50/60 dark:bg-yellow-950/30';
-    iconComponent = <FileWarning className="h-4 w-4 text-yellow-500" />;
-    tooltipWarning = 'Moderately large file (may use more tokens)';
-    progressBarColor = 'bg-yellow-300 dark:bg-yellow-700';
-  }
-  
-  return (
-    <div className={`${isFolder ? 'mb-1' : ''} ${highlightSearch && (matchesSearch || contentMatches) ? 'animate-pulse-subtle' : ''}`}>
-      <div className={`relative flex items-center space-x-2 py-1 px-2 rounded-md transition-colors hover:bg-muted/50 ${
-        selectedFiles.includes(node.path) ? selectedBgClass : '' // Apply dynamic selected BG class
-      }`}>
-        {!isFolder && node.lines && averageLines > 0 && (
-          <div className={`absolute bottom-0 left-0 ${progressBarHeight} rounded-b-md opacity-60 ${progressBarStyle}`} 
-               style={{ width: `${sizeRatio}%`, backgroundColor: getComputedStyle(document.documentElement).getPropertyValue(`--${progressBarColor.split('-')[1]}-500`) }}></div>
-        )}
-        <div className="flex items-center">
-          {isFolder ? (
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-6 w-6 p-0 hover:bg-transparent hover:text-primary"
-              onClick={() => toggleExpand(node.path)}
-            >
-              {isExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
-            </Button>
-          ) : (
-            <div className="w-6 flex justify-center">
-              {iconComponent} {/* Use dynamic icon */}
-            </div>
-          )}
-        </div>
-        <Checkbox
-          id={node.path}
-          checked={getSelectionState() === "checked"}
-          onCheckedChange={handleCheckboxChange}
-          className="h-4 w-4"
-          {...(getSelectionState() === "indeterminate" && { "data-state": "indeterminate" })}
-        />
-        <TooltipProvider>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <span className="flex-grow truncate text-sm cursor-default">
-                {isFolder ? (
-                  <span className="font-medium">{node.name}</span>
-                ) : (
-                  <span className={`${matchesSearch ? 'text-primary font-medium' : 'text-foreground'}`}>{node.name}</span>
-                )}
-                {!isFolder && (
-                  <>
-                    {node.lines && (
-                      <span className="ml-2 text-xs text-muted-foreground">
-                        ({node.lines.toLocaleString()} lines)
-                      </span>
-                    )}
-                    {!node.lines && node.formattedSize && (
-                      <span className="ml-2 text-xs text-muted-foreground">
-                        ({node.formattedSize})
-                      </span>
-                    )}
-                  </>
-                )}
-                {contentMatches && !matchesSearch && !isFolder && (
-                  <span className="ml-2 text-xs text-primary">
-                    (content match)
-                  </span>
-                )}
-              </span>
-            </TooltipTrigger>
-            <TooltipContent side="right" align="start">
-              <p className="text-xs break-all">{node.path}</p>
-              {!isFolder && node.lines && averageLines > 0 && (
-                <p className="text-xs mt-1">
-                  <span>{node.lines.toLocaleString()} lines</span>
-                  <span className="ml-2 text-muted-foreground">
-                    ({(node.lines / averageLines).toFixed(1)}x avg)
-                  </span>
-                </p>
-              )}
-              {tooltipWarning && (
-                <p className={`text-xs mt-1 ${isLargeFile ? 'text-rose-500' : 'text-yellow-600 dark:text-yellow-400'}`}>
-                  {tooltipWarning}
-                </p>
-              )}
-            </TooltipContent>
-          </Tooltip>
-        </TooltipProvider>
-      </div>
-      {isFolder && isExpanded && (
-        <div className="ml-4 pl-2 border-l border-muted dark:border-muted/50">
-          {Object.values(node.children!)
-            .sort((a, b) => {
-              // Sort directories first, then files
-              const aIsFolder = a.type === 'directory';
-              const bIsFolder = b.type === 'directory';
-              if (aIsFolder && !bIsFolder) return -1;
-              if (!aIsFolder && bIsFolder) return 1;
-              return a.name.localeCompare(b.name);
-            })
-            .map((child) => (
-              <FileTreeNode
-                key={child.path}
-                node={child}
-                selectedFiles={selectedFiles}
-                onToggle={onToggle}
-                expandedNodes={expandedNodes}
-                toggleExpand={toggleExpand}
-                averageLines={averageLines}
-                searchTerm={searchTerm}
-                highlightSearch={highlightSearch}
-              />
-            ))}
-        </div>
-      )}
-    </div>
-  );
-};
+import FileTreeNodeMemo, { InternalTreeNode } from './FileTreeNode';
 
 const FileSelector = ({ 
   dataSource,
@@ -1030,63 +818,17 @@ const FileSelector = ({
 
   // Memoize the file tree nodes to render only when necessary
   const treeNodesToRender = useMemo(() => {
-    console.log("Re-rendering tree nodes, searchTerm:", searchTerm, "expandedNodes count:", expandedNodes.size);
-    
     if (!fileTree) return [];
-    
-    // Only apply filtering if there's actually a search term
-    if (!searchTerm) {
-      // When no search term is active, render the complete tree without filtering
-      return Object.values(fileTree)
-        .sort((a, b) => {
-          if (a.type !== b.type) return a.type === 'directory' ? -1 : 1;
-          return a.name.localeCompare(b.name);
-        })
-        .map((node) => (
-          <FileTreeNode
-            key={node.path}
-            node={node}
-            selectedFiles={selectedFiles}
-            onToggle={handleSelectionToggle}
-            expandedNodes={expandedNodes}
-            toggleExpand={toggleExpand}
-            averageLines={averageLines}
-            searchTerm={searchTerm}
-            highlightSearch={highlightSearch}
-          />
-        ));
-    }
-    
-    // If there is a search term, apply filtering
-    // Recursively filter the tree based on the searchTerm and filteredNodes
-    const filterTree = (tree: { [key: string]: InternalTreeNode }): { [key: string]: InternalTreeNode } => {
-      const filtered: { [key: string]: InternalTreeNode } = {};
-      Object.entries(tree).forEach(([key, node]) => {
-        if (filteredNodes.has(node.path)) {
-          // If the node itself matches, include it
-          // If it's a directory, recursively filter its children
-          if (node.type === 'directory' && node.children) {
-            filtered[key] = {
-              ...node,
-              children: filterTree(node.children),
-            };
-          } else {
-            filtered[key] = node;
-          }
-        }
-      });
-      return filtered;
-    };
-    
-    const treeToDisplay = filterTree(fileTree);
-    
-    return Object.values(treeToDisplay)
+    return Object.values(fileTree)
       .sort((a, b) => {
-        if (a.type !== b.type) return a.type === 'directory' ? -1 : 1;
+        const aIsFolder = a.type === 'directory';
+        const bIsFolder = b.type === 'directory';
+        if (aIsFolder && !bIsFolder) return -1;
+        if (!aIsFolder && bIsFolder) return 1;
         return a.name.localeCompare(b.name);
       })
-      .map((node) => (
-        <FileTreeNode
+      .map(node => (
+        <FileTreeNodeMemo
           key={node.path}
           node={node}
           selectedFiles={selectedFiles}
@@ -1098,8 +840,7 @@ const FileSelector = ({
           highlightSearch={highlightSearch}
         />
       ));
-  }, [fileTree, searchTerm, filteredNodes, selectedFiles, handleSelectionToggle, expandedNodes, toggleExpand, averageLines, highlightSearch]);
-
+  }, [fileTree, selectedFiles, handleSelectionToggle, expandedNodes, toggleExpand, averageLines, searchTerm, highlightSearch]);
 
   if (tokenizerLoading) {
     return <div className="flex justify-center p-4"><Loader2 className="animate-spin h-6 w-6 text-muted-foreground" /></div>;
