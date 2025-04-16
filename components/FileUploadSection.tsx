@@ -27,6 +27,12 @@ declare module 'react' {
   }
 }
 
+// Unified Loading State Type (already defined in page.tsx, but needed here for prop type)
+interface LoadingStatus {
+  isLoading: boolean;
+  message: string | null;
+}
+
 interface FileUploadSectionProps {
   state: AppState;
   setState: React.Dispatch<React.SetStateAction<AppState>>;
@@ -35,6 +41,8 @@ interface FileUploadSectionProps {
   onUploadComplete: (newState: AppState) => void;
   projectTypeSelected: boolean;
   buttonTooltip?: string;
+  // Add the unified loading state setter prop
+  setLoadingStatus: React.Dispatch<React.SetStateAction<LoadingStatus>>;
 }
 
 const FileUploadSection: React.FC<FileUploadSectionProps> = ({
@@ -44,15 +52,14 @@ const FileUploadSection: React.FC<FileUploadSectionProps> = ({
   setError,
   onUploadComplete,
   projectTypeSelected,
-  buttonTooltip
+  buttonTooltip,
+  setLoadingStatus // Destructure the new prop
 }) => {
   const [progress, setProgress] = useState(0);
   const [uploadStats, setUploadStats] = useState<{ total: number; valid: number }>({ total: 0, valid: 0 });
-  const [isProcessing, setIsProcessing] = useState(false);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [showInfoBox, setShowInfoBox] = useState(true);
   const [rememberPreference, setRememberPreference] = useState(false);
-  const [processingStatus, setProcessingStatus] = useState<string | null>(null);
   const formRef = useRef<HTMLFormElement>(null);
 
   useEffect(() => {
@@ -68,76 +75,53 @@ const FileUploadSection: React.FC<FileUploadSectionProps> = ({
     setError(null);
     setProgress(0);
     setUploadStats(prev => ({ total: files.length, valid: 0 }));
-    setIsProcessing(true);
-    setProcessingStatus("Initializing refresh...");
+    setLoadingStatus({ isLoading: true, message: 'Initializing file processing...' });
 
-    // Get the latest state directly using a function-style setState getter
-    // to ensure we're always using the most current state values
-    let currentState = state; // Initialize with current state
+    let currentState = state;
     setState(latestState => {
       currentState = latestState;
       return latestState;
     });
-    
-    // Use values from currentState which has the latest state
     const excludedFolders = currentState.excludeFolders.split(',').map(f => f.trim());
     const allowedFileTypes = currentState.fileTypes.split(',').map(t => t.trim());
-    
     console.log('Using latest file type filters:', allowedFileTypes);
 
     const newFileContentsMap = new Map<string, FileData>();
     let newTotalLines = 0;
     let processedFileCount = 0;
 
-    setProcessingStatus("Processing files...");
+    setLoadingStatus({ isLoading: true, message: `Processing ${files.length} files...` });
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
       const relativePath = file.webkitRelativePath || file.name;
-
-      // Split path into components
       const pathComponents = relativePath.split('/');
 
-      // Check 1: Skip if any path component starts with '.' (hidden files/folders)
+      if (i % 10 === 0) {
+         setLoadingStatus(prev => ({ ...prev, message: `Processing ${files.length} files... (${i}/${files.length})` }));
+      }
+
       if (pathComponents.some(part => part.startsWith('.'))) {
-        setProcessingStatus(`Skipping hidden: ${relativePath}`);
         continue;
       }
-
-      // Check 2: Skip if any *directory* component matches an excluded folder name
-      // We check components from the root up to the parent directory of the file (slice(0, -1))
       if (pathComponents.slice(0, -1).some(component => excludedFolders.includes(component))) {
-        setProcessingStatus(`Skipping excluded folder component: ${relativePath}`);
         continue;
       }
-
-      // Check 3: Skip if file type is not in the allowed list
-      // Ensure type is not empty before checking endsWith
       if (!allowedFileTypes.some(type => type && relativePath.endsWith(type))) {
-        setProcessingStatus(`Skipping type: ${relativePath}`);
         continue;
       }
 
-      // If all checks pass, process the file
-      setProcessingStatus(`Reading: ${relativePath}`);
       try {
         const content = await file.text();
         const lines = content.split('\n').length;
-
-        const newFileData: FileData = {
-          path: relativePath,
-          lines,
-          content
-        };
-
+        const newFileData: FileData = { path: relativePath, lines, content };
         newFileContentsMap.set(relativePath, newFileData);
         newTotalLines += lines;
         processedFileCount++;
         setUploadStats(prev => ({ ...prev, valid: processedFileCount }));
-
       } catch (error) {
           console.error(`Error reading file ${relativePath}:`, error);
           setError(`Error reading file: ${relativePath}. It might be corrupted or too large.`);
-          setProcessingStatus(`Error reading: ${relativePath}`);
+          setLoadingStatus(prev => ({ ...prev, message: `Error reading: ${relativePath}` }));
       }
 
       setProgress(Math.round((i + 1) / files.length * 100));
@@ -146,23 +130,23 @@ const FileUploadSection: React.FC<FileUploadSectionProps> = ({
     const finalFiles: FileData[] = Array.from(newFileContentsMap.values());
 
     if (finalFiles.length === 0) {
-      setError(`No valid files found after refresh. Processed ${files.length} files, but none matched the criteria.`);
-      setIsProcessing(false);
-      setProcessingStatus(null);
+      setError(`No valid files found after processing ${files.length} files. Check project type filters.`);
+      setLoadingStatus({ isLoading: false, message: 'Processing failed: No valid files.' });
+      setTimeout(() => setLoadingStatus(prev => ({ ...prev, message: null })), 3000);
       return;
     }
 
-    setProcessingStatus("Updating project tree...");
+    setLoadingStatus({ isLoading: true, message: 'Updating project tree...' });
     await new Promise(resolve => setTimeout(resolve, 10));
     const newProjectTree = generateProjectTree(finalFiles);
 
-    setProcessingStatus("Preserving selections...");
+    setLoadingStatus({ isLoading: true, message: 'Preserving selections...' });
     await new Promise(resolve => setTimeout(resolve, 10));
     const preservedSelectedFiles = state.selectedFiles.filter(selectedPath =>
       newFileContentsMap.has(selectedPath)
     );
 
-    setProcessingStatus("Finalizing state update...");
+    setLoadingStatus({ isLoading: true, message: 'Finalizing state update...' });
     await new Promise(resolve => setTimeout(resolve, 10));
 
     const newState: AppState = {
@@ -170,7 +154,7 @@ const FileUploadSection: React.FC<FileUploadSectionProps> = ({
       analysisResult: {
         totalFiles: finalFiles.length,
         totalLines: newTotalLines,
-        totalTokens: 0, // Will be calculated later
+        totalTokens: 0,
         summary: `Project contains ${finalFiles.length} files with ${newTotalLines} total lines of code.`,
         project_tree: newProjectTree,
         files: finalFiles
@@ -182,11 +166,10 @@ const FileUploadSection: React.FC<FileUploadSectionProps> = ({
     updateCurrentProject(newState);
     onUploadComplete(newState);
 
-    setIsProcessing(false);
-    setProcessingStatus("Refresh complete.");
-    setTimeout(() => setProcessingStatus(null), 2000);
+    setLoadingStatus({ isLoading: false, message: 'Processing complete!' });
+    setTimeout(() => setLoadingStatus(prev => ({ ...prev, message: null })), 2000);
 
-  }, [state, setState, updateCurrentProject, onUploadComplete, setError]);
+  }, [state, setState, updateCurrentProject, onUploadComplete, setError, setLoadingStatus]);
 
   const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     console.log('handleFileUpload triggered:', event.target.files);
@@ -197,7 +180,6 @@ const FileUploadSection: React.FC<FileUploadSectionProps> = ({
   };
 
   const handleRefreshClick = () => {
-    // Reset the form to clear the file input state completely
     if (formRef.current) {
       formRef.current.reset();
     }
@@ -242,11 +224,9 @@ const FileUploadSection: React.FC<FileUploadSectionProps> = ({
   };
 
   const handleChooseFolder = () => {
-    // If we're supposed to show the info box and it's not already open
     if (showInfoBox && !isDialogOpen) {
       setIsDialogOpen(true);
     } else {
-      // Skip the dialog and go straight to file selection
       const fileInput = document.getElementById('fileInput') as HTMLInputElement | null;
       if (fileInput) {
         fileInput.value = '';
@@ -256,15 +236,12 @@ const FileUploadSection: React.FC<FileUploadSectionProps> = ({
   };
 
   const handleProceed = () => {
-    // Remember preference if needed
     if (rememberPreference) {
       localStorage.setItem('showUploadInfoBox', 'false');
     }
     
-    // Close dialog
     setIsDialogOpen(false);
     
-    // Trigger file input
     const fileInput = document.getElementById('fileInput') as HTMLInputElement | null;
     if (fileInput) {
       fileInput.value = '';
@@ -273,67 +250,7 @@ const FileUploadSection: React.FC<FileUploadSectionProps> = ({
   };
 
   return (
-    <div className="space-y-3">
-      <form ref={formRef}>
-        <input
-          id="fileInput"
-          type="file"
-          webkitdirectory=""
-          directory=""
-          style={{ display: 'none' }}
-          onChange={handleFileUpload}
-        />
-      </form>
-      
-      <div className="flex flex-col sm:flex-row gap-2">
-        <TooltipProvider>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="outline"
-                size="sm"
-                className="w-full text-xs sm:text-sm flex items-center justify-center sm:w-1/2"
-                onClick={handleChooseFolder}
-                disabled={isProcessing || !projectTypeSelected}
-              >
-                <FolderOpen className="h-3.5 w-3.5 mr-1.5" />
-                Choose Folder
-              </Button>
-            </TooltipTrigger>
-            {buttonTooltip && (
-              <TooltipContent side="top">
-                <p>{buttonTooltip}</p>
-              </TooltipContent>
-            )}
-          </Tooltip>
-        </TooltipProvider>
-        
-        {state.analysisResult && (
-          <Button
-            variant="outline"
-            size="sm"
-            className="w-full text-xs sm:text-sm flex items-center justify-center sm:w-1/2"
-            onClick={handleRefreshClick}
-            disabled={isProcessing}
-          >
-            <RefreshCw className="h-3.5 w-3.5 mr-1.5" />
-            Refresh
-          </Button>
-        )}
-      </div>
-      
-      {isProcessing && (
-        <div className="space-y-2 animate-pulse">
-          <div className="flex justify-between items-center text-xs text-muted-foreground">
-            <span>
-              {processingStatus || `Processing files... (${uploadStats.valid}/${uploadStats.total})`}
-            </span>
-            <span>{progress}%</span>
-          </div>
-          <Progress value={progress} className="h-1.5" />
-        </div>
-      )}
-      
+    <form ref={formRef} className="space-y-4">
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
@@ -399,7 +316,59 @@ const FileUploadSection: React.FC<FileUploadSectionProps> = ({
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </div>
+
+      <Input
+        id="fileInput"
+        type="file"
+        webkitdirectory="true"
+        directory="true"
+        multiple
+        onChange={handleFileUpload}
+        className="hidden"
+        aria-hidden="true"
+      />
+
+      <div className="flex gap-2">
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                type="button"
+                onClick={handleChooseFolder}
+                disabled={!projectTypeSelected}
+                className="flex-1"
+              >
+                 <FileUp className="mr-2 h-4 w-4" /> Choose Folder
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>
+              <p>{buttonTooltip || "Select your project's root folder."}</p>
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+
+        {state.analysisResult && (
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  onClick={handleRefreshClick}
+                  disabled={!projectTypeSelected}
+                >
+                  <RefreshCw className="h-4 w-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p>Refresh files from the same folder</p>
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        )}
+      </div>
+    </form>
   );
 };
 

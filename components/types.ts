@@ -62,23 +62,40 @@ export interface DataSource {
   repoInfo?: GitHubRepoInfo;
 }
 
+// Define LoadingStatus interface here if not already defined/imported elsewhere
+interface LoadingStatus {
+  isLoading: boolean;
+  message: string | null;
+}
+
 export interface FileSelectorProps {
   dataSource: DataSource;
   selectedFiles: string[];
   setSelectedFiles: (filesOrUpdater: string[] | ((prev: string[]) => string[])) => void;
   maxTokens: number;
-  onTokenCountChange: React.Dispatch<React.SetStateAction<number>>;
-  state?: AppState;
-  setState?: React.Dispatch<React.SetStateAction<AppState>>;
+  // Update onTokenCountChange to match usage in FileSelector
+  onTokenCountChange: (count: number) => void;
+  // Remove state and setState, they are not directly used by FileSelector
+  // state?: AppState;
+  // setState?: React.Dispatch<React.SetStateAction<AppState>>;
   allFiles?: FileData[];
+  // Add the missing loading status props
+  setLoadingStatus: React.Dispatch<React.SetStateAction<LoadingStatus>>;
+  loadingStatus: LoadingStatus;
 }
 
 export interface AnalysisResultProps {
-  state: AppState;
-  setState: React.Dispatch<React.SetStateAction<AppState>>;
-  updateCurrentProject: (newState: AppState) => void;
+  // state: AppState; // Removed as AnalysisResult doesn't seem to use the full state directly
+  // setState: React.Dispatch<React.SetStateAction<AppState>>; // Removed
+  // updateCurrentProject: (newState: AppState) => void; // Removed
+  analysisResult: AnalysisResultData | null; // Pass only necessary data
+  selectedFiles: string[];
+  onSelectedFilesChange: (filesOrUpdater: string[] | ((prev: string[]) => string[])) => void;
   tokenCount: number;
   setTokenCount: React.Dispatch<React.SetStateAction<number>>;
   maxTokens: number;
   dataSource: DataSource;
+  // Add the missing loading status props
+  setLoadingStatus: React.Dispatch<React.SetStateAction<LoadingStatus>>;
+  loadingStatus: LoadingStatus;
 }

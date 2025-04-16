@@ -31,7 +31,13 @@ interface AnalysisResultProps {
   setTokenCount: React.Dispatch<React.SetStateAction<number>>;
   maxTokens: number;
   dataSource?: DataSource;
-  onSaveBackup: (name: string) => void;
+  setLoadingStatus: React.Dispatch<React.SetStateAction<LoadingStatus>>;
+  loadingStatus: LoadingStatus;
+}
+
+interface LoadingStatus {
+  isLoading: boolean;
+  message: string | null;
 }
 
 interface TreeNodeData {
@@ -145,11 +151,10 @@ const AnalysisResult: React.FC<AnalysisResultProps> = React.memo(({
   setTokenCount,
   maxTokens,
   dataSource,
-  onSaveBackup
+  setLoadingStatus,
+  loadingStatus
 }) => {
   const [copySuccess, setCopySuccess] = useState(false);
-  const [showBackupDialog, setShowBackupDialog] = useState(false);
-  const [backupName, setBackupName] = useState('');
   const [activeFileTab, setActiveFileTab] = useState('selector');
   const [activeOutputTab, setActiveOutputTab] = useState('output');
   const [copyTreeSuccess, setCopyTreeSuccess] = useState(false);
@@ -304,14 +309,6 @@ ${selectedFilesData.map(file => `- \`${file.path}\` (${file.lines} lines)`).join
     `${file.path} - ${file.lines} lines`
   ).join('\n'), [selectedFilesData]);
 
-  const handleSaveBackup = () => {
-    if (backupName.trim()) {
-      onSaveBackup(backupName.trim());
-      setShowBackupDialog(false);
-      setBackupName('');
-    }
-  };
-
   const handleCopy = useCallback((type: 'markdown' | 'list' | 'code') => {
     try {
       let text = '';
@@ -448,6 +445,8 @@ ${selectedFilesData.map(file => `- \`${file.path}\` (${file.lines} lines)`).join
                 onTokenCountChange={setTokenCount}
                 allFiles={allAnalysisFiles}
                 tokenCount={tokenCount}
+                setLoadingStatus={setLoadingStatus}
+                loadingStatus={loadingStatus}
               />
             </CardContent>
           </Card>
@@ -530,58 +529,7 @@ ${selectedFilesData.map(file => `- \`${file.path}\` (${file.lines} lines)`).join
                 <DropdownMenuItem onClick={() => downloadAsFile(fileOutput, 'project-code.txt')}>Download Full Code (.txt)</DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
-
-            <Button variant="outline" className="flex justify-between items-center text-xs sm:text-sm" onClick={() => setShowBackupDialog(true)}>
-              <Badge variant="outline" className="mr-2 px-1 py-0 text-xs">BKP</Badge>
-              Save Selection as Backup
-            </Button>
           </div>
-          
-          <Dialog open={showBackupDialog} onOpenChange={setShowBackupDialog}>
-            <DialogContent className="sm:max-w-md">
-              <DialogHeader>
-                <DialogTitle>Save Current Selection</DialogTitle>
-                <DialogDescription>
-                  Create a named backup of your currently selected files. You can restore them later.
-                </DialogDescription>
-              </DialogHeader>
-              
-              <div className="py-4">
-                <Label htmlFor="backup-name" className="text-xs sm:text-sm mb-2 block">Backup Name</Label>
-                <Input 
-                  id="backup-name"
-                  value={backupName}
-                  onChange={(e) => setBackupName(e.target.value)}
-                  placeholder="e.g., Core API Files"
-                  className="text-xs sm:text-sm"
-                />
-              </div>
-              
-              <div className="text-xs text-muted-foreground">
-                <p>This will save your current selection of {selectedFilesData.length} files with {tokenCount.toLocaleString()} tokens.</p>
-              </div>
-              
-              <DialogFooter className="flex flex-col sm:flex-row gap-2 mt-4">
-                <Button 
-                  variant="outline" 
-                  size="sm" 
-                  onClick={() => setShowBackupDialog(false)}
-                  className="w-full sm:w-auto text-xs sm:text-sm"
-                >
-                  Cancel
-                </Button>
-                <Button 
-                  onClick={handleSaveBackup}
-                  disabled={!backupName.trim()}
-                  size="sm"
-                  className="w-full sm:w-auto text-xs sm:text-sm"
-                >
-                  <Save className="h-3.5 w-3.5 mr-1.5" />
-                  Save Backup
-                </Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
         </TabsContent>
         
         <TabsContent value="summary">

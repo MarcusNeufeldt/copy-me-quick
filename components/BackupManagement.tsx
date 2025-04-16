@@ -16,6 +16,12 @@ import {
 } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 interface BackupManagementProps {
   state: AppState;
@@ -63,49 +69,6 @@ const BackupManagement: React.FC<BackupManagementProps> = ({
     alert('Backup created successfully!');
   };
 
-  const restoreBackup = async (backupId: string) => {
-    const selectedBackup = state.backups.find(b => b.id === backupId);
-    if (!selectedBackup || !state.analysisResult) return;
-
-    const zip = new JSZip();
-
-    Object.entries(selectedBackup.fileContents).forEach(([path, content]) => {
-      zip.file(path, content);
-    });
-
-    try {
-      const zipContent = await zip.generateAsync({ type: 'blob' });
-      saveAs(zipContent, `restored_backup_${selectedBackup.id}.zip`);
-      alert('Backup has been prepared for download. Please extract the zip file and replace your original files with these restored versions.');
-    } catch (error) {
-      console.error('Error creating zip file:', error);
-      alert('An error occurred while preparing the backup for download.');
-    }
-
-    const restoredFiles = state.analysisResult.files.map(file => {
-      if (selectedBackup.fileContents[file.path]) {
-        return {
-          ...file,
-          content: selectedBackup.fileContents[file.path],
-          lines: selectedBackup.fileContents[file.path].split('\n').length
-        };
-      }
-      return file;
-    });
-
-    const newState = {
-      ...state,
-      analysisResult: {
-        ...state.analysisResult,
-        files: restoredFiles
-      },
-      selectedFiles: selectedBackup.selectedFiles,
-    };
-
-    setState(newState);
-    updateCurrentProject(newState);
-  };
-
   const deleteBackup = (backupId: string) => {
     const newState = {
       ...state,
@@ -149,19 +112,19 @@ const BackupManagement: React.FC<BackupManagementProps> = ({
     setShowDialog(true);
   };
 
-  const handleRestoreBackup = () => {
+  const handleLoadSelection = () => {
     if (selectedBackup) {
       const updatedState = {
         ...state,
         selectedFiles: selectedBackup.selectedFiles,
       };
-      
+
       setState(updatedState);
       updateCurrentProject(updatedState);
       setShowDialog(false);
     }
   };
-  
+
   const handleDeleteBackup = (id: string) => {
     if (confirm('Are you sure you want to delete this backup?')) {
       const updatedBackups = state.backups.filter(backup => backup.id !== id);
@@ -248,69 +211,39 @@ const BackupManagement: React.FC<BackupManagementProps> = ({
               <Button type="submit">Close</Button>
             </SheetClose>
           </SheetFooter>
+          <div className="mt-4">
+            {selectedBackup && (
+              <Dialog open={showDialog} onOpenChange={setShowDialog}>
+                <DialogContent>
+                  <DialogHeader>
+                    <DialogTitle>Confirm Restore</DialogTitle>
+                    <DialogDescription>
+                      Are you sure you want to load the selection state from this backup? This will replace your current file selection.
+                      <br />
+                      <span className="text-xs text-muted-foreground">
+                        Backup: {selectedBackup.description} ({formatDate(new Date(selectedBackup.timestamp).toISOString())})
+                      </span>
+                    </DialogDescription>
+                  </DialogHeader>
+                  <DialogFooter>
+                    <Button variant="outline" onClick={() => setShowDialog(false)}>Cancel</Button>
+                    <TooltipProvider>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button onClick={handleLoadSelection}>Load Selection</Button>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          <p>Replace the current file selection list with the one saved in this backup.</p>
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
+            )}
+          </div>
         </SheetContent>
       </Sheet>
-      
-      <Dialog open={showDialog} onOpenChange={setShowDialog}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Archive className="h-4 w-4" />
-              {selectedBackup?.description || 'Backup Details'}
-            </DialogTitle>
-            <DialogDescription>
-              Created on {selectedBackup ? formatDate(selectedBackup.timestamp.toString()) : 'unknown date'}
-            </DialogDescription>
-          </DialogHeader>
-          
-          <div className="py-4">
-            <div className="flex justify-between items-center mb-2">
-              <span className="text-xs font-medium">Selected Files</span>
-              <Badge variant="outline" className="px-1.5 py-0 text-xs">
-                {selectedBackup?.selectedFiles.length || 0} files
-              </Badge>
-            </div>
-            
-            <ScrollArea className="h-40 w-full border rounded-md p-2">
-              <ul className="text-xs space-y-1">
-                {selectedBackup?.selectedFiles.map((file, index) => (
-                  <li key={index} className="truncate">
-                    {file}
-                  </li>
-                ))}
-              </ul>
-            </ScrollArea>
-            
-            <div className="mt-4 flex items-center justify-between">
-              <span className="text-xs font-medium">Token Count</span>
-              <Badge 
-                variant="secondary" 
-                className="px-1.5 py-0.5 text-xs font-medium"
-              >
-                {(selectedBackup?.fileContents ? Object.keys(selectedBackup.fileContents).length : 0).toLocaleString()}
-              </Badge>
-            </div>
-          </div>
-          
-          <DialogFooter className="flex flex-col sm:flex-row gap-2">
-            <Button 
-              variant="outline" 
-              size="sm"
-              onClick={() => setShowDialog(false)}
-              className="w-full sm:w-auto text-xs"
-            >
-              Cancel
-            </Button>
-            <Button 
-              onClick={handleRestoreBackup}
-              size="sm"
-              className="w-full sm:w-auto text-xs"
-            >
-              Restore Selection
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 };

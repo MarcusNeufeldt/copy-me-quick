@@ -13,17 +13,27 @@ import {
 // Define the API endpoint constant within the hook or pass it
 const GITHUB_CONTENT_API = '/api/github/content';
 
+// Import LoadingStatus type (define if needed)
+interface LoadingStatus {
+  isLoading: boolean;
+  message: string | null;
+}
+
 interface UseClipboardCopyProps {
   fileTree: { [key: string]: InternalTreeNode } | null;
   selectedFiles: string[];
   minifyOnCopy: boolean;
   dataSource: DataSource;
   getAllFilesFromDataSource: () => FileData[];
+  // Add unified loading state props
+  setLoadingStatus: React.Dispatch<React.SetStateAction<LoadingStatus>>;
+  loadingStatus: LoadingStatus;
 }
 
 interface UseClipboardCopyReturn {
   copySelectedFiles: () => Promise<void>;
-  isCopying: boolean;
+  // Remove isCopying as it's now handled globally
+  // isCopying: boolean;
   copySuccess: boolean;
 }
 
@@ -33,15 +43,19 @@ export function useClipboardCopy({
   minifyOnCopy,
   dataSource,
   getAllFilesFromDataSource,
+  setLoadingStatus, // Destructure props
+  loadingStatus
 }: UseClipboardCopyProps): UseClipboardCopyReturn {
-  const [isCopying, setIsCopying] = useState(false);
+  // Remove local isCopying state
+  // const [isCopying, setIsCopying] = useState(false);
   const [copySuccess, setCopySuccess] = useState(false);
 
   const copySelectedFiles = useCallback(async () => {
-    // Check prerequisites directly inside the function
-    if (!fileTree || selectedFiles.length === 0 || isCopying) return;
-    
-    setIsCopying(true);
+    // Check prerequisites including global loading state
+    if (!fileTree || selectedFiles.length === 0 || loadingStatus.isLoading) return;
+
+    // Set global loading state
+    setLoadingStatus({ isLoading: true, message: 'Copying files...' });
     setCopySuccess(false);
 
     // Build the filtered tree string
@@ -75,6 +89,7 @@ export function useClipboardCopy({
       
       const fetchPromises = [];
       const fileContentMap = new Map<string, string>();
+      let githubFetchNeeded = false;
       
       for (const file of filesToCopy) {
         if (isBinaryFile(file.path)) { // Use imported/passed function
@@ -84,31 +99,18 @@ export function useClipboardCopy({
         }
         
         if (file.dataSourceType === 'github' && !file.content && file.path && dataSource.type === 'github' && dataSource.repoInfo) {
-          const { owner, repo, branch } = dataSource.repoInfo;
+          githubFetchNeeded = true; // Mark that fetching is needed
+          const { owner, repo } = dataSource.repoInfo;
           const fetchPromise = (async () => {
             try {
               const contentUrl = `${GITHUB_CONTENT_API}?owner=${owner}&repo=${repo}&path=${encodeURIComponent(file.path)}`;
-              console.log(`Fetching content: ${contentUrl}`);
               const response = await fetch(contentUrl);
-              
               if (!response.ok) {
                 const errorData = await response.json();
                 throw new Error(errorData.error || `Failed to fetch content (${response.status})`);
               }
-              
               const data = await response.json();
-              const content = data.content;
-              
-              fileContentMap.set(file.path, content);
-              
-              // Note: Updating the original fileTree node content from here is tricky 
-              // as this hook shouldn't directly mutate the parent's state.
-              // The parent component might need to handle this separately if needed.
-              // const node = findNode(fileTree, file.path);
-              // if (node && node.type === 'file') {
-              //   node.content = content;
-              //   node.lines = content.split('\n').length;
-              // }
+              fileContentMap.set(file.path, data.content);
             } catch (err) {
               console.error(`Failed to fetch content for ${file.path}:`, err);
               fileContentMap.set(file.path, `// Error fetching content for ${file.path}: ${err instanceof Error ? err.message : 'Unknown error'}`);
@@ -120,10 +122,14 @@ export function useClipboardCopy({
         }
       }
       
-      if (fetchPromises.length > 0) {
+      if (githubFetchNeeded && fetchPromises.length > 0) {
+        // Update loading message if fetching GitHub content
+        setLoadingStatus({ isLoading: true, message: `Fetching content for ${fetchPromises.length} GitHub files...` });
         console.log(`Fetching content for ${fetchPromises.length} GitHub files...`);
         await Promise.all(fetchPromises);
         console.log('All content fetches completed');
+        // Reset message back to generic copying after fetch
+        setLoadingStatus({ isLoading: true, message: 'Copying files...' });
       }
       
       let combinedContent = '';
@@ -147,16 +153,16 @@ export function useClipboardCopy({
       
       await navigator.clipboard.writeText(clipboardText);
       setCopySuccess(true);
-      // Reset success state after a delay
-      setTimeout(() => setCopySuccess(false), 2000); 
+      setTimeout(() => setCopySuccess(false), 2000);
     } catch (err) {
       console.error('Could not copy text: ', err);
-      setCopySuccess(false); // Ensure success is false on error
+      setCopySuccess(false);
     } finally {
-      setIsCopying(false);
+      // Clear global loading state
+      setLoadingStatus({ isLoading: false, message: null });
     }
-    // Dependencies for the useCallback
-  }, [fileTree, selectedFiles, isCopying, minifyOnCopy, dataSource, getAllFilesFromDataSource]); 
+  }, [fileTree, selectedFiles, loadingStatus, minifyOnCopy, dataSource, getAllFilesFromDataSource, setLoadingStatus]); // Added dependencies
 
-  return { copySelectedFiles, isCopying, copySuccess };
+  // Return only copySelectedFiles and copySuccess
+  return { copySelectedFiles, copySuccess };
 } 

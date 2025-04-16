@@ -47,6 +47,12 @@ import {
 import { useTokenCalculator } from '../hooks/useTokenCalculator'; // Adjust path if needed
 import { useClipboardCopy } from '../hooks/useClipboardCopy'; // Adjust path if needed
 
+// Add LoadingStatus interface definition
+interface LoadingStatus {
+  isLoading: boolean;
+  message: string | null;
+}
+
 // Define content fetching API route
 const GITHUB_CONTENT_API = '/api/github/content'; // Define once
 
@@ -58,14 +64,14 @@ const FileSelector = ({
   onTokenCountChange,
   allFiles,
   tokenCount,
+  setLoadingStatus,
+  loadingStatus
 }: FileSelectorProps & { tokenCount: number }) => {
   const [fileTree, setFileTree] = useState<{ [key: string]: InternalTreeNode } | null>(null);
   const [expandedNodes, setExpandedNodes] = useState<Set<string>>(new Set());
   const [searchTerm, setSearchTerm] = useState('');
   const [filteredNodes, setFilteredNodes] = useState<Set<string>>(new Set());
   const [minifyOnCopy, setMinifyOnCopy] = useState<boolean>(true);
-  const [tokenizerLoading, setTokenizerLoading] = useState(false);
-  const [isAiLoading, setIsAiLoading] = useState(false);
   const [aiError, setAiError] = useState<string | null>(null);
   const [highlightSearch, setHighlightSearch] = useState(false);
 
@@ -102,20 +108,24 @@ const FileSelector = ({
   }, [dataSource, allFiles]); // Depend on dataSource and allFiles
 
   // Use the custom hook for token calculation
-  const { isCalculatingTokens } = useTokenCalculator({
+  const {} = useTokenCalculator({
     selectedFiles,
     getAllFilesFromDataSource,
     onTokenCountChange,
     getEncodingFunc,
+    setLoadingStatus,
+    loadingStatus
   });
 
   // Use the custom hook for clipboard copy logic
-  const { copySelectedFiles, isCopying, copySuccess } = useClipboardCopy({
+  const { copySelectedFiles, copySuccess } = useClipboardCopy({
     fileTree,
     selectedFiles,
     minifyOnCopy,
     dataSource,
     getAllFilesFromDataSource,
+    setLoadingStatus,
+    loadingStatus
   });
 
   // Calculate projectWideAverageLines based on getAllFilesFromDataSource
@@ -146,7 +156,6 @@ const FileSelector = ({
   // Effect to dynamically load tiktoken on mount
   useEffect(() => {
     const loadTokenizer = async () => {
-      setTokenizerLoading(true);
       try {
         console.log("Attempting dynamic import of tiktoken...");
         const tiktoken = await import('tiktoken');
@@ -161,8 +170,6 @@ const FileSelector = ({
       } catch (error) {
         console.error("⚠️ Failed to dynamically import tiktoken:", error);
         setGetEncodingFunc(null);
-      } finally {
-        setTokenizerLoading(false);
       }
     };
 
@@ -338,7 +345,8 @@ const FileSelector = ({
 
   const handleAiSuggest = useCallback(async () => {
     if (!fileTree) return;
-    setIsAiLoading(true);
+    // Use unified loading state
+    setLoadingStatus({ isLoading: true, message: 'Getting AI suggestions...' });
     setAiError(null);
     try {
       const treeString = generateProjectTreeString(fileTree);
@@ -369,9 +377,10 @@ const FileSelector = ({
       console.error("Error during AI suggestion:", error);
       setAiError(error instanceof Error ? error.message : "Unknown error during AI processing");
     } finally {
-      setIsAiLoading(false);
+      // Clear unified loading state
+      setLoadingStatus({ isLoading: false, message: null });
     }
-  }, [fileTree, onSelectedFilesChange, getAllFilesFromDataSource]); // Use generateProjectTreeString from import
+  }, [fileTree, onSelectedFilesChange, getAllFilesFromDataSource, setLoadingStatus]); // Added setLoadingStatus dependency
 
   const toggleExpand = useCallback((path: string) => {
     setExpandedNodes(prev => {
@@ -478,10 +487,6 @@ const FileSelector = ({
       return { totalFilesCount: files.length, totalLinesCount: lines };
   }, [getAllFilesFromDataSource]);
 
-  if (tokenizerLoading) {
-    return <div className="flex justify-center p-4"><Loader2 className="animate-spin h-6 w-6 text-muted-foreground" /></div>;
-  }
-
   if (!fileTree) {
     return <div className="p-4 text-muted-foreground">No files to display.</div>;
   }
@@ -585,9 +590,11 @@ const FileSelector = ({
                 size="sm" 
                 className="h-8" 
                 onClick={handleAiSuggest}
-                disabled={isAiLoading}
+                // Disable based on global loading state
+                disabled={loadingStatus.isLoading && loadingStatus.message?.includes('AI')}
               >
-                {isAiLoading ? (
+                {/* Use global loading state for spinner */}
+                {loadingStatus.isLoading && loadingStatus.message?.includes('AI') ? (
                   <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
                 ) : (
                   <Brain className="mr-2 h-3.5 w-3.5" />
@@ -596,7 +603,7 @@ const FileSelector = ({
               </Button>
             </TooltipTrigger>
             <TooltipContent>
-              <p>Use AI to suggest important files for LLM context</p>
+              <p>Replace current selection with AI-suggested files for LLM context.</p>
             </TooltipContent>
           </Tooltip>
         </TooltipProvider>
@@ -609,14 +616,16 @@ const FileSelector = ({
                 size="sm" 
                 className="h-8 ml-auto" 
                 onClick={copySelectedFiles}
-                disabled={selectedFiles.length === 0 || isCopying}
+                // Disable based on global loading state
+                disabled={selectedFiles.length === 0 || (loadingStatus.isLoading && loadingStatus.message?.includes('Copying'))}
               >
-                {isCopying ? (
+                {/* Use global loading state for spinner/text */}
+                {loadingStatus.isLoading && loadingStatus.message?.includes('Copying') ? (
                   <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
                 ) : (
                   <Copy className="mr-2 h-3.5 w-3.5" />
                 )}
-                <span>{isCopying ? 'Copying...' : copySuccess ? 'Copied!' : 'Copy Selected'}</span>
+                <span>{loadingStatus.isLoading && loadingStatus.message?.includes('Copying') ? 'Copying...' : copySuccess ? 'Copied!' : 'Copy Selected'}</span>
               </Button>
             </TooltipTrigger>
             <TooltipContent>
@@ -665,7 +674,9 @@ const FileSelector = ({
           </label>
         </div>
         <div className="text-xs text-muted-foreground">
-          {selectedFiles.length} files selected {isCalculatingTokens ? (
+          {selectedFiles.length} files selected 
+          {/* Use global loading state for token calculation status */}
+          {loadingStatus.isLoading && loadingStatus.message?.includes('Calculating tokens') ? (
             <span className="text-muted-foreground inline-flex items-center"> (<Loader2 className="animate-spin h-3 w-3 mr-1" /> Calculating...)</span>
           ) : (
             <span> (~{tokenCount.toLocaleString()} tokens (tiktoken))</span>
