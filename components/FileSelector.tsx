@@ -50,15 +50,15 @@ import { useClipboardCopy } from '../hooks/useClipboardCopy'; // Adjust path if 
 // Define content fetching API route
 const GITHUB_CONTENT_API = '/api/github/content'; // Define once
 
-const FileSelector = ({ 
+const FileSelector = ({
   dataSource,
-  selectedFiles, 
-  setSelectedFiles, 
-  maxTokens, 
-  onTokenCountChange, 
-  state,
-  setState 
-}: FileSelectorProps) => {
+  selectedFiles,
+  setSelectedFiles: onSelectedFilesChange,
+  maxTokens,
+  onTokenCountChange,
+  allFiles,
+  tokenCount,
+}: FileSelectorProps & { tokenCount: number }) => {
   const [fileTree, setFileTree] = useState<{ [key: string]: InternalTreeNode } | null>(null);
   const [expandedNodes, setExpandedNodes] = useState<Set<string>>(new Set());
   const [searchTerm, setSearchTerm] = useState('');
@@ -70,42 +70,36 @@ const FileSelector = ({
   const [highlightSearch, setHighlightSearch] = useState(false);
 
   // State to hold the get_encoding function once loaded
-  const [getEncodingFunc, setGetEncodingFunc] = useState<any | null>(null);
+  const [getEncodingFunc, setGetEncodingFunc] = useState<(() => any) | null>(null);
 
   // Ref to track the previous data source identity
   const prevDataSourceRef = useRef<DataSource>();
 
-  // Get tokenCount from parent state for display
-  const currentTokenCount = state.analysisResult?.totalTokens ?? 0;
-
-  // Helper function to get all FileData from current dataSource (local or github processed)
+  // Helper function to get all FileData from current dataSource or allFiles prop
   const getAllFilesFromDataSource = useCallback((): FileData[] => {
     if (dataSource.type === 'local' && dataSource.files) {
-      // Add dataSourceType for local files
       return dataSource.files.map(f => ({ ...f, dataSourceType: 'local' }));
     } else if (dataSource.type === 'github' && dataSource.tree) {
-      // Convert GitHub tree items to minimal FileData structure
       return dataSource.tree
         .filter(item => item.type === 'blob')
         .map(item => {
-          // Use TypeScript type assertion to access the added properties
           const extendedItem = item as GitHubTreeItem & { lines?: number, content?: string };
           return {
             path: item.path,
-            lines: extendedItem.lines || 0, // Use lines if available, otherwise default to 0
-            content: extendedItem.content || '', // Use content if available, otherwise empty string
+            lines: extendedItem.lines || 0,
+            content: extendedItem.content || '',
             size: item.size,
             sha: item.sha,
-            dataSourceType: 'github' // Mark as GitHub file
+            dataSourceType: 'github'
           };
         });
-    } else if (state.analysisResult?.files) { // Fallback to analysisResult if dataSource is weird
-        console.warn("Falling back to analysisResult.files in FileSelector");
-        // Ensure fallback files also get dataSourceType marked (assume local)
-        return state.analysisResult.files.map(f => ({ ...f, dataSourceType: 'local' }));
+    } else if (allFiles && allFiles.length > 0) { // Use allFiles prop as fallback
+        console.warn("Falling back to allFiles prop in FileSelector");
+        // Assume local if using fallback, or derive if FileData includes type
+        return allFiles.map(f => ({ ...f, dataSourceType: f.dataSourceType || 'local' }));
     }
     return [];
-  }, [dataSource, state.analysisResult]);
+  }, [dataSource, allFiles]); // Depend on dataSource and allFiles
 
   // Use the custom hook for token calculation
   const { isCalculatingTokens } = useTokenCalculator({
@@ -124,24 +118,24 @@ const FileSelector = ({
     getAllFilesFromDataSource,
   });
 
-  // Calculate average lines for ALL files in the data source (fallback)
+  // Calculate projectWideAverageLines based on getAllFilesFromDataSource
   const projectWideAverageLines = useMemo(() => {
-    const allFiles = getAllFilesFromDataSource();
-    if (!allFiles || allFiles.length === 0) return 0;
+    const files = getAllFilesFromDataSource();
+    if (!files || files.length === 0) return 0;
 
-    const filesWithLines = allFiles.filter(f => f.lines !== undefined && f.lines > 0);
+    const filesWithLines = files.filter(f => f.lines !== undefined && f.lines > 0);
     if (filesWithLines.length === 0) return 0;
 
     const totalLines = filesWithLines.reduce((sum, file) => sum + (file.lines || 0), 0);
     return totalLines / filesWithLines.length;
   }, [getAllFilesFromDataSource]);
 
-  // Calculate average lines using selected files, fallback to project-wide if needed
+  // Calculate averageLines based on getAllFilesFromDataSource and selectedFiles
   const averageLines = useMemo(() => {
-    const allFiles = getAllFilesFromDataSource();
-    if (!selectedFiles.length || !allFiles.length) return projectWideAverageLines;
+    const allFilesData = getAllFilesFromDataSource();
+    if (!selectedFiles.length || !allFilesData.length) return projectWideAverageLines;
     
-    const selectedFilesData = allFiles.filter(f => selectedFiles.includes(f.path) && f.lines && f.lines > 0);
+    const selectedFilesData = allFilesData.filter(f => selectedFiles.includes(f.path) && f.lines && f.lines > 0);
     if (!selectedFilesData.length) return projectWideAverageLines;
 
     // Calculate the average based on selected files with lines
@@ -176,9 +170,6 @@ const FileSelector = ({
     // Run only once on mount
   }, []);
 
-  // Moved useEffect for token calculation to useTokenCalculator hook
-  // useEffect(() => { ... }, [selectedFiles, getAllFilesFromDataSource, onTokenCountChange, getEncodingFunc]);
-
   useEffect(() => {
     console.log("DataSource changed, rebuilding tree:", dataSource.type);
     
@@ -205,30 +196,19 @@ const FileSelector = ({
     }
     // --- End fundamental change check ---
     
-    // Rebuild the tree based on current dataSource
+    // Rebuild tree based on dataSource or allFiles
     if (dataSource.type === 'local' && dataSource.files) {
        console.log(`Building local tree with ${dataSource.files.length} files.`);
-      setFileTree(buildLocalFileTree(dataSource.files));
+       setFileTree(buildLocalFileTree(dataSource.files));
     } else if (dataSource.type === 'github' && dataSource.tree) {
        console.log(`Building GitHub tree with ${dataSource.tree.length} items.`);
-       console.log("Sample GitHub tree items:", dataSource.tree.slice(0, 3));
-       const builtTree = buildGitHubTree(dataSource.tree);
-       console.log("Built tree structure:", Object.keys(builtTree).length, "root items");
-       setFileTree(builtTree);
+       setFileTree(buildGitHubTree(dataSource.tree));
+    } else if (allFiles && allFiles.length > 0) { // Use allFiles prop as fallback
+       console.warn("DataSource invalid/incomplete, falling back to building tree from allFiles prop");
+       setFileTree(buildLocalFileTree(allFiles));
     } else {
-       if (state.analysisResult?.files && state.analysisResult.files.length > 0) {
-           console.warn("DataSource invalid/incomplete, falling back to building tree from analysisResult.files");
-           setFileTree(buildLocalFileTree(state.analysisResult.files));
-       } else {
-          console.warn("DataSource invalid and no fallback files available, clearing tree.");
-          console.log("DataSource details:", {
-            type: dataSource.type,
-            hasFiles: !!dataSource.files,
-            hasTree: !!dataSource.tree,
-            hasRepoInfo: !!dataSource.repoInfo
-          });
-          setFileTree(null); // Clear tree if no valid data
-       }
+       console.warn("DataSource invalid and no fallback files available, clearing tree.");
+       setFileTree(null); // Clear tree if no valid data
     }
     
     // Reset expansion ONLY if the data source has fundamentally changed
@@ -242,7 +222,7 @@ const FileSelector = ({
     // Update the ref for the next render
     prevDataSourceRef.current = dataSource;
 
-  }, [dataSource, state.analysisResult]); // Dependencies remain the same
+  }, [dataSource, allFiles]); // Depend on dataSource and allFiles
 
   // Filter nodes when search term changes
   useEffect(() => {
@@ -320,45 +300,41 @@ const FileSelector = ({
     }
   }, [searchTerm, fileTree, expandedNodes]); // Added expandedNodes dependency
 
-  // Handle toggling selection
+  // Handle toggling selection using the new callback prop
   const handleSelectionToggle = useCallback((path: string, isSelected: boolean) => {
-    // Find the node with the given path
     const node = findNode(fileTree!, path);
     if (!node) return;
 
     if (node.type === 'file') {
-      // For files, just toggle their selection
-      setSelectedFiles(prev => 
+      // Use the onSelectedFilesChange callback prop
+      onSelectedFilesChange(prev =>
         isSelected ? Array.from(new Set([...prev, node.path])) : prev.filter(p => p !== node.path)
       );
     } else if (node.type === 'directory') {
-      // For directories, toggle selection of all descendant files
       const descendantFiles = getDescendantFiles(node);
-      
-      if (isSelected) {
-        // Select all descendant files that aren't already selected
-        setSelectedFiles(prev => Array.from(new Set([...prev, ...descendantFiles])));
-      } else {
-        // Deselect all descendant files
-        setSelectedFiles(prev => prev.filter(p => !descendantFiles.includes(p)));
-      }
+      // Use the onSelectedFilesChange callback prop
+      onSelectedFilesChange(prev => {
+        if (isSelected) {
+          return Array.from(new Set([...prev, ...descendantFiles]));
+        } else {
+          return prev.filter(p => !descendantFiles.includes(p));
+        }
+      });
     }
-  }, [fileTree, setSelectedFiles, getDescendantFiles]);
+  }, [fileTree, onSelectedFilesChange]); // Depend on fileTree and the callback
 
   const clearSelection = useCallback(() => {
-    setSelectedFiles([]);
-  }, [setSelectedFiles]);
+    onSelectedFilesChange([]); // Use callback
+  }, [onSelectedFilesChange]);
 
   const selectAll = useCallback((): void => {
-      const allFiles = getAllFilesFromDataSource(); // Use helper
-      // Just update the selectedFiles state, don't modify expanded nodes
-      setSelectedFiles(allFiles.map(f => f.path));
-  }, [getAllFilesFromDataSource, setSelectedFiles]);
+      const allFilesData = getAllFilesFromDataSource();
+      onSelectedFilesChange(allFilesData.map(f => f.path)); // Use callback
+  }, [getAllFilesFromDataSource, onSelectedFilesChange]);
 
   const deselectAll = useCallback((): void => {
-      // Just clear selection, don't change expanded state
-      setSelectedFiles([]);
-  }, [setSelectedFiles]);
+      onSelectedFilesChange([]); // Use callback
+  }, [onSelectedFilesChange]);
 
   const handleAiSuggest = useCallback(async () => {
     if (!fileTree) return;
@@ -382,7 +358,7 @@ const FileSelector = ({
           .filter((path: string | null): path is string => path !== null);
         
         if (validSelections.length > 0) {
-          setSelectedFiles(validSelections);
+          onSelectedFilesChange(validSelections); // Use callback
         } else {
           setAiError("AI couldn't find relevant files matching your project structure.");
         }
@@ -395,7 +371,7 @@ const FileSelector = ({
     } finally {
       setIsAiLoading(false);
     }
-  }, [fileTree, generateProjectTreeString, setSelectedFiles, getAllFilesFromDataSource]); // Use generateProjectTreeString from import
+  }, [fileTree, onSelectedFilesChange, getAllFilesFromDataSource]); // Use generateProjectTreeString from import
 
   const toggleExpand = useCallback((path: string) => {
     setExpandedNodes(prev => {
@@ -458,15 +434,15 @@ const FileSelector = ({
     if (!fileTree) return;
     
     const visibleFiles = Object.values(fileTree).flatMap(getVisibleFiles);
-    setSelectedFiles(prev => Array.from(new Set([...prev, ...visibleFiles])));
-  }, [fileTree, getVisibleFiles, setSelectedFiles]); // Added dependencies
+    onSelectedFilesChange(prev => Array.from(new Set([...prev, ...visibleFiles]))); // Use callback
+  }, [fileTree, getVisibleFiles, onSelectedFilesChange]); // Added dependencies
 
   const deselectVisibleFiles = useCallback(() => {
     if (!fileTree) return;
     
     const visibleFiles = new Set(Object.values(fileTree).flatMap(getVisibleFiles));
-    setSelectedFiles(prev => prev.filter(path => !visibleFiles.has(path)));
-  }, [fileTree, getVisibleFiles, setSelectedFiles]); // Added dependencies
+    onSelectedFilesChange(prev => prev.filter(path => !visibleFiles.has(path))); // Use callback
+  }, [fileTree, getVisibleFiles, onSelectedFilesChange]); // Added dependencies
 
 
   // Memoize the file tree nodes to render only when necessary
@@ -494,6 +470,13 @@ const FileSelector = ({
         />
       ));
   }, [fileTree, selectedFiles, handleSelectionToggle, expandedNodes, toggleExpand, averageLines, searchTerm, highlightSearch]);
+
+  // Calculate total file count and lines from getAllFilesFromDataSource
+  const { totalFilesCount, totalLinesCount } = useMemo(() => {
+      const files = getAllFilesFromDataSource();
+      const lines = files.reduce((sum, file) => sum + (file.lines || 0), 0);
+      return { totalFilesCount: files.length, totalLinesCount: lines };
+  }, [getAllFilesFromDataSource]);
 
   if (tokenizerLoading) {
     return <div className="flex justify-center p-4"><Loader2 className="animate-spin h-6 w-6 text-muted-foreground" /></div>;
@@ -580,7 +563,7 @@ const FileSelector = ({
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start">
             <DropdownMenuItem onClick={selectAll}>
-              Select All Files ({getAllFilesFromDataSource().length})
+              Select All Files ({totalFilesCount})
             </DropdownMenuItem>
             <DropdownMenuItem onClick={deselectAll}>
               Deselect All ({selectedFiles.length})
@@ -682,19 +665,19 @@ const FileSelector = ({
           </label>
         </div>
         <div className="text-xs text-muted-foreground">
-  {selectedFiles.length} files selected {isCalculatingTokens ? (
-  <span className="text-muted-foreground inline-flex items-center"> (<Loader2 className="animate-spin h-3 w-3 mr-1" /> Calculating...)</span>
-) : (
-  <span> (~{currentTokenCount.toLocaleString()} tokens (tiktoken))</span>
-)}
-</div>
+          {selectedFiles.length} files selected {isCalculatingTokens ? (
+            <span className="text-muted-foreground inline-flex items-center"> (<Loader2 className="animate-spin h-3 w-3 mr-1" /> Calculating...)</span>
+          ) : (
+            <span> (~{tokenCount.toLocaleString()} tokens (tiktoken))</span>
+          )}
+        </div>
       </div>
 
       <div className="flex items-center py-1 px-2 border-b border-border/40">
         <div className="flex items-center gap-1 text-xs text-muted-foreground">
           <div>{fileTree ? Object.keys(fileTree).length : 0} roots,</div>
-          <div>{state.analysisResult?.totalFiles || 0} files,</div>
-          <div>{(state.analysisResult?.totalLines || 0).toLocaleString()} lines</div>
+          <div>{totalFilesCount} files,</div>
+          <div>{totalLinesCount.toLocaleString()} lines</div>
           {selectedFiles.length > 0 && (
             <div className="ml-1 text-primary">({selectedFiles.length} selected)</div>
           )}

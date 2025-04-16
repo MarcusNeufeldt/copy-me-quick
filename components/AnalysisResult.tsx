@@ -20,16 +20,18 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu";
+import { Toaster, toast } from 'sonner';
 
 interface AnalysisResultProps {
-  state: AppState;
-  setState: React.Dispatch<React.SetStateAction<AppState>>;
-  updateCurrentProject: (newState: AppState) => void;
+  analysisResult: AppState['analysisResult'] | null;
+  selectedFiles: string[];
+  onSelectedFilesChange: (filesOrUpdater: string[] | ((prev: string[]) => string[])) => void;
   tokenCount: number;
   setTokenCount: React.Dispatch<React.SetStateAction<number>>;
   maxTokens: number;
   dataSource?: DataSource;
-  saveBackup: (name: string) => void;
+  onSaveBackup: (name: string) => void;
 }
 
 interface TreeNodeData {
@@ -53,7 +55,7 @@ const formatFileSize = (bytes: number): string => {
   return `${mb.toFixed(1)} MB`;
 };
 
-const TreeItem: React.FC<TreeItemProps> = ({ node, isLast, prefix = '' }) => {
+const TreeItem: React.FC<TreeItemProps> = React.memo(({ node, isLast, prefix = '' }) => {
   const linePrefix = prefix + (isLast ? '└── ' : '├── ');
   const childPrefix = prefix + (isLast ? '    ' : '│   ');
   
@@ -66,7 +68,7 @@ const TreeItem: React.FC<TreeItemProps> = ({ node, isLast, prefix = '' }) => {
 
   return (
     <div className="flex flex-col">
-      <div className="flex items-center gap-1.5 text-sm">
+      <div className="flex items-center gap-1.5 text-sm hover:bg-slate-100 dark:hover:bg-slate-800 px-2 py-0.5 rounded">
         <span className="text-muted-foreground whitespace-pre font-mono">{linePrefix}</span>
         <span className="w-4 h-4 flex-shrink-0 flex items-center justify-center">
           {node.type === 'file' ? (
@@ -90,9 +92,10 @@ const TreeItem: React.FC<TreeItemProps> = ({ node, isLast, prefix = '' }) => {
       ))}
     </div>
   );
-};
+});
+TreeItem.displayName = 'TreeItem';
 
-const ProjectTree: React.FC<{ files: FileData[] }> = ({ files }) => {
+const ProjectTree: React.FC<{ files: FileData[] }> = React.memo(({ files }) => {
   const tree: { [key: string]: TreeNodeData } = {};
 
   files.forEach(file => {
@@ -131,20 +134,19 @@ const ProjectTree: React.FC<{ files: FileData[] }> = ({ files }) => {
       </div>
     </Card>
   );
-};
+});
+ProjectTree.displayName = 'ProjectTree';
 
-const AnalysisResult: React.FC<AnalysisResultProps> = ({
-  state,
-  setState,
-  updateCurrentProject,
+const AnalysisResult: React.FC<AnalysisResultProps> = React.memo(({
+  analysisResult,
+  selectedFiles,
+  onSelectedFilesChange,
   tokenCount,
   setTokenCount,
   maxTokens,
   dataSource,
-  saveBackup
+  onSaveBackup
 }) => {
-  const [totalSelectedFiles, setTotalSelectedFiles] = useState(0);
-  const [totalSelectedLines, setTotalSelectedLines] = useState(0);
   const [copySuccess, setCopySuccess] = useState(false);
   const [showBackupDialog, setShowBackupDialog] = useState(false);
   const [backupName, setBackupName] = useState('');
@@ -152,7 +154,6 @@ const AnalysisResult: React.FC<AnalysisResultProps> = ({
   const [activeOutputTab, setActiveOutputTab] = useState('output');
   const [copyTreeSuccess, setCopyTreeSuccess] = useState(false);
 
-  // Create internal dataSource if not provided
   const effectiveDataSource = useMemo(() => {
     if (dataSource) {
       console.log("AnalysisResult: Using provided dataSource:", {
@@ -169,40 +170,34 @@ const AnalysisResult: React.FC<AnalysisResultProps> = ({
     console.log("AnalysisResult: Creating default local dataSource");
     return {
       type: 'local' as const,
-      files: state.analysisResult?.files || []
+      files: analysisResult?.files || []
     };
-  }, [dataSource, state.analysisResult]);
+  }, [dataSource, analysisResult?.files]);
 
-  useEffect(() => {
-    if (state.analysisResult) {
-      const selectedFileData = state.analysisResult.files.filter(file => state.selectedFiles.includes(file.path));
-      setTotalSelectedFiles(selectedFileData.length);
-      setTotalSelectedLines(selectedFileData.reduce((sum, file) => sum + file.lines, 0));
-    }
-  }, [state]);
+  const selectedFilesData = useMemo(() => {
+    return analysisResult?.files.filter(file => selectedFiles.includes(file.path)) || [];
+  }, [analysisResult?.files, selectedFiles]);
+
+  const totalSelectedFiles = selectedFilesData.length;
+  const totalSelectedLines = useMemo(() => {
+    return selectedFilesData.reduce((sum, file) => sum + file.lines, 0);
+  }, [selectedFilesData]);
 
   const handleSetSelectedFiles = useCallback((filesOrUpdater: string[] | ((prev: string[]) => string[])) => {
-    setState(prevState => {
-      const newSelectedFiles = typeof filesOrUpdater === 'function' 
-        ? filesOrUpdater(prevState.selectedFiles) 
-        : filesOrUpdater;
-      
-      const newState = {
-        ...prevState,
-        selectedFiles: newSelectedFiles
-      };
-      
-      updateCurrentProject(newState);
-      return newState;
-    });
-  }, [setState, updateCurrentProject]);
+    onSelectedFilesChange(filesOrUpdater);
+  }, [onSelectedFilesChange]);
 
   const copyToClipboard = (text: string) => {
-    navigator.clipboard.writeText(text).then(() => {
-      setCopySuccess(true);
-    }).catch(err => {
-      console.error('Failed to copy: ', err);
-    });
+    navigator.clipboard.writeText(text)
+      .then(() => {
+        toast.success('Copied to clipboard!');
+        setCopySuccess(true);
+        setTimeout(() => setCopySuccess(false), 2000);
+      })
+      .catch(err => {
+        toast.error('Failed to copy');
+        console.error('Failed to copy: ', err);
+      });
   };
 
   // Function to download as file
@@ -218,12 +213,7 @@ const AnalysisResult: React.FC<AnalysisResultProps> = ({
     URL.revokeObjectURL(url);
   };
 
-  const getSelectedFileTree = (files: FileData[], selectedPaths: string[]): string => {
-    const selectedFiles = files.filter(file => selectedPaths.includes(file.path));
-    return generateProjectTree(selectedFiles);
-  };
-
-  const generateProjectTree = (files: FileData[]): string => {
+  const generateProjectTree = useCallback((files: FileData[]): string => {
     // Convert to TreeNode structure
     const tree: { [key: string]: TreeNodeData } = {};
 
@@ -268,75 +258,90 @@ const AnalysisResult: React.FC<AnalysisResultProps> = ({
     };
 
     return buildTreeString(tree);
-  };
+  }, []);
 
-  // Handler for copying the project tree structure
   const handleCopyTreeStructure = useCallback(() => {
-    if (state.analysisResult?.files) {
-      const treeString = generateProjectTree(state.analysisResult.files);
-      navigator.clipboard.writeText(treeString).then(() => {
-        setCopyTreeSuccess(true);
-        setTimeout(() => setCopyTreeSuccess(false), 2000); // Reset after 2 seconds
-      }).catch(err => {
-        console.error('Failed to copy tree structure: ', err);
-      });
+    if (analysisResult?.files) {
+      const treeString = generateProjectTree(selectedFilesData);
+      navigator.clipboard.writeText(treeString)
+        .then(() => {
+          setCopyTreeSuccess(true);
+          toast.success('Tree structure copied!');
+          setTimeout(() => setCopyTreeSuccess(false), 2000);
+        })
+        .catch(err => {
+          toast.error('Failed to copy tree structure');
+          console.error('Failed to copy tree structure: ', err);
+        });
     }
-  }, [state.analysisResult, generateProjectTree]);
+  }, [analysisResult, selectedFilesData, generateProjectTree]);
 
   const tokenPercentage = Math.min(100, (tokenCount / maxTokens) * 100);
   const isTokenWarning = tokenPercentage > 75;
   const isTokenExceeded = tokenPercentage >= 100;
 
-  // Get the selected files from state
-  const selectedFiles = state.analysisResult
-    ? state.analysisResult.files.filter(file => 
-        state.selectedFiles.includes(file.path)
-      )
-    : [];
-
-  // Create a summary of selected files
-  const selectedFilesSummary = selectedFiles.map(file => 
+  const selectedFilesSummary = useMemo(() => selectedFilesData.map(file =>
     `// ${file.path} - ${file.lines} lines`
-  ).join('\n');
+  ).join('\n'), [selectedFilesData]);
 
-  // Generate file output - include all selected file contents concatenated
-  const fileOutput = selectedFiles.map(file => 
+  const fileOutput = useMemo(() => selectedFilesData.map(file =>
     `// File: ${file.path}\n// ${file.lines} lines\n\n${file.content}`
-  ).join('\n\n// ----------------------\n\n');
+  ).join('\n\n// ----------------------\n\n'), [selectedFilesData]);
 
-  // Generate a markdown summary for the clipboard
-  const markdownSummary = `# Project Analysis
+  const markdownSummary = useMemo(() => `# Project Analysis
 
 ## Summary
-- Total selected files: ${selectedFiles.length}
-- Total lines of code: ${selectedFiles.reduce((sum, file) => sum + file.lines, 0)}
+- Total selected files: ${totalSelectedFiles}
+- Total lines of code: ${totalSelectedLines.toLocaleString()}
 - Estimated token count: ${tokenCount.toLocaleString()}
 - Token usage: ${tokenPercentage.toFixed(1)}% (${tokenCount.toLocaleString()} of ${maxTokens.toLocaleString()})
 
 ## Selected Files
-${selectedFiles.map(file => `- \`${file.path}\` (${file.lines} lines)`).join('\n')}
-`;
+${selectedFilesData.map(file => `- \`${file.path}\` (${file.lines} lines)`).join('\n')}
+`, [selectedFilesData, totalSelectedFiles, totalSelectedLines, tokenCount, maxTokens, tokenPercentage]);
 
-  // Clean list output for clipboard - no file contents, just the list
-  const listOutput = selectedFiles.map(file => 
+  const listOutput = useMemo(() => selectedFilesData.map(file =>
     `${file.path} - ${file.lines} lines`
-  ).join('\n');
+  ).join('\n'), [selectedFilesData]);
 
   const handleSaveBackup = () => {
     if (backupName.trim()) {
-      saveBackup(backupName.trim());
+      onSaveBackup(backupName.trim());
       setShowBackupDialog(false);
       setBackupName('');
     }
   };
 
-  if (!state.analysisResult) {
-    return null;
+  const handleCopy = useCallback((type: 'markdown' | 'list' | 'code') => {
+    try {
+      let text = '';
+      let message = '';
+      if (type === 'markdown') {
+        text = markdownSummary;
+        message = 'Markdown summary copied!';
+      } else if (type === 'list') {
+        text = listOutput;
+        message = 'File list copied!';
+      } else {
+        text = fileOutput;
+        message = 'Full code copied!';
+      }
+      navigator.clipboard.writeText(text);
+      toast.success(message);
+    } catch (err) {
+      toast.error('Failed to copy to clipboard');
+    }
+  }, [markdownSummary, listOutput, fileOutput]);
+
+  if (!analysisResult) {
+    return <div className="p-4 text-center text-muted-foreground">Loading analysis results...</div>;
   }
+
+  const allAnalysisFiles = analysisResult.files || [];
 
   return (
     <div className="space-y-6 animate-fade-in">
-      {/* Summary Section */}
+      <Toaster position="top-right" />
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <Card className="glass-card p-6 animate-slide-up">
           <div className="flex items-center space-x-4">
@@ -349,7 +354,7 @@ ${selectedFiles.map(file => `- \`${file.path}\` (${file.lines} lines)`).join('\n
                 <h3 className="text-2xl font-bold">
                   {totalSelectedFiles}
                 </h3>
-                <span className="ml-2 text-sm text-muted-foreground">of {(state.analysisResult.files || []).length}</span>
+                <span className="ml-2 text-sm text-muted-foreground">of {allAnalysisFiles.length}</span>
               </div>
             </div>
           </div>
@@ -367,7 +372,7 @@ ${selectedFiles.map(file => `- \`${file.path}\` (${file.lines} lines)`).join('\n
                   {totalSelectedLines.toLocaleString()}
                 </h3>
                 <span className="ml-2 text-sm text-muted-foreground">
-                  of {(state.analysisResult.totalLines || 0).toLocaleString()}
+                  of {(analysisResult.totalLines || 0).toLocaleString()}
                 </span>
               </div>
             </div>
@@ -415,7 +420,6 @@ ${selectedFiles.map(file => `- \`${file.path}\` (${file.lines} lines)`).join('\n
         </Card>
       </div>
 
-      {/* File Selector Tabs */}
       <Tabs value={activeFileTab} onValueChange={setActiveFileTab} className="animate-fade-in animation-delay-200">
         <TabsList className="grid w-full grid-cols-2 mb-6">
           <TabsTrigger value="selector" className="flex items-center gap-2">
@@ -438,12 +442,12 @@ ${selectedFiles.map(file => `- \`${file.path}\` (${file.lines} lines)`).join('\n
             <CardContent>
               <FileSelector
                 dataSource={effectiveDataSource}
-                selectedFiles={state.selectedFiles}
+                selectedFiles={selectedFiles}
                 setSelectedFiles={handleSetSelectedFiles}
                 maxTokens={maxTokens}
                 onTokenCountChange={setTokenCount}
-                state={state}
-                setState={setState}
+                allFiles={allAnalysisFiles}
+                tokenCount={tokenCount}
               />
             </CardContent>
           </Card>
@@ -478,10 +482,8 @@ ${selectedFiles.map(file => `- \`${file.path}\` (${file.lines} lines)`).join('\n
               </div>
             </CardHeader>
             <CardContent>
-              {state.selectedFiles.length > 0 ? (
-                <ProjectTree files={(state.analysisResult.files || []).filter(file => 
-                  state.selectedFiles.includes(file.path))} 
-                />
+              {selectedFilesData.length > 0 ? (
+                <ProjectTree files={selectedFilesData} />
               ) : (
                 <div className="text-center py-8 text-muted-foreground">
                   <Folder className="h-12 w-12 mx-auto mb-2 opacity-40" />
@@ -494,7 +496,6 @@ ${selectedFiles.map(file => `- \`${file.path}\` (${file.lines} lines)`).join('\n
         </TabsContent>
       </Tabs>
 
-      {/* Tabs for different output formats */}
       <Tabs value={activeOutputTab} onValueChange={setActiveOutputTab} className="w-full">
         <TabsList className="grid grid-cols-3 mb-4">
           <TabsTrigger value="output" className="text-xs sm:text-sm">Output Options</TabsTrigger>
@@ -503,93 +504,36 @@ ${selectedFiles.map(file => `- \`${file.path}\` (${file.lines} lines)`).join('\n
         </TabsList>
         
         <TabsContent value="output" className="space-y-4">
-          <div className="grid gap-3 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
-            <Button 
-              variant="outline" 
-              className="flex justify-between items-center text-xs sm:text-sm"
-              onClick={() => copyToClipboard(markdownSummary)}
-            >
-              <div className="flex items-center">
-                <Badge variant="outline" className="mr-2 px-1 py-0 text-xs">MD</Badge>
-                Copy Markdown Summary
-              </div>
-              {copySuccess ? (
-                <CopyCheck className="h-3.5 w-3.5 text-green-500" />
-              ) : (
-                <Copy className="h-3.5 w-3.5" />
-              )}
-            </Button>
-            
-            <Button 
-              variant="outline" 
-              className="flex justify-between items-center text-xs sm:text-sm"
-              onClick={() => copyToClipboard(listOutput)}
-            >
-              <div className="flex items-center">
-                <Badge variant="outline" className="mr-2 px-1 py-0 text-xs">TXT</Badge>
-                Copy File List
-              </div>
-              <Copy className="h-3.5 w-3.5" />
-            </Button>
-            
-            <Button 
-              variant="outline" 
-              className="flex justify-between items-center text-xs sm:text-sm"
-              onClick={() => copyToClipboard(fileOutput)}
-            >
-              <div className="flex items-center">
-                <Badge variant="outline" className="mr-2 px-1 py-0 text-xs">CODE</Badge>
-                Copy Full Code
-              </div>
-              <Copy className="h-3.5 w-3.5" />
-            </Button>
-            
-            <Button 
-              variant="outline" 
-              className="flex justify-between items-center text-xs sm:text-sm"
-              onClick={() => downloadAsFile(markdownSummary, 'project-summary.md')}
-            >
-              <div className="flex items-center">
-                <Badge variant="outline" className="mr-2 px-1 py-0 text-xs">MD</Badge>
-                Download Summary
-              </div>
-              <Download className="h-3.5 w-3.5" />
-            </Button>
-            
-            <Button 
-              variant="outline" 
-              className="flex justify-between items-center text-xs sm:text-sm"
-              onClick={() => downloadAsFile(listOutput, 'file-list.txt')}
-            >
-              <div className="flex items-center">
-                <Badge variant="outline" className="mr-2 px-1 py-0 text-xs">TXT</Badge>
-                Download File List
-              </div>
-              <Download className="h-3.5 w-3.5" />
-            </Button>
-            
-            <Button 
-              variant="outline" 
-              className="flex justify-between items-center text-xs sm:text-sm"
-              onClick={() => downloadAsFile(fileOutput, 'project-code.txt')}
-            >
-              <div className="flex items-center">
-                <Badge variant="outline" className="mr-2 px-1 py-0 text-xs">CODE</Badge>
-                Download Full Code
-              </div>
-              <Download className="h-3.5 w-3.5" />
-            </Button>
-            
-            <Button 
-              variant="outline" 
-              className="flex justify-between items-center text-xs sm:text-sm col-span-full sm:col-span-1"
-              onClick={() => setShowBackupDialog(true)}
-            >
-              <div className="flex items-center">
-                <Badge variant="outline" className="mr-2 px-1 py-0 text-xs">BKP</Badge>
-                Save Selection as Backup
-              </div>
-              <Archive className="h-3.5 w-3.5" />
+          <div className="grid gap-3 grid-cols-1 sm:grid-cols-3">
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" className="flex items-center justify-between text-xs sm:text-sm">
+                  Copy As...
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent>
+                <DropdownMenuItem onClick={() => handleCopy('markdown')}>Copy Markdown Summary</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => handleCopy('list')}>Copy File List</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => handleCopy('code')}>Copy Full Code</DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" className="flex items-center justify-between text-xs sm:text-sm">
+                  Download As...
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent>
+                <DropdownMenuItem onClick={() => downloadAsFile(markdownSummary, 'project-summary.md')}>Download Summary (.md)</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => downloadAsFile(listOutput, 'file-list.txt')}>Download File List (.txt)</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => downloadAsFile(fileOutput, 'project-code.txt')}>Download Full Code (.txt)</DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+
+            <Button variant="outline" className="flex justify-between items-center text-xs sm:text-sm" onClick={() => setShowBackupDialog(true)}>
+              <Badge variant="outline" className="mr-2 px-1 py-0 text-xs">BKP</Badge>
+              Save Selection as Backup
             </Button>
           </div>
           
@@ -614,7 +558,7 @@ ${selectedFiles.map(file => `- \`${file.path}\` (${file.lines} lines)`).join('\n
               </div>
               
               <div className="text-xs text-muted-foreground">
-                <p>This will save your current selection of {selectedFiles.length} files with {tokenCount.toLocaleString()} tokens.</p>
+                <p>This will save your current selection of {selectedFilesData.length} files with {tokenCount.toLocaleString()} tokens.</p>
               </div>
               
               <DialogFooter className="flex flex-col sm:flex-row gap-2 mt-4">
@@ -698,6 +642,7 @@ ${selectedFiles.map(file => `- \`${file.path}\` (${file.lines} lines)`).join('\n
       </Tabs>
     </div>
   );
-};
+});
+AnalysisResult.displayName = 'AnalysisResult';
 
 export default AnalysisResult;

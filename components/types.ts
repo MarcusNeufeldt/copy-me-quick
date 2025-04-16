@@ -65,11 +65,12 @@ export interface DataSource {
 export interface FileSelectorProps {
   dataSource: DataSource;
   selectedFiles: string[];
-  setSelectedFiles: React.Dispatch<React.SetStateAction<string[]>>;
+  setSelectedFiles: (filesOrUpdater: string[] | ((prev: string[]) => string[])) => void;
   maxTokens: number;
-  onTokenCountChange: (count: number) => void;
-  state: AppState;
-  setState: React.Dispatch<React.SetStateAction<AppState>>;
+  onTokenCountChange: React.Dispatch<React.SetStateAction<number>>;
+  state?: AppState;
+  setState?: React.Dispatch<React.SetStateAction<AppState>>;
+  allFiles?: FileData[];
 }
 
 export interface AnalysisResultProps {

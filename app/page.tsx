@@ -795,17 +795,27 @@ export default function ClientPageRoot() {
               </Alert>
             )}
 
-            {/* Conditionally render AnalysisResult */} 
-            {state.analysisResult || githubTree ? (
+            {/* Conditionally render AnalysisResult based on having analysis data */} 
+            {state.analysisResult ? (
               <>
                 <AnalysisResult
-                  state={state}
-                  setState={setState}
-                  updateCurrentProject={updateCurrentProject}
+                  // Pass specific props instead of the whole state object
+                  analysisResult={state.analysisResult}
+                  selectedFiles={state.selectedFiles}
+                  onSelectedFilesChange={(filesOrUpdater) => {
+                    // Update selectedFiles within the state
+                    setState(prevState => ({
+                      ...prevState,
+                      selectedFiles: typeof filesOrUpdater === 'function'
+                        ? filesOrUpdater(prevState.selectedFiles)
+                        : filesOrUpdater
+                    }));
+                  }}
                   tokenCount={tokenCount}
-                  setTokenCount={setTokenCount}
+                  setTokenCount={setTokenCount} // Pass this down as FileSelector might still use it via AnalysisResult
                   maxTokens={MAX_TOKENS}
-                  dataSource={githubTree ? {
+                  // Construct dataSource correctly based on source
+                  dataSource={githubTree ? { // GitHub source
                     type: 'github' as const,
                     tree: githubTree,
                     repoInfo: selectedRepoFullName && selectedBranchName ? {
@@ -813,9 +823,13 @@ export default function ClientPageRoot() {
                       repo: selectedRepoFullName.split('/')[1],
                       branch: selectedBranchName
                     } : undefined
-                  } : undefined}
-                  saveBackup={(description) => {
-                    // Fetch file content for selected files
+                  } : (state.analysisResult ? { // Local source (if analysisResult exists)
+                    type: 'local' as const,
+                    files: state.analysisResult.files
+                  } : undefined) // Fallback to undefined if no analysisResult (shouldn't happen here due to outer check)
+                  }
+                  onSaveBackup={(description) => {
+                    // Fetch file content for selected files from the current analysisResult
                     const fileContents: { [key: string]: string } = {};
                     if (state.analysisResult) {
                       state.selectedFiles.forEach(filePath => {
@@ -831,16 +845,15 @@ export default function ClientPageRoot() {
                       timestamp: Date.now(),
                       description,
                       selectedFiles: state.selectedFiles,
-                      fileContents,
+                      fileContents, // Include fetched content
                     };
 
-                    const updatedState = {
-                      ...state,
-                      backups: [newBackup, ...(state.backups || [])],
-                    };
-
-                    setState(updatedState);
-                    updateCurrentProject(updatedState);
+                    // Update backups within the state
+                    setState(prevState => ({
+                       ...prevState,
+                       backups: [newBackup, ...(prevState.backups || [])],
+                    }));
+                    // Persistence useEffect will handle saving
                   }}
                 />
               </>
