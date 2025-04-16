@@ -1,5 +1,8 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef, Dispatch, SetStateAction } from 'react';
 import { Button } from "@/components/ui/button";
+
+// Removed synchronous loading attempts
+
 import { Checkbox } from "@/components/ui/checkbox";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
@@ -265,7 +268,10 @@ const FileSelector = ({
   const [isAiLoading, setIsAiLoading] = useState(false);
   const [aiError, setAiError] = useState<string | null>(null);
   const [highlightSearch, setHighlightSearch] = useState(false);
-  
+
+  // State to hold the get_encoding function once loaded
+  const [getEncodingFunc, setGetEncodingFunc] = useState<any | null>(null);
+
   // Ref to track the previous data source identity
   const prevDataSourceRef = useRef<DataSource>();
 
@@ -320,44 +326,119 @@ const FileSelector = ({
     
     const selectedFilesData = allFiles.filter(f => selectedFiles.includes(f.path) && f.lines && f.lines > 0);
     if (!selectedFilesData.length) return projectWideAverageLines;
-    
-    const total = selectedFilesData.reduce((sum, file) => sum + (file.lines || 0), 0);
-    return total / selectedFilesData.length;
+
+    // Calculate the average based on selected files with lines
+    const totalLines = selectedFilesData.reduce((sum, file) => sum + (file.lines || 0), 0);
+    return totalLines / selectedFilesData.length;
   }, [selectedFiles, getAllFilesFromDataSource, projectWideAverageLines]);
 
-  // Token estimation - needs adaptation for GitHub (async fetch)
+  // Effect to dynamically load tiktoken on mount
   useEffect(() => {
-    let isMounted = true;
-    setIsCalculatingTokens(true);
-
-    const estimateTokens = async () => {
-        let currentTokenCount = 0;
-        const allFiles = getAllFilesFromDataSource(); // Use helper
-        const filesToProcess = allFiles.filter(f => selectedFiles.includes(f.path));
-
-        for (const file of filesToProcess) {
-            let content = file.content;
-            // For GitHub files, content is initially empty. TODO: Fetch later.
-            if (file.dataSourceType === 'github') {
-                // Placeholder: Assume a small token count or size based count?
-                // For now, just count based on size if available, rough estimate
-                 currentTokenCount += Math.ceil((file.size || 0) / 4); 
-            } else if (content) {
-              // Local file with content
-              currentTokenCount += Math.ceil(content.length / 4);
-            }
+    const loadTokenizer = async () => {
+      setTokenizerLoading(true);
+      try {
+        console.log("Attempting dynamic import of tiktoken...");
+        const tiktoken = await import('tiktoken');
+        if (typeof tiktoken.get_encoding === 'function') {
+          // Store the function itself in state
+          setGetEncodingFunc(() => tiktoken.get_encoding);
+          console.log("✅ Tiktoken dynamically imported and get_encoding function set in state.");
+        } else {
+          console.error("⚠️ Dynamic import succeeded, but get_encoding is not a function.");
+          setGetEncodingFunc(null);
         }
-        
-        if (isMounted) {
-            onTokenCountChange(currentTokenCount);
-            setIsCalculatingTokens(false);
-        }
+      } catch (error) {
+        console.error("⚠️ Failed to dynamically import tiktoken:", error);
+        setGetEncodingFunc(null);
+      } finally {
+        setTokenizerLoading(false);
+      }
     };
 
+    loadTokenizer();
+    // Run only once on mount
+  }, []);
+
+  // Moved useEffect for token calculation here
+  // Now depends on getEncodingFunc state
+  useEffect(() => {
+    let isMounted = true;
+    // No need to setIsCalculatingTokens here if estimateTokens does it?
+    // setIsCalculatingTokens(true); // Consider if needed or if estimateTokens handles it
+
+    const estimateTokens = async () => {
+      setIsCalculatingTokens(true); // Set loading state for this calculation
+      let currentTokenCount = 0;
+      let usedFallback = false;
+      const allFiles = getAllFilesFromDataSource();
+      const filesToProcess = allFiles.filter(f => selectedFiles.includes(f.path));
+
+      // Try to get the specific encoding instance using the function from state
+      let encoding: any = null;
+      if (typeof getEncodingFunc === 'function') { // Check if the function is loaded
+        try {
+          encoding = getEncodingFunc("cl100k_base"); // Call the function from state
+          // console.log("Successfully got cl100k_base instance using function from state.");
+        } catch (e) {
+          console.warn("Error calling get_encoding('cl100k_base') from state function:", e);
+          encoding = null; // Failed to get instance
+        }
+      } else {
+        // console.log("getEncodingFunc from state was not a function.");
+      }
+
+      for (const file of filesToProcess) {
+        let content = file.content;
+
+        if (content && encoding) { // Check if we got the instance AND have content
+          try {
+              currentTokenCount += encoding.encode(content).length;
+              // console.log(`Tokenized ${file.path} with tiktoken`);
+          } catch(encodeError) {
+              console.error(`Error encoding content for ${file.path}:`, encodeError);
+              usedFallback = true;
+              const estimated = Math.ceil(content.length / 4);
+              currentTokenCount += estimated;
+              console.log(`⚠️ Used LENGTH fallback for ${file.path} due to encode error (Length: ${content.length}, Estimated: ${estimated})`);
+          }
+        } else {
+          usedFallback = true;
+          if (file.dataSourceType === 'github' || !content) {
+             const estimated = Math.ceil((file.size || 0) / 4);
+             currentTokenCount += estimated;
+             // Log reason based on whether the main function failed to load, or just this instance call/content issue
+             const reason = getEncodingFunc ? (encoding ? 'Content unavailable' : 'Instance creation failed') : 'Tiktoken function not loaded';
+             console.log(`⚠️ Used SIZE fallback for ${file.path} (Size: ${file.size}, Estimated: ${estimated}) - Reason: ${reason}`);
+          } else if (content) {
+             const estimated = Math.ceil(content.length / 4);
+             currentTokenCount += estimated;
+             // Log reason based on whether the main function failed to load or the instance call failed
+             const reason = getEncodingFunc ? 'Instance creation failed' : 'Tiktoken function not loaded';
+             console.log(`⚠️ Used LENGTH fallback for ${file.path} (Length: ${content.length}, Estimated: ${estimated}) - Reason: ${reason}`);
+          } else {
+             console.log(`⚠️ No content or size for ${file.path}, adding 0 tokens.`);
+          }
+        }
+      }
+
+      if (isMounted) {
+        if (usedFallback) {
+            console.warn("Token count includes fallback estimations.");
+        } else {
+            console.log("Token count calculation attempted purely with tiktoken.");
+        }
+        onTokenCountChange(currentTokenCount);
+        setIsCalculatingTokens(false);
+      }
+    };
+
+    // Only run estimation if files or function change, and function is potentially available
+    // Adding a slight delay might help if WASM init is slow, but relying on state is better
     const timeoutId = setTimeout(estimateTokens, 50);
 
     return () => { isMounted = false; clearTimeout(timeoutId); };
-  }, [selectedFiles, getAllFilesFromDataSource, onTokenCountChange]); // Use helper in deps
+    // Depend on selectedFiles, the data source helper, count change callback, AND the loaded function
+  }, [selectedFiles, getAllFilesFromDataSource, onTokenCountChange, getEncodingFunc]);
 
   useEffect(() => {
     console.log("DataSource changed, rebuilding tree:", dataSource.type);
@@ -1209,11 +1290,12 @@ const FileSelector = ({
           </label>
         </div>
         <div className="text-xs text-muted-foreground">
-          {selectedFiles.length} files selected ({isCalculatingTokens ? 
-            <span className="text-muted-foreground inline-flex items-center"><Loader2 className="animate-spin h-3 w-3 mr-1" /> Calculating...</span> : 
-            <span>~{currentTokenCount.toLocaleString()} tokens (GitHub est. needs fetch)</span>
-          })
-        </div>
+  {selectedFiles.length} files selected {isCalculatingTokens ? (
+  <span className="text-muted-foreground inline-flex items-center"> (<Loader2 className="animate-spin h-3 w-3 mr-1" /> Calculating...)</span>
+) : (
+  <span> (~{currentTokenCount.toLocaleString()} tokens (tiktoken))</span>
+)}
+</div>
       </div>
 
       <div className="flex items-center py-1 px-2 border-b border-border/40">
