@@ -70,6 +70,9 @@ Copy Me Quick solves this by:
     *   **Enhanced File Selection:** Select all files, visible files, or use AI to suggest important files.
     *   **Visual Indicators:** Files with high line counts are highlighted to identify potential token-heavy files.
 
+*   **🔧 Code Refactoring:**
+    *   Improved maintainability of the core `FileSelector` component by extracting the `FileTreeNode` component (`FileTreeNode.tsx`), utility functions (`fileSelectorUtils.ts`), and stateful logic into custom React Hooks (`useTokenCalculator.ts`, `useClipboardCopy.ts`).
+
 ## 🛠️ Technical Stack
 
 *   **[Next.js 14](https://nextjs.org/):** React framework for server-side rendering and static site generation.

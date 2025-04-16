@@ -34,6 +34,21 @@ import {
 } from 'lucide-react';
 import { FileData, AppState, DataSource, GitHubTreeItem, GitHubRepoInfo, FileSelectorProps } from './types';
 import FileTreeNodeMemo, { InternalTreeNode } from './FileTreeNode';
+import {
+  buildLocalFileTree,
+  buildGitHubTree,
+  formatFileSize,
+  getDescendantFiles,
+  findNode,
+  generateProjectTreeString,
+  minifyCode,
+  isBinaryFile
+} from './fileSelectorUtils';
+import { useTokenCalculator } from '../hooks/useTokenCalculator'; // Adjust path if needed
+import { useClipboardCopy } from '../hooks/useClipboardCopy'; // Adjust path if needed
+
+// Define content fetching API route
+const GITHUB_CONTENT_API = '/api/github/content'; // Define once
 
 const FileSelector = ({ 
   dataSource,
@@ -48,11 +63,8 @@ const FileSelector = ({
   const [expandedNodes, setExpandedNodes] = useState<Set<string>>(new Set());
   const [searchTerm, setSearchTerm] = useState('');
   const [filteredNodes, setFilteredNodes] = useState<Set<string>>(new Set());
-  const [copySuccess, setCopySuccess] = useState(false);
-  const [isCopying, setIsCopying] = useState(false);
   const [minifyOnCopy, setMinifyOnCopy] = useState<boolean>(true);
   const [tokenizerLoading, setTokenizerLoading] = useState(false);
-  const [isCalculatingTokens, setIsCalculatingTokens] = useState(false);
   const [isAiLoading, setIsAiLoading] = useState(false);
   const [aiError, setAiError] = useState<string | null>(null);
   const [highlightSearch, setHighlightSearch] = useState(false);
@@ -94,6 +106,23 @@ const FileSelector = ({
     }
     return [];
   }, [dataSource, state.analysisResult]);
+
+  // Use the custom hook for token calculation
+  const { isCalculatingTokens } = useTokenCalculator({
+    selectedFiles,
+    getAllFilesFromDataSource,
+    onTokenCountChange,
+    getEncodingFunc,
+  });
+
+  // Use the custom hook for clipboard copy logic
+  const { copySelectedFiles, isCopying, copySuccess } = useClipboardCopy({
+    fileTree,
+    selectedFiles,
+    minifyOnCopy,
+    dataSource,
+    getAllFilesFromDataSource,
+  });
 
   // Calculate average lines for ALL files in the data source (fallback)
   const projectWideAverageLines = useMemo(() => {
@@ -147,86 +176,8 @@ const FileSelector = ({
     // Run only once on mount
   }, []);
 
-  // Moved useEffect for token calculation here
-  // Now depends on getEncodingFunc state
-  useEffect(() => {
-    let isMounted = true;
-    // No need to setIsCalculatingTokens here if estimateTokens does it?
-    // setIsCalculatingTokens(true); // Consider if needed or if estimateTokens handles it
-
-    const estimateTokens = async () => {
-      setIsCalculatingTokens(true); // Set loading state for this calculation
-      let currentTokenCount = 0;
-      let usedFallback = false;
-      const allFiles = getAllFilesFromDataSource();
-      const filesToProcess = allFiles.filter(f => selectedFiles.includes(f.path));
-
-      // Try to get the specific encoding instance using the function from state
-      let encoding: any = null;
-      if (typeof getEncodingFunc === 'function') { // Check if the function is loaded
-        try {
-          encoding = getEncodingFunc("cl100k_base"); // Call the function from state
-          // console.log("Successfully got cl100k_base instance using function from state.");
-        } catch (e) {
-          console.warn("Error calling get_encoding('cl100k_base') from state function:", e);
-          encoding = null; // Failed to get instance
-        }
-      } else {
-        // console.log("getEncodingFunc from state was not a function.");
-      }
-
-      for (const file of filesToProcess) {
-        let content = file.content;
-
-        if (content && encoding) { // Check if we got the instance AND have content
-          try {
-              currentTokenCount += encoding.encode(content).length;
-              // console.log(`Tokenized ${file.path} with tiktoken`);
-          } catch(encodeError) {
-              console.error(`Error encoding content for ${file.path}:`, encodeError);
-              usedFallback = true;
-              const estimated = Math.ceil(content.length / 4);
-              currentTokenCount += estimated;
-              console.log(`⚠️ Used LENGTH fallback for ${file.path} due to encode error (Length: ${content.length}, Estimated: ${estimated})`);
-          }
-        } else {
-          usedFallback = true;
-          if (file.dataSourceType === 'github' || !content) {
-             const estimated = Math.ceil((file.size || 0) / 4);
-             currentTokenCount += estimated;
-             // Log reason based on whether the main function failed to load, or just this instance call/content issue
-             const reason = getEncodingFunc ? (encoding ? 'Content unavailable' : 'Instance creation failed') : 'Tiktoken function not loaded';
-             console.log(`⚠️ Used SIZE fallback for ${file.path} (Size: ${file.size}, Estimated: ${estimated}) - Reason: ${reason}`);
-          } else if (content) {
-             const estimated = Math.ceil(content.length / 4);
-             currentTokenCount += estimated;
-             // Log reason based on whether the main function failed to load or the instance call failed
-             const reason = getEncodingFunc ? 'Instance creation failed' : 'Tiktoken function not loaded';
-             console.log(`⚠️ Used LENGTH fallback for ${file.path} (Length: ${content.length}, Estimated: ${estimated}) - Reason: ${reason}`);
-          } else {
-             console.log(`⚠️ No content or size for ${file.path}, adding 0 tokens.`);
-          }
-        }
-      }
-
-      if (isMounted) {
-        if (usedFallback) {
-            console.warn("Token count includes fallback estimations.");
-        } else {
-            console.log("Token count calculation attempted purely with tiktoken.");
-        }
-        onTokenCountChange(currentTokenCount);
-        setIsCalculatingTokens(false);
-      }
-    };
-
-    // Only run estimation if files or function change, and function is potentially available
-    // Adding a slight delay might help if WASM init is slow, but relying on state is better
-    const timeoutId = setTimeout(estimateTokens, 50);
-
-    return () => { isMounted = false; clearTimeout(timeoutId); };
-    // Depend on selectedFiles, the data source helper, count change callback, AND the loaded function
-  }, [selectedFiles, getAllFilesFromDataSource, onTokenCountChange, getEncodingFunc]);
+  // Moved useEffect for token calculation to useTokenCalculator hook
+  // useEffect(() => { ... }, [selectedFiles, getAllFilesFromDataSource, onTokenCountChange, getEncodingFunc]);
 
   useEffect(() => {
     console.log("DataSource changed, rebuilding tree:", dataSource.type);
@@ -369,107 +320,6 @@ const FileSelector = ({
     }
   }, [searchTerm, fileTree, expandedNodes]); // Added expandedNodes dependency
 
-  const buildLocalFileTree = (localFiles: FileData[]): { [key: string]: InternalTreeNode } => {
-    const tree: { [key: string]: InternalTreeNode } = {};
-    localFiles.forEach(file => {
-      const parts = file.path.split('/');
-      let current: { [key: string]: InternalTreeNode } | undefined = tree;
-      let currentPath = '';
-      parts.forEach((part, i) => {
-        currentPath = currentPath ? `${currentPath}/${part}` : part;
-        if (!current) return; 
-        if (i === parts.length - 1) {
-          current[part] = { name: part, path: currentPath, type: 'file', lines: file.lines, content: file.content, size: file.size };
-        } else {
-          if (!current[part]) {
-            current[part] = { name: part, path: currentPath, type: 'directory', children: {} };
-          } else if (current[part].type === 'file') {
-             console.warn(`Path conflict: Directory path ${currentPath} conflicts with existing file path.`);
-             if (!current[part].children) current[part].children = {}; 
-          } else if (!current[part].children) {
-             current[part].children = {};
-          }
-          current = current[part].children;
-        }
-      });
-    });
-    return tree;
-  };
-
-  const buildGitHubTree = (githubTreeItems: GitHubTreeItem[]): { [key: string]: InternalTreeNode } => {
-    const tree: { [key: string]: InternalTreeNode } = {};
-    githubTreeItems.sort((a, b) => a.path.localeCompare(b.path)); 
-    githubTreeItems.forEach(item => {
-      const parts = item.path.split('/');
-      let current: { [key: string]: InternalTreeNode } | undefined = tree;
-      let currentPath = '';
-      parts.forEach((part, i) => {
-        currentPath = currentPath ? `${currentPath}/${part}` : part;
-        if (!current) return; 
-        if (i === parts.length - 1) {
-          if (item.type === 'blob') {
-            // Format the size for display
-            const formattedSize = item.size ? formatFileSize(item.size) : '';
-            
-            // Type assertion to access potential extended properties
-            const extendedItem = item as GitHubTreeItem & { lines?: number, content?: string };
-            
-            current[part] = { 
-              name: part, 
-              path: item.path, 
-              type: 'file', 
-              sha: item.sha, 
-              size: item.size,
-              formattedSize, // Add formatted size for display
-              lines: extendedItem.lines, // Get lines directly from extended item 
-              content: extendedItem.content // Get content directly from extended item
-            };
-          } else if (item.type === 'tree') {
-            if (!current[part]) {
-                current[part] = { name: part, path: item.path, type: 'directory', children: {}, sha: item.sha };
-            } else {
-                 current[part].type = 'directory';
-                 if(!current[part].children) current[part].children = {};
-                 current[part].sha = item.sha; 
-            }
-          } 
-        } else {
-          if (!current[part]) {
-            current[part] = { name: part, path: currentPath, type: 'directory', children: {} };
-          } else if (!current[part].children) {
-             current[part].type = 'directory';
-             current[part].children = {};
-          }
-          current = current[part].children;
-        }
-      });
-    });
-    return tree;
-  };
-
-  // Add a helper function to format file size
-  const formatFileSize = (bytes: number): string => {
-    if (bytes < 1024) return `${bytes} B`;
-    const kb = bytes / 1024;
-    if (kb < 1024) return `${kb.toFixed(1)} KB`;
-    const mb = kb / 1024;
-    return `${mb.toFixed(1)} MB`;
-  };
-
-  // Get all descendant files of a node 
-  const getDescendantFiles = (node: InternalTreeNode): string[] => {
-    if (node.type === 'file') return [node.path];
-    
-    const descendantFiles: string[] = [];
-    if (node.type === 'directory' && node.children) {
-      Object.values(node.children).forEach(child => {
-        descendantFiles.push(...getDescendantFiles(child));
-      });
-    }
-    
-    return descendantFiles;
-  };
-
   // Handle toggling selection
   const handleSelectionToggle = useCallback((path: string, isSelected: boolean) => {
     // Find the node with the given path
@@ -495,21 +345,6 @@ const FileSelector = ({
     }
   }, [fileTree, setSelectedFiles, getDescendantFiles]);
 
-  // Find a node in the file tree by path
-  const findNode = (tree: { [key: string]: InternalTreeNode }, targetPath: string): InternalTreeNode | null => {
-    const parts = targetPath.split('/');
-    let current: { [key: string]: InternalTreeNode } | undefined = tree;
-    let currentNode: InternalTreeNode | null = null;
-
-    for (const part of parts) {
-      if (!current || !current[part]) return null;
-      currentNode = current[part];
-      current = currentNode.children;
-    }
-
-    return currentNode;
-  };
-
   const clearSelection = useCallback(() => {
     setSelectedFiles([]);
   }, [setSelectedFiles]);
@@ -524,27 +359,6 @@ const FileSelector = ({
       // Just clear selection, don't change expanded state
       setSelectedFiles([]);
   }, [setSelectedFiles]);
-
-  const generateProjectTreeString = useCallback((tree: { [key: string]: InternalTreeNode }): string => {
-    const buildString = (nodes: { [key: string]: InternalTreeNode }, prefix = ''): string => {
-      const nodeStrings = Object.entries(nodes)
-        .sort(([, a], [, b]) => {
-          if (a.type !== b.type) return a.type === 'directory' ? -1 : 1;
-          return a.name.localeCompare(b.name);
-        })
-        .map(([key, node]) => {
-          const nodeLine = prefix + (node.type === 'directory' ? `📁 ${node.name}/` : `📄 ${node.name}`);
-          if (node.type === 'directory' && node.children) {
-            return nodeLine + '\n' + buildString(node.children, prefix + '  ');
-          }
-          return nodeLine;
-        });
-      
-      return nodeStrings.join('\n');
-    };
-    
-    return buildString(tree);
-  }, []);
 
   const handleAiSuggest = useCallback(async () => {
     if (!fileTree) return;
@@ -581,168 +395,7 @@ const FileSelector = ({
     } finally {
       setIsAiLoading(false);
     }
-  }, [fileTree, generateProjectTreeString, setSelectedFiles, getAllFilesFromDataSource]); // Use helper in deps
-
-  const minifyCode = useCallback((code: string): string => {
-    if (!code) return '';
-    
-    // Very basic minification for various languages
-    return code
-      // Remove single-line comments (// for JS/TS/Java/C#, # for Python/Ruby)
-      .replace(/\/\/.*|#.*/g, '')
-      // Remove multi-line comments (/* ... */ for many languages)
-      .replace(/\/\*[\s\S]*?\*\//g, '')
-      // Remove empty lines
-      .replace(/^\s*[\r\n]/gm, '')
-      // Collapse multiple spaces to single space
-      .replace(/\s{2,}/g, ' ')
-      // Collapse spaces around brackets and parentheses
-      .replace(/\s*([{}()[\]])\s*/g, '$1')
-      // Trim leading/trailing whitespace
-      .trim();
-  }, []);
-
-  // Define content fetching API route
-  const GITHUB_CONTENT_API = '/api/github/content'; // Define once
-  
-  // Helper to check if a file is likely binary based on extension
-  const isBinaryFile = useCallback((filePath: string): boolean => {
-    const binaryExtensions = [
-      '.ico', '.png', '.jpg', '.jpeg', '.gif', '.bmp', '.tiff', 
-      '.webp', '.svg', '.pdf', '.zip', '.tar', '.gz', '.rar',
-      '.exe', '.dll', '.so', '.dylib', '.bin', '.dat', '.db',
-      '.woff', '.woff2', '.eot', '.ttf', '.otf'
-    ];
-    
-    const extension = filePath.substring(filePath.lastIndexOf('.')).toLowerCase();
-    return binaryExtensions.includes(extension);
-  }, []);
-
-  const copySelectedFilesToClipboard = useCallback(async () => {
-    if (!fileTree || selectedFiles.length === 0 || isCopying) return;
-    
-    setIsCopying(true); // Set loading state
-    setCopySuccess(false); // Reset success state
-
-    // Build the filtered tree string (unchanged)
-    const filteredTreeForCopy: { [key: string]: InternalTreeNode } = {};
-    selectedFiles.forEach(path => {
-        const node = findNode(fileTree, path);
-        if (!node || node.type !== 'file') return; 
-        const parts = path.split('/');
-        let current = filteredTreeForCopy;
-        let currentPath = '';
-        parts.forEach((part, i) => {
-             currentPath = currentPath ? `${currentPath}/${part}` : part;
-             if (i === parts.length - 1) {
-                 current[part] = node; 
-             } else {
-                 if (!current[part]) {
-                     current[part] = { name: part, path: currentPath, type: 'directory', children: {} };
-                 } else if (!current[part].children) {
-                     current[part].children = {};
-                 }
-                 current = current[part].children as { [key: string]: InternalTreeNode };
-             }
-        });
-    });
-    const treeString = generateProjectTreeString(filteredTreeForCopy);
-    
-    try {
-      const allFiles = getAllFilesFromDataSource(); // Get all files
-      const filesToCopy = allFiles.filter(f => selectedFiles.includes(f.path));
-      console.log(`Preparing to copy ${filesToCopy.length} files`);
-      
-      // First fetch all GitHub content if needed (in parallel)
-      const fetchPromises = [];
-      const fileContentMap = new Map<string, string>();
-      
-      for (const file of filesToCopy) {
-        // Skip binary files
-        if (isBinaryFile(file.path)) {
-          console.log(`Skipping binary file: ${file.path}`);
-          fileContentMap.set(file.path, `// [Binary file not included: ${file.path}]`);
-          continue;
-        }
-        
-        // If GitHub file with no content, fetch it
-        if (file.dataSourceType === 'github' && !file.content && file.path && dataSource.type === 'github' && dataSource.repoInfo) {
-          const { owner, repo, branch } = dataSource.repoInfo;
-          const fetchPromise = (async () => {
-            try {
-              const contentUrl = `${GITHUB_CONTENT_API}?owner=${owner}&repo=${repo}&path=${encodeURIComponent(file.path)}`;
-              console.log(`Fetching content: ${contentUrl}`);
-              const response = await fetch(contentUrl);
-              
-              if (!response.ok) {
-                const errorData = await response.json();
-                throw new Error(errorData.error || `Failed to fetch content (${response.status})`);
-              }
-              
-              const data = await response.json();
-              const content = data.content;
-              
-              // Cache the content in the map
-              fileContentMap.set(file.path, content);
-              
-              // Also update the node in the fileTree
-              const node = findNode(fileTree, file.path);
-              if (node && node.type === 'file') {
-                node.content = content;
-                // Also update lines count for display
-                node.lines = content.split('\n').length;
-              }
-            } catch (err) {
-              console.error(`Failed to fetch content for ${file.path}:`, err);
-              fileContentMap.set(file.path, `// Error fetching content for ${file.path}: ${err instanceof Error ? err.message : 'Unknown error'}`);
-            }
-          })();
-          fetchPromises.push(fetchPromise);
-        } else {
-          // For local files or GitHub files with content already loaded
-          fileContentMap.set(file.path, file.content || '');
-        }
-      }
-      
-      // Wait for all content fetches to complete
-      if (fetchPromises.length > 0) {
-        console.log(`Fetching content for ${fetchPromises.length} GitHub files...`);
-        await Promise.all(fetchPromises);
-        console.log('All content fetches completed');
-      }
-      
-      // Now that we have all content, build the combined string
-      let combinedContent = '';
-      for (const file of filesToCopy) {
-        const content = fileContentMap.get(file.path) || '';
-        // Skip empty content or just use placeholder for binary files
-        if (!content && !isBinaryFile(file.path)) {
-          combinedContent += `// ${file.path}\n// [Empty file]\n\n`;
-          continue;
-        }
-        
-        // For binary files, just use the placeholder
-        if (isBinaryFile(file.path)) {
-          combinedContent += `// ${file.path}\n// [Binary file not included]\n\n`;
-          continue;
-        }
-        
-        const processedContent = minifyOnCopy ? minifyCode(content) : content;
-        combinedContent += `// ${file.path}\n${processedContent}\n\n`;
-      }
-      
-      const clipboardText = `Project Structure:\n${treeString}\n\n---\n\nFile Contents:\n${combinedContent}`;
-      
-      await navigator.clipboard.writeText(clipboardText);
-      setCopySuccess(true);
-      setTimeout(() => setCopySuccess(false), 2000);
-    } catch (err) {
-      console.error('Could not copy text: ', err);
-      // Optionally show an error to the user
-    } finally {
-      setIsCopying(false); // Clear loading state regardless of success/failure
-    }
-  }, [fileTree, selectedFiles, isCopying, findNode, generateProjectTreeString, minifyOnCopy, minifyCode, dataSource, getAllFilesFromDataSource, isBinaryFile]);
+  }, [fileTree, generateProjectTreeString, setSelectedFiles, getAllFilesFromDataSource]); // Use generateProjectTreeString from import
 
   const toggleExpand = useCallback((path: string) => {
     setExpandedNodes(prev => {
@@ -972,13 +625,11 @@ const FileSelector = ({
                 variant="default"
                 size="sm" 
                 className="h-8 ml-auto" 
-                onClick={copySelectedFilesToClipboard}
+                onClick={copySelectedFiles}
                 disabled={selectedFiles.length === 0 || isCopying}
               >
                 {isCopying ? (
                   <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
-                ) : copySuccess ? (
-                  <Check className="mr-2 h-3.5 w-3.5" />
                 ) : (
                   <Copy className="mr-2 h-3.5 w-3.5" />
                 )}
