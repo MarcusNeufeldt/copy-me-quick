@@ -488,24 +488,31 @@ const FileSelector = ({
   }, [getAllFilesFromDataSource]);
 
   if (!fileTree) {
-    return <div className="p-4 text-muted-foreground">No files to display.</div>;
+    return (
+        <div className="flex flex-col h-full items-center justify-center p-4 text-muted-foreground">
+            <Loader2 className="h-8 w-8 animate-spin mb-4" />
+            <span>Loading file structure...</span>
+        </div>
+    );
   }
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center gap-2 mb-4">
+    <div className="flex flex-col h-full border rounded-lg overflow-hidden">
+      {/* Toolbar */}
+      <div className="flex items-center gap-2 p-2 border-b">
+        {/* Search Input */}
         <div className="relative flex-1">
-          <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground pointer-events-none" />
+          <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
           <Input
             type="text"
             placeholder="Search files and content..."
             value={searchTerm}
             onChange={e => setSearchTerm(e.target.value)}
-            className="bg-background"
+            className="bg-background pl-8 h-9" // Adjusted padding and height
           />
           {searchTerm && (
-            <button 
-              onClick={() => setSearchTerm('')} 
+            <button
+              onClick={() => setSearchTerm('')}
               className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
               aria-label="Clear search"
             >
@@ -514,149 +521,166 @@ const FileSelector = ({
           )}
         </div>
         {searchTerm && (
-          <span className="text-xs text-muted-foreground whitespace-nowrap">
+          <span className="text-xs text-muted-foreground whitespace-nowrap ml-2">
             {filteredNodes.size} match{filteredNodes.size !== 1 ? 'es' : ''}
           </span>
         )}
+
+        {/* Action Buttons Group */}
+        <div className="flex items-center gap-2 ml-auto">
+          <TooltipProvider delayDuration={300}>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  className="h-9 w-9"
+                  onClick={handleAiSuggest}
+                  disabled={loadingStatus.isLoading && loadingStatus.message?.includes('AI')}
+                >
+                  {loadingStatus.isLoading && loadingStatus.message?.includes('AI') ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Brain className="h-4 w-4" />
+                  )}
+                  <span className="sr-only">AI Suggest</span>
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p>Replace selection with AI-suggested files</p>
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+
+          <TooltipProvider delayDuration={300}>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                 <Button
+                    variant="default"
+                    size="sm"
+                    className="h-9 px-3" // Adjusted padding
+                    onClick={copySelectedFiles}
+                    disabled={selectedFiles.length === 0 || (loadingStatus.isLoading && loadingStatus.message?.includes('Copying'))}
+                >
+                    {loadingStatus.isLoading && loadingStatus.message?.includes('Copying') ? (
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    ) : (
+                        <Copy className="mr-2 h-4 w-4" />
+                    )}
+                    <span>{loadingStatus.isLoading && loadingStatus.message?.includes('Copying') ? 'Copying...' : copySuccess ? 'Copied!' : 'Copy'}</span>
+                 </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                 <p>Copy selected files ({selectedFiles.length}) to clipboard</p>
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        </div>
       </div>
 
-      {/* File Size Legend */}
-      <div className="px-2 pt-1 pb-2 text-xs flex items-center gap-2 border-b border-border/50">
-        <span className="text-muted-foreground">File size:</span>
-        <div className="flex items-center gap-1">
-          <File className="h-3 w-3 text-muted-foreground/70" />
-          <span>Normal</span>
+      {/* Tree Controls & File Size Legend */}
+      <div className="flex items-center justify-between gap-2 px-2 py-1 border-b text-xs">
+        <div className="flex items-center gap-2">
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="sm" className="h-7 px-2">
+                  <ChevronsUpDown className="mr-1.5 h-3.5 w-3.5 text-muted-foreground" />
+                  <span className="text-muted-foreground">Tree</span>
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start">
+                <DropdownMenuItem onClick={expandAll}>
+                  <ChevronDownSquare className="mr-2 h-4 w-4" />
+                  <span>Expand All</span>
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={collapseAll}>
+                  <ChevronUpSquare className="mr-2 h-4 w-4" />
+                  <span>Collapse All</span>
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="sm" className="h-7 px-2">
+                  <FileSearch className="mr-1.5 h-3.5 w-3.5 text-muted-foreground" />
+                  <span className="text-muted-foreground">Selection</span>
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start">
+                <DropdownMenuItem onClick={selectAll}>
+                  Select All ({totalFilesCount})
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={deselectAll} disabled={selectedFiles.length === 0}>
+                  Deselect All ({selectedFiles.length})
+                </DropdownMenuItem>
+                 <DropdownMenuItem onClick={selectVisibleFiles}>
+                    Select Visible
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={deselectVisibleFiles} disabled={selectedFiles.length === 0}>
+                    Deselect Visible
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
         </div>
-        <div className="flex items-center gap-1">
-          <FileWarning className="h-3 w-3 text-yellow-500" />
-          <span>Moderate</span>
-          <span className="text-muted-foreground">(1.25-2.5x avg)</span>
-        </div>
-        <div className="flex items-center gap-1">
-          <FileWarning className="h-3 w-3 text-rose-500" />
-          <span className="text-rose-500 font-medium">Large</span>
-          <span className="text-muted-foreground">({'>'}2.5x avg)</span>
+
+         {/* File Size Legend (Condensed) */}
+        <div className="flex items-center gap-2 text-muted-foreground">
+            <span>Size:</span>
+            <TooltipProvider delayDuration={100}>
+                <Tooltip>
+                    <TooltipTrigger className="flex items-center gap-1 cursor-default">
+                        <File className="h-3 w-3 text-muted-foreground/70" />
+                        <span className="hidden sm:inline">Normal</span>
+                    </TooltipTrigger>
+                    <TooltipContent side="bottom" className="text-xs">Normal Size</TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                    <TooltipTrigger className="flex items-center gap-1 cursor-default">
+                        <FileWarning className="h-3 w-3 text-yellow-500" />
+                         <span className="hidden sm:inline">Mod</span>
+                    </TooltipTrigger>
+                    <TooltipContent side="bottom" className="text-xs">Moderate (1.25-2.5x avg lines)</TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                     <TooltipTrigger className="flex items-center gap-1 cursor-default">
+                        <FileWarning className="h-3 w-3 text-rose-500" />
+                         <span className="hidden sm:inline">Large</span>
+                    </TooltipTrigger>
+                    <TooltipContent side="bottom" className="text-xs">Large (&gt;2.5x avg lines)</TooltipContent>
+                </Tooltip>
+            </TooltipProvider>
         </div>
       </div>
 
-      <div className="flex flex-wrap gap-2 mb-4">
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="outline" size="sm" className="h-8">
-              <ChevronsUpDown className="mr-2 h-3.5 w-3.5" />
-              <span>Tree</span>
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="start">
-            <DropdownMenuItem onClick={expandAll}>
-              <ChevronDownSquare className="mr-2 h-4 w-4" />
-              <span>Expand All</span>
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={collapseAll}>
-              <ChevronUpSquare className="mr-2 h-4 w-4" />
-              <span>Collapse All</span>
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="outline" size="sm" className="h-8">
-              <FileSearch className="mr-2 h-3.5 w-3.5" />
-              <span>Selection</span>
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="start">
-            <DropdownMenuItem onClick={selectAll}>
-              Select All Files ({totalFilesCount})
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={deselectAll}>
-              Deselect All ({selectedFiles.length})
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={selectVisibleFiles}>
-              Select Visible Files
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={deselectVisibleFiles}>
-              Deselect Visible Files
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-
-        <TooltipProvider>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button 
-                variant="outline" 
-                size="sm" 
-                className="h-8" 
-                onClick={handleAiSuggest}
-                // Disable based on global loading state
-                disabled={loadingStatus.isLoading && loadingStatus.message?.includes('AI')}
-              >
-                {/* Use global loading state for spinner */}
-                {loadingStatus.isLoading && loadingStatus.message?.includes('AI') ? (
-                  <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
-                ) : (
-                  <Brain className="mr-2 h-3.5 w-3.5" />
-                )}
-                <span>AI Suggest</span>
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>
-              <p>Replace current selection with AI-suggested files for LLM context.</p>
-            </TooltipContent>
-          </Tooltip>
-        </TooltipProvider>
-
-        <TooltipProvider>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button 
-                variant="default"
-                size="sm" 
-                className="h-8 ml-auto" 
-                onClick={copySelectedFiles}
-                // Disable based on global loading state
-                disabled={selectedFiles.length === 0 || (loadingStatus.isLoading && loadingStatus.message?.includes('Copying'))}
-              >
-                {/* Use global loading state for spinner/text */}
-                {loadingStatus.isLoading && loadingStatus.message?.includes('Copying') ? (
-                  <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
-                ) : (
-                  <Copy className="mr-2 h-3.5 w-3.5" />
-                )}
-                <span>{loadingStatus.isLoading && loadingStatus.message?.includes('Copying') ? 'Copying...' : copySuccess ? 'Copied!' : 'Copy Selected'}</span>
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>
-              <p>Copy selected files ({selectedFiles.length}) to clipboard</p>
-            </TooltipContent>
-          </Tooltip>
-        </TooltipProvider>
-      </div>
 
       {aiError && (
-        <div className="text-destructive text-sm mb-4 p-2 bg-destructive/10 rounded-md">
+        <div className="text-destructive text-sm p-2 bg-destructive/10 border-b">
           Error: {aiError}
         </div>
       )}
 
-      <div className="border rounded-lg p-2 max-h-[500px] overflow-y-auto custom-scrollbar">
+      {/* Main Tree View Area */}
+      <div className="flex-1 overflow-y-auto custom-scrollbar p-2">
         {searchTerm && filteredNodes.size === 0 ? (
-          <div className="text-center py-8 text-muted-foreground">
+          <div className="flex flex-col items-center justify-center h-full text-center py-8 text-muted-foreground">
             <FileSearch className="h-10 w-10 mx-auto mb-2 opacity-40" />
             <p>No files match your search &quot;{searchTerm}&quot;</p>
           </div>
         ) : (
           treeNodesToRender.length > 0 ? treeNodesToRender : (
-            <div className="text-center py-8 text-muted-foreground">Loading tree...</div>
+            <div className="flex flex-col items-center justify-center h-full text-center py-8 text-muted-foreground">
+               <Loader2 className="h-6 w-6 animate-spin mb-3" />
+               <span>Populating file tree...</span>
+            </div>
           )
         )}
       </div>
 
-      <div className="flex items-center justify-between mt-2">
-        <div className="flex items-center">
-          <Checkbox
+      {/* Status Bar */}
+      <div className="flex items-center justify-between p-2 border-t text-xs text-muted-foreground">
+        <div className="flex items-center gap-2">
+           <Checkbox
             id="minify-code"
             checked={minifyOnCopy}
             onCheckedChange={(checked) => {
@@ -664,34 +688,28 @@ const FileSelector = ({
                 setMinifyOnCopy(checked);
               }
             }}
-            className="h-4 w-4 mr-2"
+            className="h-4 w-4"
           />
           <label
             htmlFor="minify-code"
-            className="text-sm cursor-pointer text-muted-foreground"
+            className="cursor-pointer select-none" // Make label clickable
           >
-            Minify code on copy
+            Minify on copy
           </label>
         </div>
-        <div className="text-xs text-muted-foreground">
-          {selectedFiles.length} files selected 
-          {/* Use global loading state for token calculation status */}
-          {loadingStatus.isLoading && loadingStatus.message?.includes('Calculating tokens') ? (
-            <span className="text-muted-foreground inline-flex items-center"> (<Loader2 className="animate-spin h-3 w-3 mr-1" /> Calculating...)</span>
-          ) : (
-            <span> (~{tokenCount.toLocaleString()} tokens (tiktoken))</span>
-          )}
-        </div>
-      </div>
-
-      <div className="flex items-center py-1 px-2 border-b border-border/40">
-        <div className="flex items-center gap-1 text-xs text-muted-foreground">
-          <div>{fileTree ? Object.keys(fileTree).length : 0} roots,</div>
-          <div>{totalFilesCount} files,</div>
-          <div>{totalLinesCount.toLocaleString()} lines</div>
-          {selectedFiles.length > 0 && (
-            <div className="ml-1 text-primary">({selectedFiles.length} selected)</div>
-          )}
+        <div className="flex items-center gap-3">
+            <span>{totalFilesCount} files, {totalLinesCount.toLocaleString()} lines</span>
+            <span>{selectedFiles.length} selected</span>
+            {/* Token Count */}
+            <div className="flex items-center">
+            {loadingStatus.isLoading && loadingStatus.message?.includes('Calculating tokens') ? (
+                <span className="inline-flex items-center text-muted-foreground">
+                <Loader2 className="animate-spin h-3 w-3 mr-1" /> Calculating...
+                </span>
+            ) : (
+                <span>~{tokenCount.toLocaleString()} tokens</span>
+            )}
+            </div>
         </div>
       </div>
     </div>
