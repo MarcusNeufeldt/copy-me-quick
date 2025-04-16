@@ -3,11 +3,16 @@ import { cookies } from 'next/headers';
 
 const GITHUB_TOKEN_COOKIE_NAME = 'github_token';
 const GITHUB_TOKEN_MAX_AGE = 60 * 60 * 24 * 7; // 7 days in seconds
+const GITHUB_STATE_COOKIE_NAME = 'github_oauth_state'; // Define cookie name
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const code = searchParams.get('code');
-  const state = searchParams.get('state'); // TODO: Validate state against stored value for CSRF protection
+  const state = searchParams.get('state');
+  const storedState = cookies().get(GITHUB_STATE_COOKIE_NAME)?.value;
+
+  // Clean up the state cookie immediately
+  cookies().delete(GITHUB_STATE_COOKIE_NAME);
 
   const clientId = process.env.GITHUB_CLIENT_ID;
   const clientSecret = process.env.GITHUB_CLIENT_SECRET;
@@ -25,10 +30,13 @@ export async function GET(request: NextRequest) {
     return NextResponse.redirect(new URL('/?error=github_auth_failed', request.url));
   }
 
-  // TODO: Add state validation here to prevent CSRF attacks.
-  // You would typically store the 'state' generated in the login route
-  // (e.g., in a short-lived cookie or session) and compare it here.
-  // If they don't match, reject the request.
+  // Validate state to prevent CSRF attacks
+  if (!state || !storedState || state !== storedState) {
+    console.error('GitHub OAuth callback error: Invalid state parameter.');
+    return NextResponse.redirect(new URL('/?error=github_invalid_state', request.url));
+  }
+
+  // State is valid, proceed with token exchange
 
   try {
     const response = await fetch(
