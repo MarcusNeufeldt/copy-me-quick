@@ -16,6 +16,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import FileSelector from '@/components/FileSelector';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Input } from "@/components/ui/input";
 
 // Dynamically import Analytics with error handling
 const AnalyticsComponent = dynamic(
@@ -565,7 +567,7 @@ export default function ClientPageRoot() {
       )}
 
       {/* Header with background blur */}
-      <header className="sticky top-0 z-40 w-full border-b bg-background/80 backdrop-blur-sm">
+      <header className="sticky top-0 z-40 w-full border-b bg-background/80 backdrop-blur-sm shadow-sm">
         <div className="container flex h-16 items-center justify-between py-4 px-4 sm:px-6">
           <div className="flex items-center gap-2">
             <Code2 className="h-5 w-5 sm:h-6 sm:w-6 text-primary" />
@@ -589,8 +591,8 @@ export default function ClientPageRoot() {
         <div className="grid gap-6 grid-cols-1 md:grid-cols-[250px_1fr] lg:grid-cols-[280px_1fr]">
           {/* Sidebar Navigation */}
           <aside className="flex flex-col gap-4">
-            <Card className="glass-card animate-slide-up">
-              <CardContent className="p-4 sm:pt-6 space-y-4 sm:space-y-6">
+            <Card className="glass-card animate-slide-up sticky top-[calc(theme(spacing.16)+1rem)]">
+              <CardContent className="p-4 sm:p-5 space-y-4 sm:space-y-5">
                 <div className="flex items-center gap-2 mb-2 sm:mb-4">
                   <GitBranchPlus className="h-4 w-4 sm:h-5 sm:w-5 text-primary" />
                   <h2 className="font-heading font-semibold text-sm sm:text-base">Project Configuration</h2>
@@ -633,96 +635,96 @@ export default function ClientPageRoot() {
 
                   {/* GITHUB TAB */}
                   <TabsContent value="github" className="mt-0 space-y-3">
-                    {/* GitHub Connection Logic - To be potentially moved to a component */}
-                    {/* Use unified loading state instead of isLoadingGithubUser */}
+                    {/* GitHub Connection Logic */}
                     {loadingStatus.isLoading && loadingStatus.message?.includes('GitHub connection') ? (
-                      <div className="text-center text-muted-foreground text-xs sm:text-sm pt-2">Checking GitHub connection...</div>
+                       <div className="flex items-center justify-center gap-2 text-muted-foreground text-xs sm:text-sm py-4">
+                         <Loader2 className="h-4 w-4 animate-spin" />
+                         Checking GitHub connection...
+                       </div>
                     ) : githubUser ? (
-                      <div className="space-y-3 sm:space-y-4 text-xs sm:text-sm pt-1">
-                         <div className="flex items-center justify-between mb-2">
-                           <div className="flex items-center gap-2">
+                       <div className="space-y-4 text-xs sm:text-sm">
+                         <div className="flex items-center justify-between gap-2">
+                           <div className="flex items-center gap-2 overflow-hidden">
                              {githubUser.avatarUrl && (
-                                <Image
-                                   src={githubUser.avatarUrl}
-                                   alt={`${githubUser.login} avatar`}
-                                   width={24}
-                                   height={24}
-                                   className="rounded-full"
-                                />
+                               <Image
+                                  src={githubUser.avatarUrl}
+                                  alt={`${githubUser.login} avatar`}
+                                  width={24}
+                                  height={24}
+                                  className="rounded-full"
+                               />
                              )}
-                             <span className="font-medium">{githubUser.login}</span>
-                             <CheckCircle className="h-4 w-4 text-green-500" />
+                             <span className="font-medium truncate" title={githubUser.login}>{githubUser.login}</span>
+                             <CheckCircle className="h-4 w-4 text-green-500 shrink-0" />
                            </div>
-                           <Button variant="ghost" size="sm" onClick={handleGitHubLogout} title="Disconnect GitHub">
-                             <XCircle className="h-4 w-4" />
+                           <Button variant="ghost" size="icon" className="h-7 w-7" onClick={handleGitHubLogout} title="Disconnect GitHub">
+                             <XCircle className="h-4 w-4 text-muted-foreground" />
                            </Button>
                          </div>
 
                          {/* Repo Selector */}
-                         <div className="space-y-1">
+                         <div className="space-y-1.5">
                            <label htmlFor="github-repo-select" className="flex items-center gap-1 text-xs font-medium text-muted-foreground">
-                              <BookMarked className="h-3 w-3" /> Repository
+                             <BookMarked className="h-3 w-3" /> Repository
                            </label>
                            <Select
                              value={selectedRepoFullName || ''}
                              onValueChange={handleRepoChange}
-                             // Use unified loading state
                              disabled={loadingStatus.isLoading || repos.length === 0}
                            >
-                              <SelectTrigger id="github-repo-select" className="text-xs sm:text-sm">
-                                  <SelectValue placeholder={loadingStatus.isLoading && loadingStatus.message?.includes('repositories') ? "Loading..." : "Select repository..."} />
-                              </SelectTrigger>
-                              <SelectContent>
-                                  {repos.map((repo: GitHubRepo) => (
-                                  <SelectItem key={repo.id} value={repo.full_name} className="text-xs sm:text-sm">
-                                      {repo.full_name}
-                                  </SelectItem>
-                                  ))}
-                              </SelectContent>
+                             <SelectTrigger id="github-repo-select" className="text-xs sm:text-sm">
+                               <SelectValue placeholder={loadingStatus.isLoading && loadingStatus.message?.includes('repositories') ? "Loading..." : "Select repository..."} />
+                             </SelectTrigger>
+                             <SelectContent>
+                                {loadingStatus.isLoading && loadingStatus.message?.includes('repositories') && (
+                                   <div className="flex items-center justify-center p-4 text-muted-foreground text-xs">
+                                      <Loader2 className="h-4 w-4 mr-2 animate-spin" /> Loading...
+                                   </div>
+                                )}
+                                {repos.map((repo: GitHubRepo) => (
+                                 <SelectItem key={repo.id} value={repo.full_name} className="text-xs sm:text-sm">
+                                     {repo.full_name}
+                                 </SelectItem>
+                                ))}
+                             </SelectContent>
                            </Select>
                          </div>
 
                          {/* Branch Selector */}
                          {selectedRepoFullName && (
-                           <div className="space-y-1">
+                            <div className="space-y-1.5">
                              <label htmlFor="github-branch-select" className="flex items-center gap-1 text-xs font-medium text-muted-foreground">
                                <GitBranch className="h-3 w-3" /> Branch
                              </label>
 
-                             {/* Use unified loading state */}
                              {loadingStatus.isLoading && loadingStatus.message?.includes('branches') ? (
                                <div className="text-center text-muted-foreground text-xs py-2">Loading branches...</div>
                              ) : branches.length > 0 ? (
-                               <div className="border rounded-md p-2 max-h-36 sm:max-h-48 overflow-y-auto">
+                                <ScrollArea className="h-40 w-full rounded-md border p-2">
                                  {branches.map((branch: GitHubBranch) => (
                                    <Button
                                      key={branch.name}
                                      size="sm"
                                      variant={selectedBranchName === branch.name ? "default" : "ghost"}
-                                     className="w-full justify-start text-xs mb-1"
+                                     className="w-full justify-start text-xs mb-1 h-8"
                                      onClick={() => handleBranchChange(branch.name)}
-                                     // Disable while fetching tree/content
                                      disabled={loadingStatus.isLoading && (loadingStatus.message?.includes('tree') || loadingStatus.message?.includes('contents'))}
                                    >
                                      <GitBranch className="h-3 w-3 mr-1" />
                                      {branch.name}
                                    </Button>
                                  ))}
-                               </div>
+                               </ScrollArea>
                              ) : (
                                <div className="text-center text-muted-foreground text-xs py-2">No branches found</div>
                              )}
                            </div>
                          )}
 
-                         {/* Error Display for Selection */}
+                         {/* Error Display for Selection - Used Alert */}
                          {githubSelectionError && (
-                           <p className="text-xs text-destructive">Error: {githubSelectionError}</p>
+                           <Alert variant="destructive" className="text-xs mt-2"><AlertDescription>{githubSelectionError}</AlertDescription></Alert>
                          )}
-
-                         {/* Use unified loading for tree/content instead of separate indicators */} 
-                         {/* {isLoadingTree && ... } -> Handled by unified indicator */} 
-                         {/* {isLoadingFileContents && ... } -> Handled by unified indicator */} 
 
                          {/* Display specific file loading progress message */} 
                          {fileLoadingMessage && (
@@ -743,7 +745,7 @@ export default function ClientPageRoot() {
                           <Tooltip>
                             <TooltipTrigger asChild>
                               <Button
-                                size="sm"
+                                size="default"
                                 variant="outline"
                                 className="w-full flex items-center justify-center gap-2"
                                 onClick={handleGitHubLogin}
@@ -758,7 +760,7 @@ export default function ClientPageRoot() {
                           </Tooltip>
                         </TooltipProvider>
                         {githubError && (
-                          <p className="text-xs text-destructive mt-2">{githubError}</p>
+                          <Alert variant="destructive" className="text-xs mt-2"><AlertDescription>{githubError}</AlertDescription></Alert>
                         )}
                       </div>
                     )}
@@ -821,14 +823,21 @@ export default function ClientPageRoot() {
                 />
               </>
             ) : (
-              <Card className="glass-card flex flex-col items-center justify-center p-12 text-center h-[400px]">
-                <LayoutGrid className="h-12 w-12 text-muted-foreground mb-4" />
-                <h2 className="text-2xl font-heading font-semibold mb-2">No Project Loaded</h2>
-                <p className="text-muted-foreground mb-6 max-w-md">
-                  {activeSourceTab === 'local' ?
-                    'Select a project type and upload a folder using the "Local" tab.' :
-                    'Connect to GitHub, select a repository and branch using the "GitHub" tab.'
+              <Card className="glass-card flex flex-col items-center justify-center p-8 sm:p-12 text-center min-h-[400px]">
+                <LayoutGrid className="h-10 w-10 sm:h-12 sm:w-12 text-muted-foreground mb-4" />
+                <h2 className="text-xl sm:text-2xl font-heading font-semibold mb-2">Start Analyzing</h2>
+                <p className="text-sm sm:text-base text-muted-foreground mb-6 max-w-md mx-auto">
+                  {activeSourceTab === 'local'
+                    ? 'Select a project configuration or upload local files to begin.'
+                    : 'Connect your GitHub account, then choose a repository and branch.'
                   }
+                </p>
+                <p className="text-xs text-muted-foreground max-w-xs mx-auto">
+                  {activeSourceTab === 'local'
+                    ? 'Your files are processed directly in your browser for privacy.'
+                    : 'Only committed files from the selected branch will be read.'
+                  }
+                  {isGithubTreeTruncated && " (Large repos might be truncated)"}
                 </p>
               </Card>
             )}
