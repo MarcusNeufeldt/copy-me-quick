@@ -16,7 +16,7 @@ async function fetchGitHub(url: string, token: string, cacheMode: RequestCache =
 
     if (!response.ok) {
         if (response.status === 401) {
-            cookies().delete(GITHUB_TOKEN_COOKIE_NAME);
+            // Don't delete cookie here, just throw specific error
             throw new Error('Invalid GitHub token');
         }
         const errorText = await response.text();
@@ -27,7 +27,8 @@ async function fetchGitHub(url: string, token: string, cacheMode: RequestCache =
 }
 
 export async function GET(request: NextRequest) {
-    const token = cookies().get(GITHUB_TOKEN_COOKIE_NAME)?.value;
+    const cookieStore = await cookies(); // Await cookie store
+    const token = cookieStore.get(GITHUB_TOKEN_COOKIE_NAME)?.value; // Use resolved store
     const { searchParams } = new URL(request.url);
     const owner = searchParams.get('owner');
     const repo = searchParams.get('repo');
@@ -104,6 +105,12 @@ export async function GET(request: NextRequest) {
         console.error(`Error fetching content for ${path || sha}:`, error);
         const status = error.message === 'Invalid GitHub token' ? 401 : 
                       error.message.includes('404') ? 404 : 500;
+
+        // Check for the specific error and delete cookie here
+        if (status === 401 && error.message === 'Invalid GitHub token') {
+             const storeToDelete = await cookies(); // Get store again for deletion
+             storeToDelete.delete(GITHUB_TOKEN_COOKIE_NAME);
+        }
 
         let errorMessage = error.message || 'Failed to fetch file content';
         if (status === 404) {

@@ -44,19 +44,13 @@ export function useTokenCalculator({
     const estimateTokensInChunks = async () => {
       // Read the current loading status directly inside the function
       // instead of relying on it being stable from the outer scope via dependencies.
-      let currentLoadingStatus: LoadingStatus | null = null;
-      setLoadingStatus(prev => {
-          currentLoadingStatus = prev; // Capture current status
-          return prev; // No state change needed here
-      });
-
-      if (currentLoadingStatus?.isLoading && !currentLoadingStatus.message?.includes('Calculating tokens')) {
+      if (loadingStatus.isLoading && !loadingStatus.message?.includes('Calculating tokens')) {
         console.warn("Token calculation skipped: another operation in progress.");
         return;
       }
       if (!selectedFiles.length) {
         onTokenCountChange(0);
-        if (currentLoadingStatus?.isLoading && currentLoadingStatus.message?.includes('Calculating tokens')) {
+        if (loadingStatus.isLoading && loadingStatus.message?.includes('Calculating tokens')) {
            setLoadingStatus({ isLoading: false, message: null });
         }
         return; // No files selected, reset count and clear loading if needed

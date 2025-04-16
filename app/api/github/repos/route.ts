@@ -21,7 +21,6 @@ async function fetchGitHubPaginated(url: string, token: string): Promise<any[]> 
 
         if (!response.ok) {
             if (response.status === 401) {
-                cookies().delete(GITHUB_TOKEN_COOKIE_NAME); // Clear invalid token
                 throw new Error('Invalid GitHub token');
             }
             const errorText = await response.text();
@@ -49,10 +48,13 @@ async function fetchGitHubPaginated(url: string, token: string): Promise<any[]> 
 
 
 export async function GET(request: NextRequest) {
-  const token = cookies().get(GITHUB_TOKEN_COOKIE_NAME)?.value;
+  const cookieStore = await cookies();
+  const token = cookieStore.get(GITHUB_TOKEN_COOKIE_NAME)?.value;
 
   if (!token) {
-    return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
+    const res = NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
+    res.cookies.delete(GITHUB_TOKEN_COOKIE_NAME);
+    return res;
   }
 
   try {
@@ -75,6 +77,10 @@ export async function GET(request: NextRequest) {
   } catch (error: any) {
     console.error('Error fetching GitHub repositories:', error);
     const status = error.message === 'Invalid GitHub token' ? 401 : 500;
-    return NextResponse.json({ error: error.message || 'Failed to fetch repositories' }, { status });
+    const res = NextResponse.json({ error: error.message || 'Failed to fetch repositories' }, { status });
+    if (status === 401) {
+        res.cookies.delete(GITHUB_TOKEN_COOKIE_NAME);
+    }
+    return res;
   }
 } 

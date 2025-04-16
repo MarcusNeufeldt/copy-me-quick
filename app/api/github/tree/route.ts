@@ -16,7 +16,6 @@ async function fetchGitHub(url: string, token: string, cacheMode: RequestCache =
 
     if (!response.ok) {
         if (response.status === 401) {
-            cookies().delete(GITHUB_TOKEN_COOKIE_NAME);
             throw new Error('Invalid GitHub token');
         }
         const errorText = await response.text();
@@ -28,14 +27,17 @@ async function fetchGitHub(url: string, token: string, cacheMode: RequestCache =
 }
 
 export async function GET(request: NextRequest) {
-    const token = cookies().get(GITHUB_TOKEN_COOKIE_NAME)?.value;
+    const cookieStore = await cookies();
+    const token = cookieStore.get(GITHUB_TOKEN_COOKIE_NAME)?.value;
     const { searchParams } = new URL(request.url);
     const owner = searchParams.get('owner');
     const repo = searchParams.get('repo');
     let branch = searchParams.get('branch'); // Branch name
 
     if (!token) {
-        return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
+        const res = NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
+        res.cookies.delete(GITHUB_TOKEN_COOKIE_NAME);
+        return res;
     }
 
     if (!owner || !repo || !branch) {
@@ -103,7 +105,10 @@ export async function GET(request: NextRequest) {
         if (status === 404) {
             errorMessage = `Repository or branch not found, or access denied. Ensure '${owner}/${repo}' and branch '${branch}' exist and you have access.`;
         }
-        
-        return NextResponse.json({ error: errorMessage }, { status });
+        const res = NextResponse.json({ error: errorMessage }, { status });
+        if (status === 401) {
+            res.cookies.delete(GITHUB_TOKEN_COOKIE_NAME);
+        }
+        return res;
     }
 } 

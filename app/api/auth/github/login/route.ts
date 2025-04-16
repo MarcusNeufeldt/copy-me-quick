@@ -22,7 +22,8 @@ export async function GET(request: NextRequest) {
   const state = crypto.randomBytes(16).toString('hex');
 
   // Store state in a short-lived HttpOnly cookie
-  cookies().set(GITHUB_STATE_COOKIE_NAME, state, {
+  const cookieStore = await cookies(); // Await the cookie store
+  cookieStore.set(GITHUB_STATE_COOKIE_NAME, state, {
     httpOnly: true,
     secure: process.env.NODE_ENV !== 'development',
     maxAge: 60 * 10, // 10 minutes

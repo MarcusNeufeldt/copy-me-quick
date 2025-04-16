@@ -4,7 +4,8 @@ import { cookies } from 'next/headers';
 const GITHUB_TOKEN_COOKIE_NAME = 'github_token';
 
 export async function GET(request: NextRequest) {
-  const token = cookies().get(GITHUB_TOKEN_COOKIE_NAME)?.value;
+  const cookieStore = await cookies();
+  const token = cookieStore.get(GITHUB_TOKEN_COOKIE_NAME)?.value;
 
   if (!token) {
     return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
@@ -21,7 +22,7 @@ export async function GET(request: NextRequest) {
     if (!response.ok) {
       // If token is invalid or expired, clear the cookie
       if (response.status === 401) {
-         cookies().delete(GITHUB_TOKEN_COOKIE_NAME);
+         cookieStore.delete(GITHUB_TOKEN_COOKIE_NAME);
          return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
       }
       console.error('GitHub API error fetching user:', response.status, await response.text());

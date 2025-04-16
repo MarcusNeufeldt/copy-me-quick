@@ -16,7 +16,6 @@ async function fetchGitHubBranches(url: string, token: string): Promise<any[]> {
 
     if (!response.ok) {
         if (response.status === 401) {
-            cookies().delete(GITHUB_TOKEN_COOKIE_NAME);
             throw new Error('Invalid GitHub token');
         }
         const errorText = await response.text();
@@ -28,7 +27,8 @@ async function fetchGitHubBranches(url: string, token: string): Promise<any[]> {
 
 
 export async function GET(request: NextRequest) {
-    const token = cookies().get(GITHUB_TOKEN_COOKIE_NAME)?.value;
+    const cookieStore = await cookies();
+    const token = cookieStore.get(GITHUB_TOKEN_COOKIE_NAME)?.value;
     const { searchParams } = new URL(request.url);
     const owner = searchParams.get('owner');
     const repo = searchParams.get('repo');
@@ -57,7 +57,12 @@ export async function GET(request: NextRequest) {
 
     } catch (error: any) {
         console.error(`Error fetching branches for ${owner}/${repo}:`, error);
-        const status = error.message === 'Invalid GitHub token' ? 401 : 500;
+        let status = 500;
+        if (error.message === 'Invalid GitHub token') {
+            status = 401;
+            const storeToDelete = await cookies();
+            storeToDelete.delete(GITHUB_TOKEN_COOKIE_NAME);
+        }
         return NextResponse.json({ error: error.message || 'Failed to fetch branches' }, { status });
     }
 } 

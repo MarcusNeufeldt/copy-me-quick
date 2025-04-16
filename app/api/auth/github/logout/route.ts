@@ -9,7 +9,7 @@ const GITHUB_TOKEN_COOKIE_NAME = 'github_token';
 export async function POST() {
   try {
     // Get the cookies instance
-    const cookieStore = cookies();
+    const cookieStore = await cookies();
     
     // Clear the GitHub token cookie
     cookieStore.delete(GITHUB_TOKEN_COOKIE_NAME);

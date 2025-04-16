@@ -610,7 +610,6 @@ export default function ClientPageRoot() {
                   {/* LOCAL TAB */}
                   <TabsContent value="local" className="mt-0 space-y-4">
                      <ProjectSelector
-                       state={state}
                        setState={setState}
                        onProjectTypeSelected={setProjectTypeSelected}
                        projectTypes={projectTypes}

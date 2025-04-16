@@ -9,10 +9,13 @@ export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const code = searchParams.get('code');
   const state = searchParams.get('state');
-  const storedState = cookies().get(GITHUB_STATE_COOKIE_NAME)?.value;
 
-  // Clean up the state cookie immediately
-  cookies().delete(GITHUB_STATE_COOKIE_NAME);
+  // Await the cookie store
+  const cookieStore = await cookies();
+  const storedState = cookieStore.get(GITHUB_STATE_COOKIE_NAME)?.value;
+
+  // Clean up the state cookie immediately using the resolved store
+  cookieStore.delete(GITHUB_STATE_COOKIE_NAME);
 
   const clientId = process.env.GITHUB_CLIENT_ID;
   const clientSecret = process.env.GITHUB_CLIENT_SECRET;
@@ -78,8 +81,9 @@ export async function GET(request: NextRequest) {
       throw new Error('Access token not found in GitHub response.');
     }
 
+    // Use the same resolved cookie store to set the token
     // Securely store the access token in an HTTP-only cookie
-    cookies().set(GITHUB_TOKEN_COOKIE_NAME, accessToken, {
+    cookieStore.set(GITHUB_TOKEN_COOKIE_NAME, accessToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV !== 'development', // Use secure cookies in production
       maxAge: GITHUB_TOKEN_MAX_AGE,
