@@ -10,7 +10,7 @@ import AnalysisResult from '@/components/AnalysisResult';
 import { AppState, Project, FileData, AnalysisResultData, Backup, DataSource, GitHubRepoInfo } from '@/components/types';
 import dynamic from 'next/dynamic';
 import { Button } from "@/components/ui/button";
-import { GithubIcon, RotateCcw, Code2, GitBranchPlus, LayoutGrid, Github, CheckCircle, XCircle, GitBranch, BookMarked, Computer, Loader2 } from 'lucide-react';
+import { GithubIcon, RotateCcw, Code2, GitBranchPlus, LayoutGrid, Github, CheckCircle, XCircle, GitBranch, BookMarked, Computer, Loader2, ShieldCheck } from 'lucide-react';
 import Image from 'next/image';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import FileSelector from '@/components/FileSelector';
@@ -628,9 +628,13 @@ export default function ClientPageRoot() {
                        projectTypeSelected={projectTypeSelected}
                        buttonTooltip="Reads current files from your disk, including uncommitted changes."
                      />
-                     <p className="text-xs text-muted-foreground pt-1">
-                       Reads the <i>current state</i> of your files (including uncommitted changes). Processed locally.
-                     </p>
+                     {/* Enhanced Privacy Alert */}
+                     <Alert variant="default" className="mt-2 bg-primary/5 border-primary/20">
+                       <ShieldCheck className="h-4 w-4 text-primary/80" />
+                       <AlertDescription className="text-primary/90 text-xs">
+                         <strong>Privacy Assured:</strong> Your local files are processed <i>only</i> in your browser and are <strong>never</strong> uploaded to any server.
+                       </AlertDescription>
+                     </Alert>
                   </TabsContent>
 
                   {/* GITHUB TAB */}
@@ -828,7 +832,7 @@ export default function ClientPageRoot() {
                 <h2 className="text-xl sm:text-2xl font-heading font-semibold mb-2">Start Analyzing</h2>
                 <p className="text-sm sm:text-base text-muted-foreground mb-6 max-w-md mx-auto">
                   {activeSourceTab === 'local'
-                    ? 'Select a project configuration or upload local files to begin.'
+                    ? 'Select a project configuration or upload local files to begin below.'
                     : 'Connect your GitHub account, then choose a repository and branch.'
                   }
                 </p>
