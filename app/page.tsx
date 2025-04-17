@@ -536,7 +536,7 @@ export default function ClientPageRoot() {
     } else {
       return undefined;
     }
-  }, [activeSourceTab, githubTree, state.analysisResult?.files]); // Dependencies for memoization
+  }, [activeSourceTab, githubTree, state.analysisResult?.files, selectedBranchName, selectedRepoFullName]); // Dependencies for memoization
 
   // Prevent rendering potentially mismatched UI before mount
   if (!isMounted) {

@@ -53,7 +53,7 @@ const FileTreeNode: React.FC<FileTreeNodeProps> = ({
     if (selectedDescendants.length === 0) return 'unchecked';
     if (selectedDescendants.length === allDescendants.length) return 'checked';
     return 'indeterminate';
-  }, [node.path, selectedFiles, getAllDescendants, isFolder]);
+  }, [node, selectedFiles, getAllDescendants, isFolder]);
 
   const handleCheckboxChange = (checked: boolean) => onToggle(node.path, checked);
 
