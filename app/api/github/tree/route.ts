@@ -47,12 +47,13 @@ export async function GET(request: NextRequest) {
     branch = encodeURIComponent(branch); 
 
     try {
-        // 1. Get the commit SHA for the branch head
+        // 1. Get the commit SHA and date for the branch head
         // Use commits endpoint which seems more reliable than branches endpoint for the tree sha sometimes
         const branchCommitUrl = `${GITHUB_API_BASE}/repos/${owner}/${repo}/commits/${branch}`;
         console.log(`Fetching commit info for branch: ${branchCommitUrl}`); // Debug log
         const commitInfo = await fetchGitHub(branchCommitUrl, token);
         let treeSha = commitInfo?.commit?.tree?.sha;
+        let commitDate = commitInfo?.commit?.committer?.date || commitInfo?.commit?.author?.date || null;
 
         if (!treeSha) {
             console.error('Could not find tree SHA directly from commit info:', commitInfo);
@@ -67,6 +68,7 @@ export async function GET(request: NextRequest) {
             }
              console.warn("Using fallback tree SHA from branch info for branch:", branch);
              treeSha = fallbackTreeSha;
+             commitDate = branchInfo?.commit?.commit?.committer?.date || branchInfo?.commit?.commit?.author?.date || commitDate;
         }
 
         // 2. Get the tree recursively using the SHA
@@ -93,8 +95,12 @@ export async function GET(request: NextRequest) {
             item.type === 'blob' || item.type === 'tree'
         );
 
-        console.log(`Successfully fetched tree with ${filteredTree.length} items.`); // Debug log
-        return NextResponse.json({ tree: filteredTree, truncated: treeData.truncated ?? false }); 
+        console.log(`Successfully fetched tree with ${filteredTree.length} items. Commit date: ${commitDate}`); // Debug log including date
+        return NextResponse.json({
+            tree: filteredTree,
+            truncated: treeData.truncated ?? false,
+            commitDate: commitDate
+        }); 
 
     } catch (error: any) {
         console.error(`Error fetching tree for ${owner}/${repo}/${branch}:`, error);
@@ -103,7 +109,7 @@ export async function GET(request: NextRequest) {
 
         let errorMessage = error.message || 'Failed to fetch file tree';
         if (status === 404) {
-            errorMessage = `Repository or branch not found, or access denied. Ensure '${owner}/${repo}' and branch '${branch}' exist and you have access.`;
+            errorMessage = `Repository or branch not found, or access denied. Ensure '${decodeURIComponent(owner)}/${decodeURIComponent(repo)}' and branch '${decodeURIComponent(branch)}' exist and you have access.`;
         }
         const res = NextResponse.json({ error: errorMessage }, { status });
         if (status === 401) {

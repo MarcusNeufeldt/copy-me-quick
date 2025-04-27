@@ -28,6 +28,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { SpeedInsights } from "@vercel/speed-insights/next";
+import { formatDistanceToNow } from 'date-fns';
 
 // Dynamically import Analytics with error handling
 const AnalyticsComponent = dynamic(
@@ -404,6 +405,7 @@ export default function ClientPageRoot() {
       setGithubSelectionError(null);
       let analysisResultData: AnalysisResultData | null = null;
       let loadedTree: GitHubTreeItem[] | null = null;
+      let loadedCommitDate: string | null = null; // Variable to store the date
 
       try {
         // 1. Fetch Tree Structure
@@ -413,6 +415,8 @@ export default function ClientPageRoot() {
         if (!treeResponse.ok) throw new Error(treeData.error || 'Failed to fetch file tree');
 
         loadedTree = treeData.tree;
+        loadedCommitDate = treeData.commitDate; // Capture the commit date
+
         setGithubTree(loadedTree); // Update tree state for FileSelector
         setIsGithubTreeTruncated(treeData.truncated ?? false);
 
@@ -431,6 +435,7 @@ export default function ClientPageRoot() {
           summary: `GitHub repo: ${selectedRepoFullName}, Branch: ${branchName}`,
           project_tree: `GitHub Tree Structure for ${selectedRepoFullName}/${branchName}`,
           files: [], // Start with empty files
+          commitDate: loadedCommitDate // Store date in analysisResult too
         };
 
         // 2. Fetch File Content (Batched)
@@ -545,7 +550,7 @@ export default function ClientPageRoot() {
           // Merge new analysis result with existing state
           finalState = {
             ...existingProject.state,
-            analysisResult: analysisResultData, // Overwrite with new analysis data
+            analysisResult: analysisResultData, // Overwrite with new analysis data (includes commitDate)
             selectedFiles: [], // Reset selection for GitHub load?
           };
         } else {
@@ -553,7 +558,7 @@ export default function ClientPageRoot() {
           targetProjectId = Date.now().toString();
           finalState = {
             ...initialAppState,
-            analysisResult: analysisResultData,
+            analysisResult: analysisResultData, // Includes commitDate
             selectedFiles: [],
             namedSelections: {}, // Start fresh
           };
@@ -563,7 +568,7 @@ export default function ClientPageRoot() {
             sourceType: 'github',
             githubRepoFullName: selectedRepoFullName,
             githubBranch: branchName,
-            state: finalState,
+            state: finalState, // Ensure the finalState (with commitDate) is saved here
           };
           setProjects(prevProjects => [...prevProjects, newProject]);
         }
@@ -575,7 +580,7 @@ export default function ClientPageRoot() {
         if (projectExists && targetProjectId) {
           setProjects(prevProjects =>
             prevProjects.map(p =>
-              p.id === targetProjectId ? { ...p, state: finalState } : p
+              p.id === targetProjectId ? { ...p, state: finalState } : p // Ensure updated state is saved
             )
           );
         }
@@ -1315,7 +1320,7 @@ export default function ClientPageRoot() {
             )}
 
             {/* Conditionally render AnalysisResult based on having a valid dataSource */}
-            {currentDataSource ? (
+            {currentDataSource && state.analysisResult ? (
               <>
                 <AnalysisResult
                   analysisResult={state.analysisResult}

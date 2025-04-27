@@ -7,7 +7,7 @@ import { Progress } from "@/components/ui/progress";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import FileSelector from './FileSelector';
 import { AppState, FileData, DataSource, AnalysisResultProps } from './types';
-import { Copy, File, Folder, FileText, CheckCircle2, BarChart3, FileSymlink, Layers, AlertCircle, CopyCheck, Download, Save, AlertTriangle, Archive, ClipboardList } from 'lucide-react';
+import { Copy, File, Folder, FileText, CheckCircle2, BarChart3, FileSymlink, Layers, AlertCircle, CopyCheck, Download, Save, AlertTriangle, Archive, ClipboardList, Clock } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -22,6 +22,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { Toaster, toast } from 'sonner';
+import { formatDistanceToNow } from 'date-fns';
 
 interface LoadingStatus {
   isLoading: boolean;
@@ -151,6 +152,18 @@ const AnalysisResult: React.FC<AnalysisResultProps> = React.memo(({
   const [activeOutputTab, setActiveOutputTab] = useState('output');
   const [copyTreeSuccess, setCopyTreeSuccess] = useState(false);
 
+  const commitDate = analysisResult?.commitDate;
+
+  const formattedCommitDate = useMemo(() => {
+    if (!commitDate) return null;
+    try {
+      return formatDistanceToNow(new Date(commitDate), { addSuffix: true });
+    } catch (e) {
+      console.error("Error formatting commit date:", e);
+      return commitDate;
+    }
+  }, [commitDate]);
+
   const effectiveDataSource = useMemo(() => {
     if (dataSource) {
       console.log("AnalysisResult: Using provided dataSource:", {
@@ -258,20 +271,15 @@ const AnalysisResult: React.FC<AnalysisResultProps> = React.memo(({
   }, []);
 
   const handleCopyTreeStructure = useCallback(() => {
-    if (analysisResult?.files) {
-      const treeString = generateProjectTree(selectedFilesData);
-      navigator.clipboard.writeText(treeString)
-        .then(() => {
-          setCopyTreeSuccess(true);
-          toast.success('Tree structure copied!');
-          setTimeout(() => setCopyTreeSuccess(false), 2000);
-        })
-        .catch(err => {
-          toast.error('Failed to copy tree structure');
-          console.error('Failed to copy tree structure: ', err);
-        });
+    if (!analysisResult || selectedFilesData.length === 0) {
+      toast.error("No files selected to generate tree structure.");
+      return;
     }
-  }, [analysisResult, selectedFilesData, generateProjectTree]);
+    const treeString = generateProjectTree(selectedFilesData);
+    copyToClipboard(treeString);
+    setCopyTreeSuccess(true);
+    setTimeout(() => setCopyTreeSuccess(false), 2000);
+  }, [selectedFilesData, analysisResult]);
 
   const tokenPercentage = Math.min(100, (tokenCount / maxTokens) * 100);
   const isTokenWarning = tokenPercentage > 75;
@@ -285,45 +293,57 @@ const AnalysisResult: React.FC<AnalysisResultProps> = React.memo(({
     `// File: ${file.path}\n// ${file.lines} lines\n\n${file.content}`
   ).join('\n\n// ----------------------\n\n'), [selectedFilesData]);
 
-  const markdownSummary = useMemo(() => `# Project Analysis
+  const markdownSummary = useMemo(() => {
+    if (!analysisResult) return "Analysis result not available.";
+    let summary = `## Project Summary\n\n`;
+    summary += `- **Source:** ${effectiveDataSource.type}\n`;
+    if (effectiveDataSource.type === 'github' && effectiveDataSource.repoInfo) {
+      summary += `- **Repository:** ${effectiveDataSource.repoInfo.owner}/${effectiveDataSource.repoInfo.repo}\n`;
+      summary += `- **Branch:** ${effectiveDataSource.repoInfo.branch}\n`;
+    }
+    if (formattedCommitDate && effectiveDataSource.type === 'github') {
+       summary += `- **Commit Date:** ${formattedCommitDate}\n`;
+    }
+    summary += `- **Total Files Scanned:** ${analysisResult.totalFiles ?? 'N/A'}\n`;
+    summary += `- **Total Lines Scanned:** ${(analysisResult.totalLines ?? 0).toLocaleString()} \n`;
+    summary += `\n## Selected Files (${totalSelectedFiles})\n\n`;
+    summary += `- **Total Selected Lines:** ${totalSelectedLines.toLocaleString()}\n`;
+    summary += `- **Estimated Token Count:** ${tokenCount.toLocaleString()}\n`;
+    if (tokenCount > maxTokens) {
+      summary += `- **Warning:** Token count exceeds the limit of ${maxTokens.toLocaleString()}\n`;
+    }
+    summary += `\n### File List:\n\n`;
+    selectedFilesData.forEach(file => {
+      summary += `- ${file.path} (${file.lines} lines)\n`;
+    });
+    return summary;
+  }, [analysisResult, selectedFilesData, totalSelectedFiles, totalSelectedLines, tokenCount, maxTokens, effectiveDataSource, formattedCommitDate]);
 
-## Summary
-- Total selected files: ${totalSelectedFiles}
-- Total lines of code: ${totalSelectedLines.toLocaleString()}
-- Estimated token count: ${tokenCount.toLocaleString()}
-- Token usage: ${tokenPercentage.toFixed(1)}% (${tokenCount.toLocaleString()} of ${maxTokens.toLocaleString()})
-
-## Selected Files
-${selectedFilesData.map(file => `- \`${file.path}\` (${file.lines} lines)`).join('\n')}
-`, [selectedFilesData, totalSelectedFiles, totalSelectedLines, tokenCount, maxTokens, tokenPercentage]);
-
-  const listOutput = useMemo(() => selectedFilesData.map(file =>
-    `${file.path} - ${file.lines} lines`
-  ).join('\n'), [selectedFilesData]);
+  const listOutput = useMemo(() => {
+    return selectedFilesData.map(f => f.path).join('\n');
+  }, [selectedFilesData]);
 
   const handleCopy = useCallback((type: 'markdown' | 'list' | 'code') => {
-    try {
-      let text = '';
-      let message = '';
-      if (type === 'markdown') {
-        text = markdownSummary;
-        message = 'Markdown summary copied!';
-      } else if (type === 'list') {
-        text = listOutput;
-        message = 'File list copied!';
-      } else {
-        text = fileOutput;
-        message = 'Full code copied!';
-      }
-      navigator.clipboard.writeText(text);
-      toast.success(message);
-    } catch (err) {
-      toast.error('Failed to copy to clipboard');
+    if (selectedFilesData.length === 0) {
+      toast.info('No files selected to copy.');
+      return;
     }
-  }, [markdownSummary, listOutput, fileOutput]);
+    let contentToCopy = '';
+    switch (type) {
+      case 'markdown': contentToCopy = markdownSummary; break;
+      case 'list': contentToCopy = listOutput; break;
+      case 'code': contentToCopy = fileOutput; break;
+    }
+    copyToClipboard(contentToCopy);
+  }, [selectedFilesData, markdownSummary, listOutput, fileOutput]);
 
   if (!analysisResult) {
-    return <div className="p-4 text-center text-muted-foreground">Loading analysis results...</div>;
+    return (
+      <Card className="glass-card flex items-center justify-center p-8 text-center min-h-[200px]">
+        <AlertTriangle className="h-8 w-8 text-muted-foreground mb-2" />
+        <p className="text-muted-foreground">Analysis results are not available.</p>
+      </Card>
+    );
   }
 
   const allAnalysisFiles = analysisResult.files || [];
@@ -331,83 +351,67 @@ ${selectedFilesData.map(file => `- \`${file.path}\` (${file.lines} lines)`).join
   return (
     <div className="space-y-6 animate-fade-in">
       <Toaster position="top-right" />
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <Card className="glass-card p-6 animate-slide-up">
-          <div className="flex items-center space-x-4">
-            <div className="p-3 rounded-full bg-primary-100 dark:bg-primary-900">
-              <FileText className="h-6 w-6 text-primary" />
-            </div>
-            <div>
-              <p className="text-sm font-medium text-muted-foreground">Selected Files</p>
-              <div className="flex items-baseline">
-                <h3 className="text-2xl font-bold">
-                  {totalSelectedFiles}
-                </h3>
-                <span className="ml-2 text-sm text-muted-foreground">of {allAnalysisFiles.length}</span>
-              </div>
-            </div>
-          </div>
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 animate-fade-in animation-delay-100">
+        <Card className="glass-card">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">
+              Total Files Scanned
+            </CardTitle>
+            <Archive className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{analysisResult.totalFiles ?? '-'}</div>
+          </CardContent>
         </Card>
-
-        <Card className="glass-card p-6 animate-slide-up animation-delay-200">
-          <div className="flex items-center space-x-4">
-            <div className="p-3 rounded-full bg-secondary-100 dark:bg-secondary-900">
-              <Layers className="h-6 w-6 text-secondary" />
-            </div>
-            <div>
-              <p className="text-sm font-medium text-muted-foreground">Selected Lines</p>
-              <div className="flex items-baseline">
-                <h3 className="text-2xl font-bold">
-                  {totalSelectedLines.toLocaleString()}
-                </h3>
-                <span className="ml-2 text-sm text-muted-foreground">
-                  of {(analysisResult.totalLines || 0).toLocaleString()}
-                </span>
-              </div>
-            </div>
-          </div>
+        <Card className="glass-card">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">
+              Selected Files / Lines
+            </CardTitle>
+            <ClipboardList className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{totalSelectedFiles} / {totalSelectedLines.toLocaleString()}</div>
+          </CardContent>
         </Card>
-
-        <Card className="glass-card p-6 animate-slide-up animation-delay-400">
-          <div className="flex items-center space-x-4">
-            <div className="p-3 rounded-full bg-accent-100 dark:bg-accent-900">
-              <BarChart3 className="h-6 w-6 text-accent" />
-            </div>
-            <div>
-              <p className="text-sm font-medium text-muted-foreground">Token Count</p>
-              <div className="flex items-baseline">
-                <h3 className="text-2xl font-bold">
-                  {tokenCount.toLocaleString()}
-                </h3>
-                <span className="ml-2 text-sm text-muted-foreground">
-                  of {maxTokens.toLocaleString()}
-                </span>
-              </div>
-            </div>
-          </div>
-          <div className="mt-4">
-            <Progress 
-              value={tokenPercentage} 
-              className={`h-2 ${
-                isTokenExceeded ? 'bg-destructive/20' : 
-                isTokenWarning ? 'bg-amber-200/20 dark:bg-amber-900/20' : 
-                'bg-secondary/20'
-              }`}
-              indicatorClassName={
-                isTokenExceeded ? 'bg-destructive' : 
-                isTokenWarning ? 'bg-amber-500' : 
-                'bg-gradient-to-r from-primary to-secondary'
-              }
-            />
-            {isTokenExceeded && (
-              <p className="mt-2 text-xs flex items-center text-destructive">
-                <AlertCircle className="w-3 h-3 mr-1" />
-                Token limit exceeded
-              </p>
-            )}
-          </div>
+        <Card className="glass-card relative overflow-hidden">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 relative z-10">
+            <CardTitle className="text-sm font-medium text-muted-foreground">
+              Estimated Token Count
+            </CardTitle>
+            <BarChart3 className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent className="relative z-10">
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <div className="text-2xl font-bold">
+                    {tokenCount.toLocaleString()}
+                  </div>
+                </TooltipTrigger>
+                <TooltipContent>
+                  Approximate tokens for selected files.
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+            <Progress value={(tokenCount / maxTokens) * 100} className="mt-2 h-2" indicatorClassName={tokenCount > maxTokens ? 'bg-destructive' : ''} />
+            <p className="text-xs text-muted-foreground mt-1">
+              {tokenCount > maxTokens ? (
+                <span className="text-destructive font-medium">Exceeds limit ({maxTokens.toLocaleString()})</span>
+              ) : (
+                `Limit: ${maxTokens.toLocaleString()}`
+              )}
+            </p>
+          </CardContent>
         </Card>
       </div>
+
+      {formattedCommitDate && effectiveDataSource.type === 'github' && (
+        <div className="text-xs text-muted-foreground flex items-center justify-center gap-1.5 mb-4 px-3 py-1.5 rounded-full bg-muted/50 border border-border w-fit mx-auto animate-fade-in animation-delay-150">
+           <Clock className="h-3.5 w-3.5" />
+           <span>Files loaded from commit {formattedCommitDate}</span>
+        </div>
+      )}
 
       <Tabs value={activeFileTab} onValueChange={setActiveFileTab} className="animate-fade-in animation-delay-200">
         <TabsList className="grid w-full grid-cols-2 mb-6">

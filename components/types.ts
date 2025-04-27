@@ -14,6 +14,7 @@ export interface AnalysisResultData {
   summary: string;
   project_tree: string;
   files: FileData[];
+  commitDate?: string | null;
 }
 
 export interface AppState {
