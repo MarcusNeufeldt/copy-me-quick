@@ -5,12 +5,11 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { ModeToggle } from "@/components/ui/mode-toggle";
 import ProjectSelector from '@/components/ProjectSelector';
 import FileUploadSection from '@/components/FileUploadSection';
-import BackupManagement from '@/components/BackupManagement';
 import AnalysisResult from '@/components/AnalysisResult';
-import { AppState, Project, FileData, AnalysisResultData, Backup, DataSource, GitHubRepoInfo } from '@/components/types';
+import { AppState, Project, FileData, AnalysisResultData, DataSource, GitHubRepoInfo } from '@/components/types';
 import dynamic from 'next/dynamic';
 import { Button } from "@/components/ui/button";
-import { GithubIcon, RotateCcw, Code2, GitBranchPlus, LayoutGrid, Github, CheckCircle, XCircle, GitBranch, BookMarked, Computer, Loader2, ShieldCheck } from 'lucide-react';
+import { GithubIcon, RotateCcw, Code2, GitBranchPlus, LayoutGrid, Github, CheckCircle, XCircle, GitBranch, BookMarked, Computer, Loader2, ShieldCheck, Info } from 'lucide-react';
 import Image from 'next/image';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import FileSelector from '@/components/FileSelector';
@@ -66,7 +65,6 @@ const initialAppState: AppState = {
   selectedFiles: [],
   excludeFolders: 'node_modules,.git,dist,.next',
   fileTypes: '.js,.jsx,.ts,.tsx,.py',
-  backups: [],
   namedSelections: {},
 };
 
@@ -188,12 +186,8 @@ export default function ClientPageRoot() {
     if (savedProjectId) {
       const currentProject = loadedProjects.find((p: Project) => p.id === savedProjectId);
       if (currentProject) {
-        // Ensure backups is always an array and namedSelections is an object when loading state
+        // Ensure namedSelections is an object when loading state
         const loadedState = currentProject.state;
-        if (!Array.isArray(loadedState.backups)) {
-          console.warn("Loaded state backups is not an array, resetting to empty array.");
-          loadedState.backups = [];
-        }
         // Ensure namedSelections is an object
         if (typeof loadedState.namedSelections !== 'object' || loadedState.namedSelections === null || Array.isArray(loadedState.namedSelections)) {
           console.warn("Loaded state namedSelections is not an object, resetting to empty object.");
@@ -977,21 +971,23 @@ export default function ClientPageRoot() {
                 </Tabs>
                 {/* --- End of Source Selection Tabs --- */}
 
-                <BackupManagement
-                  state={state}
-                  setState={setState}
-                  updateCurrentProject={updateCurrentProject}
-                />
-
                 <Button
                   variant="outline"
                   onClick={handleResetWorkspace}
-                  className="w-full transition-all hover:border-destructive hover:text-destructive"
+                  className="w-full transition-all hover:bg-destructive hover:text-destructive-foreground border-destructive/50 text-destructive/90"
                   disabled={!currentDataSource}
                 >
                   <RotateCcw className="mr-2 h-4 w-4" />
                   Clear Workspace
                 </Button>
+
+                {/* New Feature Info Section */}
+                <Alert variant="default" className="mt-4 bg-blue-50 border-blue-200 dark:bg-blue-950 dark:border-blue-800">
+                  <Info className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+                  <AlertDescription className="text-xs text-blue-800 dark:text-blue-300">
+                    <strong>New!</strong> Save/load common file sets using the <BookMarked className="inline-block h-3 w-3 mx-0.5" /> <strong>Presets</strong> button in the File Selector toolbar.
+                  </AlertDescription>
+                </Alert>
               </CardContent>
             </Card>
           </aside>

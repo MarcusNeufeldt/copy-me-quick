@@ -16,20 +16,11 @@ export interface AnalysisResultData {
   files: FileData[];
 }
 
-export interface Backup {
-  id: string;
-  timestamp: number;
-  description: string;
-  selectedFiles: string[];
-  fileContents: { [key: string]: string };
-}
-
 export interface AppState {
   analysisResult: AnalysisResultData | null;
   selectedFiles: string[];
   excludeFolders: string;
   fileTypes: string;
-  backups: Backup[];
   namedSelections?: { [name: string]: string[] };
 }
 
