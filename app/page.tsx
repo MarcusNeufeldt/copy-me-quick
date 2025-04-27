@@ -835,29 +835,56 @@ export default function ClientPageRoot() {
 
   // ----- Named Selections Handlers -----
   const saveNamedSelection = (name: string, files: string[]) => {
-    if (!currentProjectId) return; // Should have a project context
+    if (!currentProjectId) return;
 
     const updatedNamedSelections = {
-      ...(state.namedSelections || {}), // Ensure starting with an object
-      [name]: files,
+        ...(state.namedSelections || {}),
+        [name]: files,
     };
 
-    // 1. Update the main state for immediate UI feedback
+    // Update the local state first (for immediate UI feedback on namedSelections list)
     setState(prevState => ({
-      ...prevState,
-      namedSelections: updatedNamedSelections,
+        ...prevState,
+        namedSelections: updatedNamedSelections,
     }));
 
-    // 2. Update the corresponding project's state in the projects array for persistence
-    setProjects(prevProjects =>
-      prevProjects.map(p =>
-        p.id === currentProjectId
-          ? { ...p, state: { ...p.state, namedSelections: updatedNamedSelections } }
-          : p
-      )
-    );
-    // TODO: Add toast notification using a library like sonner
+    // --- START MODIFICATION: Update projects array more carefully ---
+    setProjects(prevProjects => {
+        // Find the index of the project to update
+        const projectIndex = prevProjects.findIndex(p => p.id === currentProjectId);
+
+        // If project not found, return previous state
+        if (projectIndex === -1) {
+            console.warn("Current project ID not found in projects array during preset save.");
+            return prevProjects;
+        }
+
+        // Create a new array to avoid mutating the original
+        const newProjects = [...prevProjects];
+
+        // Get the specific project
+        const projectToUpdate = newProjects[projectIndex];
+
+        // Create an updated state object for *just this project*
+        // Spread the existing state (includes analysisResult reference) and overwrite/add namedSelections
+        const updatedProjectState: AppState = {
+            ...projectToUpdate.state,
+            namedSelections: updatedNamedSelections,
+        };
+
+        // Update the project in the new array
+        newProjects[projectIndex] = {
+            ...projectToUpdate, // Spread the project metadata (id, name, etc.)
+            state: updatedProjectState, // Assign the newly constructed state object
+        };
+
+        // Return the new projects array
+        return newProjects;
+    });
+    // --- END MODIFICATION ---
+
     console.log(`Saved selection: ${name} with ${files.length} files for project ${currentProjectId}`);
+    // Note: Toast notification is likely handled in the calling component (FileSelector)
   };
 
   const renameNamedSelection = (oldName: string, newName: string) => {
