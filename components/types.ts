@@ -71,37 +71,27 @@ export interface FileSelectorProps {
   selectedFiles: string[];
   setSelectedFiles: (filesOrUpdater: string[] | ((prev: string[]) => string[])) => void;
   maxTokens: number;
-  // Update onTokenCountChange to match usage in FileSelector
   onTokenCountChange: (count: number) => void;
-  // Remove state and setState, they are not directly used by FileSelector
-  // state?: AppState;
-  // setState?: React.Dispatch<React.SetStateAction<AppState>>;
   allFiles?: FileData[];
-  // Add the missing loading status props
   setLoadingStatus: React.Dispatch<React.SetStateAction<LoadingStatus>>;
   loadingStatus: LoadingStatus;
-  // Add named selections props
-  namedSelections?: { [name: string]: string[] }; // Optional since it comes from state
+  tokenCount: number;
+  namedSelections?: { [name: string]: string[] };
   onSaveNamedSelection?: (name: string, files: string[]) => void;
   onRenameNamedSelection?: (oldName: string, newName: string) => void;
   onDeleteNamedSelection?: (name: string) => void;
 }
 
 export interface AnalysisResultProps {
-  // state: AppState; // Removed as AnalysisResult doesn't seem to use the full state directly
-  // setState: React.Dispatch<React.SetStateAction<AppState>>; // Removed
-  // updateCurrentProject: (newState: AppState) => void; // Removed
-  analysisResult: AnalysisResultData | null; // Pass only necessary data
+  analysisResult: AnalysisResultData | null;
   selectedFiles: string[];
   onSelectedFilesChange: (filesOrUpdater: string[] | ((prev: string[]) => string[])) => void;
   tokenCount: number;
   setTokenCount: React.Dispatch<React.SetStateAction<number>>;
   maxTokens: number;
   dataSource: DataSource;
-  // Add the missing loading status props
   setLoadingStatus: React.Dispatch<React.SetStateAction<LoadingStatus>>;
   loadingStatus: LoadingStatus;
-  // Add named selections props
   namedSelections: { [name: string]: string[] };
   onSaveNamedSelection: (name: string, files: string[]) => void;
   onRenameNamedSelection: (oldName: string, newName: string) => void;

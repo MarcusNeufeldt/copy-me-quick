@@ -7,7 +7,7 @@ import { Progress } from "@/components/ui/progress";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import FileSelector from './FileSelector';
 import { AppState, FileData, DataSource, AnalysisResultProps } from './types';
-import { Copy, File, Folder, FileText, CheckCircle2, BarChart3, FileSymlink, Layers, AlertCircle, CopyCheck, Download, Save, AlertTriangle, Archive, ClipboardList, Clock } from 'lucide-react';
+import { Copy, File, Folder, FileText, CheckCircle2, BarChart3, FileSymlink, Layers, AlertCircle, CopyCheck, Download, Save, AlertTriangle, Archive, ClipboardList, Clock, RefreshCw } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -22,7 +22,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { Toaster, toast } from 'sonner';
-import { formatDistanceToNow } from 'date-fns';
+import { formatDistanceToNow, formatDistanceToNowStrict } from 'date-fns';
 
 interface LoadingStatus {
   isLoading: boolean;
@@ -41,6 +41,14 @@ interface TreeItemProps {
   isLast: boolean;
   prefix?: string;
 }
+
+type RecencyStatus = {
+  text: string;
+  colorClass: string;
+  level: 'recent' | 'moderate' | 'old' | 'stale';
+  tooltipText: string;
+  originalTimestamp?: number;
+};
 
 const formatFileSize = (bytes: number): string => {
   if (bytes < 1024) return `${bytes} B`;
@@ -151,29 +159,124 @@ const AnalysisResult: React.FC<AnalysisResultProps> = React.memo(({
   const [activeFileTab, setActiveFileTab] = useState('selector');
   const [activeOutputTab, setActiveOutputTab] = useState('output');
   const [copyTreeSuccess, setCopyTreeSuccess] = useState(false);
+  const [localRecencyStatus, setLocalRecencyStatus] = useState<RecencyStatus | null>(null);
 
-  const commitDate = analysisResult?.commitDate;
-  const uploadTimestamp = analysisResult?.uploadTimestamp;
+  const githubCommitInfo = useMemo(() => {
+    const commitDate = analysisResult?.commitDate;
+    if (!commitDate || dataSource.type !== 'github') return null;
 
-  const formattedCommitDate = useMemo(() => {
-    if (!commitDate) return null;
+    const now = Date.now();
     try {
-      return formatDistanceToNow(new Date(commitDate), { addSuffix: true });
-    } catch (e) {
-      console.error("Error formatting commit date:", e);
-      return commitDate;
-    }
-  }, [commitDate]);
+      const dateObject = new Date(commitDate);
+      if (isNaN(dateObject.getTime())) throw new Error("Invalid date");
+      const diffInMinutes = (now - dateObject.getTime()) / (1000 * 60);
 
-  const formattedUploadTime = useMemo(() => {
-    if (!uploadTimestamp) return null;
-    try {
-      return formatDistanceToNow(new Date(uploadTimestamp), { addSuffix: true });
-    } catch (e) {
-      console.error("Error formatting upload timestamp:", e);
-      return new Date(uploadTimestamp).toLocaleString();
+      let colorClass = 'text-muted-foreground';
+      let level: 'recent' | 'moderate' | 'old' = 'old';
+
+      if (diffInMinutes < 1) {
+        colorClass = 'text-green-600 dark:text-green-400 font-medium';
+        level = 'recent';
+      } else if (diffInMinutes < 10) {
+        colorClass = 'text-amber-600 dark:text-amber-400 font-medium';
+        level = 'moderate';
+      }
+
+      const formattedTime = formatDistanceToNow(dateObject, { addSuffix: true });
+      const displayTimeText = (level === 'recent') ? "less than a minute ago" : formattedTime;
+      const exactDateTime = dateObject.toLocaleString();
+
+      return {
+        text: `Commit ${displayTimeText}`,
+        colorClass: colorClass,
+        level: level,
+        tooltipText: `Commit time: ${exactDateTime}`
+      };
+    } catch (error) {
+      console.error("Error processing commit timestamp:", error);
+      return null;
     }
-  }, [uploadTimestamp]);
+  }, [analysisResult?.commitDate, dataSource.type]);
+
+  useEffect(() => {
+    let intervalId: NodeJS.Timeout | null = null;
+    const originalUploadTimestamp = analysisResult?.uploadTimestamp;
+
+    const updateLocalStatus = () => {
+      if (!originalUploadTimestamp) {
+        setLocalRecencyStatus(null);
+        return;
+      }
+
+      const now = Date.now();
+      const diffInSeconds = (now - originalUploadTimestamp) / 1000;
+      const diffInMinutes = diffInSeconds / 60;
+
+      let status: RecencyStatus;
+      const originalDate = new Date(originalUploadTimestamp);
+      const baseTooltip = `Processed at ${originalDate.toLocaleTimeString()}`;
+
+      if (diffInMinutes < 1) {
+        status = {
+          text: 'Processed just now',
+          colorClass: 'text-green-600 dark:text-green-400 font-medium',
+          level: 'recent',
+          tooltipText: `${baseTooltip} (less than 1 min ago)`,
+          originalTimestamp: originalUploadTimestamp
+        };
+      } else if (diffInMinutes < 5) {
+        status = {
+          text: `Processed ${formatDistanceToNowStrict(originalUploadTimestamp, { addSuffix: true })}`,
+          colorClass: 'text-amber-600 dark:text-amber-400 font-medium',
+          level: 'moderate',
+          tooltipText: `${baseTooltip} (${Math.floor(diffInMinutes)} min ago)`,
+          originalTimestamp: originalUploadTimestamp
+        };
+      } else if (diffInMinutes < 15) {
+         status = {
+           text: `Processed ${formatDistanceToNowStrict(originalUploadTimestamp, { addSuffix: true })}`,
+           colorClass: 'text-orange-600 dark:text-orange-400 font-medium',
+           level: 'old',
+           tooltipText: `${baseTooltip} (${Math.floor(diffInMinutes)} min ago) - Consider refreshing`,
+           originalTimestamp: originalUploadTimestamp
+         };
+      } else {
+        status = {
+          text: `Processed ${formatDistanceToNowStrict(originalUploadTimestamp, { addSuffix: true })}`,
+          colorClass: 'text-red-600 dark:text-red-500 font-semibold',
+          level: 'stale',
+          tooltipText: `${baseTooltip} (${Math.floor(diffInMinutes)} min ago) - Refresh recommended`,
+          originalTimestamp: originalUploadTimestamp
+        };
+      }
+      setLocalRecencyStatus(status);
+    };
+
+    if (dataSource.type === 'local' && originalUploadTimestamp) {
+      updateLocalStatus();
+      intervalId = setInterval(updateLocalStatus, 15000);
+      console.log("Local timer started, interval ID:", intervalId);
+    } else {
+      setLocalRecencyStatus(null);
+       console.log("Clearing local timer/status.");
+    }
+
+    return () => {
+      if (intervalId) {
+        clearInterval(intervalId);
+        console.log("Local timer cleared, interval ID:", intervalId);
+      }
+    };
+  }, [analysisResult?.uploadTimestamp, dataSource.type]);
+
+  const formattedCommitDateForSummary = useMemo(() => {
+    if (!analysisResult?.commitDate) return null;
+    try {
+      return formatDistanceToNow(new Date(analysisResult.commitDate), { addSuffix: true });
+    } catch (e) {
+      return analysisResult.commitDate;
+    }
+  }, [analysisResult?.commitDate]);
 
   const effectiveDataSource = useMemo(() => {
     if (dataSource) {
@@ -187,7 +290,6 @@ const AnalysisResult: React.FC<AnalysisResultProps> = React.memo(({
       return dataSource;
     }
     
-    // Default to local dataSource using files from analysisResult
     console.log("AnalysisResult: Creating default local dataSource");
     return {
       type: 'local' as const,
@@ -221,7 +323,6 @@ const AnalysisResult: React.FC<AnalysisResultProps> = React.memo(({
       });
   };
 
-  // Function to download as file
   const downloadAsFile = (content: string, filename: string) => {
     const blob = new Blob([content], { type: 'text/plain' });
     const url = URL.createObjectURL(blob);
@@ -235,7 +336,6 @@ const AnalysisResult: React.FC<AnalysisResultProps> = React.memo(({
   };
 
   const generateProjectTree = useCallback((files: FileData[]): string => {
-    // Convert to TreeNode structure
     const tree: { [key: string]: TreeNodeData } = {};
 
     files.forEach(file => {
@@ -259,7 +359,6 @@ const AnalysisResult: React.FC<AnalysisResultProps> = React.memo(({
     const buildTreeString = (obj: { [key: string]: TreeNodeData }, prefix = ''): string => {
       let result = '';
       const entries = Object.entries(obj).sort(([, a], [, b]) => {
-        // Directories first, then files
         if (a.type !== b.type) return a.type === 'directory' ? -1 : 1;
         return a.name.localeCompare(b.name);
       });
@@ -307,16 +406,20 @@ const AnalysisResult: React.FC<AnalysisResultProps> = React.memo(({
   const markdownSummary = useMemo(() => {
     if (!analysisResult) return "Analysis result not available.";
     let summary = `## Project Summary\n\n`;
-    summary += `- **Source:** ${effectiveDataSource.type}\n`;
-    if (effectiveDataSource.type === 'github' && effectiveDataSource.repoInfo) {
-      summary += `- **Repository:** ${effectiveDataSource.repoInfo.owner}/${effectiveDataSource.repoInfo.repo}\n`;
-      summary += `- **Branch:** ${effectiveDataSource.repoInfo.branch}\n`;
+    summary += `- **Source:** ${dataSource.type}\n`;
+    if (dataSource.type === 'github' && dataSource.repoInfo) {
+      summary += `- **Repository:** ${dataSource.repoInfo.owner}/${dataSource.repoInfo.repo}\n`;
+      summary += `- **Branch:** ${dataSource.repoInfo.branch}\n`;
     }
-    if (formattedCommitDate && effectiveDataSource.type === 'github') {
-       summary += `- **Commit Date:** ${formattedCommitDate}\n`;
+    if (formattedCommitDateForSummary && dataSource.type === 'github') {
+       summary += `- **Commit Date:** ${formattedCommitDateForSummary}\n`;
+    }
+    if (analysisResult.uploadTimestamp && dataSource.type === 'local') {
+        const uploadDate = new Date(analysisResult.uploadTimestamp);
+        summary += `- **Local Files Processed:** ${uploadDate.toLocaleString()} (${formatDistanceToNow(uploadDate, { addSuffix: true })})\n`;
     }
     summary += `- **Total Files Scanned:** ${analysisResult.totalFiles ?? 'N/A'}\n`;
-    summary += `- **Total Lines Scanned:** ${(analysisResult.totalLines ?? 0).toLocaleString()} \n`;
+    summary += `- **Total Lines Scanned:** ${(analysisResult.totalLines ?? 0).toLocaleString()}\n`;
     summary += `\n## Selected Files (${totalSelectedFiles})\n\n`;
     summary += `- **Total Selected Lines:** ${totalSelectedLines.toLocaleString()}\n`;
     summary += `- **Estimated Token Count:** ${tokenCount.toLocaleString()}\n`;
@@ -328,7 +431,16 @@ const AnalysisResult: React.FC<AnalysisResultProps> = React.memo(({
       summary += `- ${file.path} (${file.lines} lines)\n`;
     });
     return summary;
-  }, [analysisResult, selectedFilesData, totalSelectedFiles, totalSelectedLines, tokenCount, maxTokens, effectiveDataSource, formattedCommitDate]);
+  }, [
+    analysisResult,
+    selectedFilesData,
+    totalSelectedFiles,
+    totalSelectedLines,
+    tokenCount,
+    maxTokens,
+    dataSource,
+    formattedCommitDateForSummary
+  ]);
 
   const listOutput = useMemo(() => {
     return selectedFilesData.map(f => f.path).join('\n');
@@ -417,16 +529,48 @@ const AnalysisResult: React.FC<AnalysisResultProps> = React.memo(({
         </Card>
       </div>
 
-      {(formattedCommitDate || formattedUploadTime) && (
-        <div className="text-xs text-muted-foreground flex items-center justify-center gap-1.5 mb-4 px-3 py-1.5 rounded-full bg-muted/50 border border-border w-fit mx-auto">
-           <Clock className="h-3.5 w-3.5" />
-           {dataSource?.type === 'github' && formattedCommitDate && (
-             <span>Files loaded from commit {formattedCommitDate}</span>
-           )}
-           {dataSource?.type === 'local' && formattedUploadTime && (
-             <span>Local files processed {formattedUploadTime}</span>
-           )}
-        </div>
+      {(githubCommitInfo || localRecencyStatus) && (
+        <TooltipProvider delayDuration={150}>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <div className={`text-xs flex items-center justify-center gap-1.5 mb-4 px-3 py-1.5 rounded-full bg-background border border-border w-fit mx-auto cursor-default transition-colors ${ 
+                  dataSource.type === 'github'
+                    ? githubCommitInfo?.colorClass ?? 'text-muted-foreground'
+                    : localRecencyStatus?.colorClass ?? 'text-muted-foreground'
+                }`}
+              >
+                <Clock className="h-3.5 w-3.5" />
+                <span>
+                  {dataSource.type === 'github'
+                    ? githubCommitInfo?.text ?? 'Loading...'
+                    : localRecencyStatus?.text ?? 'Loading...'
+                   }
+                </span>
+                {dataSource.type === 'local' && localRecencyStatus?.level === 'stale' && (
+                  <RefreshCw className="h-3 w-3 ml-1 opacity-70" />
+                )}
+              </div>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">
+              <p>
+                {dataSource.type === 'github'
+                   ? githubCommitInfo?.tooltipText ?? ''
+                   : localRecencyStatus?.tooltipText ?? ''
+                 }
+              </p>
+              {dataSource.type === 'local' && (localRecencyStatus?.level === 'old' || localRecencyStatus?.level === 'stale') && (
+                   <p className="mt-1 text-muted-foreground">
+                      Local files may have changed. Use the refresh button below "Choose Folder" to update.
+                   </p>
+               )}
+               {dataSource.type === 'github' && (githubCommitInfo?.level === 'moderate' || githubCommitInfo?.level === 'old') && (
+                   <p className="mt-1 text-muted-foreground">
+                      Repository may have newer commits. Re-select branch to update.
+                   </p>
+               )}
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
       )}
 
       <Tabs value={activeFileTab} onValueChange={setActiveFileTab} className="animate-fade-in animation-delay-200">
