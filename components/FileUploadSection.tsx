@@ -100,14 +100,16 @@ const FileUploadSection: React.FC<FileUploadSectionProps> = ({
          setLoadingStatus(prev => ({ ...prev, message: `Processing ${files.length} files... (${i}/${files.length})` }));
       }
 
-      if (pathComponents.some(part => part.startsWith('.'))) {
-        continue;
-      }
       if (pathComponents.slice(0, -1).some(component => excludedFolders.includes(component))) {
         continue;
       }
-      if (!allowedFileTypes.some(type => type && relativePath.endsWith(type))) {
-        continue;
+      
+      const fileMatchesType = allowedFileTypes.some(type => {
+        if (type === '*') return true;
+        return relativePath === type || (type.startsWith('.') && relativePath.endsWith(type)); 
+      });
+      if (!fileMatchesType) {
+           continue;
       }
 
       try {
