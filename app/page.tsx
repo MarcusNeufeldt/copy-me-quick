@@ -1,7 +1,7 @@
 "use client";
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Card, CardContent } from "@/components/ui/card";
-import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { ModeToggle } from "@/components/ui/mode-toggle";
 import ProjectSelector from '@/components/ProjectSelector';
 import FileUploadSection from '@/components/FileUploadSection';
@@ -981,11 +981,18 @@ export default function ClientPageRoot() {
                   Clear Workspace
                 </Button>
 
-                {/* New Feature Info Section */}
-                <Alert variant="default" className="mt-4 bg-blue-50 border-blue-200 dark:bg-blue-950 dark:border-blue-800">
-                  <Info className="h-4 w-4 text-blue-600 dark:text-blue-400" />
-                  <AlertDescription className="text-xs text-blue-800 dark:text-blue-300">
-                    <strong>New!</strong> Save/load common file sets using the <BookMarked className="inline-block h-3 w-3 mx-0.5" /> <strong>Presets</strong> button in the File Selector toolbar.
+                {/* Improved Presets Info Section */}
+                <Alert variant="default" className="mt-4 bg-blue-50 border-blue-200 dark:bg-blue-950 dark:border-blue-800 flex flex-col">
+                  <div className="flex items-center mb-1"> {/* Container for icon and title */}
+                    <Info className="h-4 w-4 text-blue-600 dark:text-blue-400 mr-2 flex-shrink-0" />
+                    <AlertTitle className="text-sm font-semibold text-blue-800 dark:text-blue-300">
+                      New Feature: Presets!
+                    </AlertTitle>
+                  </div>
+                  <AlertDescription className="text-xs text-blue-700 dark:text-blue-400 pl-6"> {/* Indent description */}
+                    Quickly save and load common file selections using the <BookMarked className="inline-block h-3 w-3 mx-0.5" /> <strong>Presets</strong> button in the File Selector.
+                    <br /> {/* Line break */}
+                    <span className="opacity-80"> (Saved per-project in browser storage).</span>
                   </AlertDescription>
                 </Alert>
               </CardContent>
