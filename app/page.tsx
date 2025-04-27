@@ -27,6 +27,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { SpeedInsights } from "@vercel/speed-insights/next";
 
 // Dynamically import Analytics with error handling
 const AnalyticsComponent = dynamic(
@@ -1223,6 +1224,7 @@ export default function ClientPageRoot() {
       </AlertDialog>
 
       <AnalyticsComponent />
+      <SpeedInsights />
     </div>
   );
 }
