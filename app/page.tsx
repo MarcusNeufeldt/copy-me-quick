@@ -118,6 +118,19 @@ interface LoadingStatus {
   message: string | null;
 }
 
+// Add formatFileSize function definition
+function formatFileSize(bytes: number, decimals = 2): string {
+  if (bytes === 0) return '0 Bytes';
+
+  const k = 1024;
+  const dm = decimals < 0 ? 0 : decimals;
+  const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB', 'PB', 'EB', 'ZB', 'YB'];
+
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
+}
+
 export default function ClientPageRoot() {
   // Initialize state with server-safe defaults
   const [projects, setProjects] = useState<Project[]>([]);
@@ -424,10 +437,9 @@ export default function ClientPageRoot() {
         const filesToFetch = loadedTree?.filter(item => item.type === 'blob') || [];
         if (filesToFetch.length > 0) {
           setLoadingStatus({ isLoading: true, message: `Loading ${filesToFetch.length} file contents...` });
-          // ... (rest of file fetching logic: progress, large file warning, batching) ...
           let totalLineCount = 0;
           const filesWithContent: FileData[] = [];
-          const treeUpdates: {path: string, lines: number, content: string}[] = [];
+          const treeUpdates: { path: string, lines: number }[] = [];
 
           // ... (progress update setup) ...
           setFileLoadingProgress({ current: 0, total: filesToFetch.length });
@@ -448,7 +460,6 @@ export default function ClientPageRoot() {
           for (let i = 0; i < filesToFetch.length; i += batchSize) {
             const batch = filesToFetch.slice(i, i + batchSize);
             await Promise.all(batch.map(async (file: any) => {
-              // ... (fetch content logic from previous version) ...
               try {
                 const contentUrl = `/api/github/content?owner=${repoInfo.owner}&repo=${repoInfo.repo}&path=${encodeURIComponent(file.path)}`;
                 const contentResponse = await fetch(contentUrl);
@@ -465,8 +476,8 @@ export default function ClientPageRoot() {
                     sha: file.sha,
                     dataSourceType: 'github'
                   });
-                  // Add to treeUpdates if needed for live updates, otherwise skip
-                  treeUpdates.push({ path: file.path, lines: lineCount, content: content });
+                  // Store update info separately
+                  treeUpdates.push({ path: file.path, lines: lineCount }); // Populate treeUpdates
                 } else {
                     console.warn(`Failed to fetch content for ${file.path}: ${contentResponse.status}`);
                 }
@@ -477,6 +488,7 @@ export default function ClientPageRoot() {
               updateLoadingProgress(processedCount);
             }));
           }
+
           // Update the analysisResultData with fetched content
           if (analysisResultData) {
             analysisResultData.totalLines = totalLineCount;
@@ -484,6 +496,33 @@ export default function ClientPageRoot() {
             // Note: Token count still needs calculation elsewhere
           }
           setFileLoadingProgress({ current: 0, total: 0 }); // Reset progress
+
+          // --- START: New Code to Merge Line Counts into Tree (Correct Scope) ---
+          if (loadedTree) {
+              console.log(`Merging ${treeUpdates.length} content updates into the GitHub tree structure...`);
+              const treePathMap = new Map<string, GitHubTreeItem>();
+              // Create a new array for the updated tree to ensure state immutability
+              const updatedTreeItems = loadedTree.map(item => ({ ...item })); // Shallow copy items
+              updatedTreeItems.forEach(item => treePathMap.set(item.path, item));
+
+              treeUpdates.forEach(update => {
+                  const treeItem = treePathMap.get(update.path);
+                  if (treeItem && treeItem.type === 'blob') {
+                      // Add lines and formattedSize directly to the copied tree item object
+                      (treeItem as any).lines = update.lines;
+                       if (treeItem.size !== undefined && !(treeItem as any).formattedSize) {
+                            (treeItem as any).formattedSize = formatFileSize(treeItem.size);
+                       }
+                  } else {
+                       console.warn(`Could not find matching blob item in tree for update: ${update.path}`);
+                  }
+              });
+              // Update the state variable with the new array reference
+               setGithubTree(updatedTreeItems); // Use the new array with updated items
+               console.log("GitHub tree structure updated with line counts.");
+          }
+          // --- END: New Code ---
+
         }
 
         // 3. Find or Create Project Context
