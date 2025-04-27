@@ -17,6 +17,16 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Input } from "@/components/ui/input";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 // Dynamically import Analytics with error handling
 const AnalyticsComponent = dynamic(
@@ -115,6 +125,10 @@ export default function ClientPageRoot() {
   const [projectTypes, setProjectTypes] = useState(() => defaultProjectTypes); // Keep default types initially
   const [isMounted, setIsMounted] = useState(false); // Track client-side mount
   const [activeSourceTab, setActiveSourceTab] = useState('local'); // 'local' or 'github'
+
+  // State for confirmation dialog
+  const [showSwitchConfirmDialog, setShowSwitchConfirmDialog] = useState(false);
+  const [nextTabValue, setNextTabValue] = useState<string | null>(null);
 
   // Unified Loading State
   const [loadingStatus, setLoadingStatus] = useState<LoadingStatus>({ isLoading: false, message: null });
@@ -654,25 +668,16 @@ export default function ClientPageRoot() {
   };
 
   const handleResetWorkspace = () => {
-    console.log("Resetting workspace (preserving projects in localStorage)..."); // Added logging
+    console.log("Resetting workspace (preserving projects in localStorage)...");
 
-    // 1. Reset the main application state (keep existing presets if needed, but clear analysis/selection)
-    //    We reset analysisResult and selectedFiles, but keep the structure for namedSelections
-    //    if they were tied to the top-level state (they aren't, they are per-project).
-    //    So, resetting to initialAppState is mostly correct, but we need to ensure
-    //    the projects array *in memory* isn't cleared if we want immediate UI reflection,
-    //    though on reload it would come back from localStorage anyway.
-    //    Let's focus on resetting the *active* session state.
-    setState(prevState => ({ // Use initialAppState to reset
-        // Keep potentially global settings if any were added later
-        ...initialAppState, // Reset analysis, selections, filters to defaults
-        // If namedSelections were somehow global, preserve them:
-        // namedSelections: prevState.namedSelections || {},
+    // 1. Reset the main application state
+    setState(prevState => ({
+        ...initialAppState,
     }));
 
     // 2. Clear the current project context
     setCurrentProjectId(null);
-    localStorage.removeItem('currentProjectId'); // Remove the pointer to the current project
+    localStorage.removeItem('currentProjectId');
 
     // 3. Reset UI/temporary state elements
     setTokenCount(0);
@@ -680,26 +685,58 @@ export default function ClientPageRoot() {
     setFileLoadingProgress({ current: 0, total: 0 });
     setFileLoadingMessage(null);
     setProjectTypeSelected(false);
-    setActiveSourceTab('local'); // Or keep the current tab? User preference. 'local' is safer.
+    // Don't reset activeSourceTab here, it will be set by the switch logic
+    // setActiveSourceTab('local');
     setSelectedRepoFullName(null);
     setSelectedBranchName(null);
-    // Keep existing repos/branches list in memory for quicker re-selection if needed
-    // setRepos([]); // Optional: uncomment if you want to force refetching repos
-    // setBranches([]); // Optional: uncomment if you want to force refetching branches
     setGithubTree(null);
     setIsGithubTreeTruncated(false);
     setGithubSelectionError(null);
-    setLoadingStatus({ isLoading: false, message: null }); // Ensure loading state is cleared
+    setLoadingStatus({ isLoading: false, message: null });
 
-    // 4. Reset the project type selector to 'None' visually and functionally
-    //    (Assuming ProjectSelector's state is driven by AppState's projectType,
-    //     which initialAppState should reset. If not, add direct reset logic here.)
+    // 4. Reset project type selector handled by initialAppState reset
 
     // 5. CRUCIALLY: DO NOT REMOVE THE PROJECTS DATA
-    // localStorage.removeItem('codebaseReaderProjects'); // <-- REMOVED THIS LINE
+    // localStorage.removeItem('codebaseReaderProjects');
 
-    console.log("Workspace reset complete. Active session cleared."); // Added logging
+    console.log("Workspace reset complete. Active session cleared.");
   };
+
+  // ----- Tab Switching Logic with Confirmation -----
+  const handleTabChangeAttempt = (newTabValue: string) => {
+      if (newTabValue !== activeSourceTab) { // Only act if tab is actually changing
+        // Check if a project is currently loaded (use a reliable indicator)
+        const isProjectLoaded = !!state.analysisResult; // Or check currentProjectId
+
+        if (isProjectLoaded) {
+          console.log("Project loaded, showing confirmation dialog for tab switch.");
+          setNextTabValue(newTabValue); // Store the tab we want to switch to
+          setShowSwitchConfirmDialog(true); // Open the dialog
+        } else {
+          // No project loaded, switch directly without clearing
+          console.log("No project loaded, switching tab directly.");
+          // handleResetWorkspace(); // No need to reset if nothing is loaded
+          setActiveSourceTab(newTabValue);
+        }
+      }
+    };
+
+    const confirmTabSwitch = () => {
+      console.log("User confirmed tab switch. Clearing workspace and switching.");
+      handleResetWorkspace(); // The modified version
+      if (nextTabValue) {
+        setActiveSourceTab(nextTabValue);
+      }
+      setShowSwitchConfirmDialog(false);
+      setNextTabValue(null);
+    };
+
+    const cancelTabSwitch = () => {
+      console.log("User cancelled tab switch.");
+      setShowSwitchConfirmDialog(false);
+      setNextTabValue(null);
+    };
+  // ----------------------------------------------
 
   // ----- Named Selections Handlers -----
   const saveNamedSelection = (name: string, files: string[]) => {
@@ -779,7 +816,6 @@ export default function ClientPageRoot() {
   // ------------------------------------
 
   // Determine current dataSource based on active tab and state
-  // Memoize the dataSource to prevent unnecessary re-renders downstream
   const currentDataSource: DataSource | undefined = useMemo(() => {
     console.log("Recalculating currentDataSource..."); // Debug log
     if (activeSourceTab === 'github' && githubTree) {
@@ -863,7 +899,7 @@ export default function ClientPageRoot() {
                 </div>
 
                 {/* --- Source Selection Tabs --- */}
-                <Tabs value={activeSourceTab} onValueChange={setActiveSourceTab} className="w-full">
+                <Tabs value={activeSourceTab} onValueChange={handleTabChangeAttempt} className="w-full">
                   <TabsList className="grid w-full grid-cols-2 mb-4">
                     <TabsTrigger value="local" className="text-xs px-2 py-1.5">
                       <Computer className="h-4 w-4 mr-1.5" /> Local
@@ -1046,7 +1082,7 @@ export default function ClientPageRoot() {
                   disabled={!currentDataSource}
                 >
                   <RotateCcw className="mr-2 h-4 w-4" />
-                  Clear Workspace
+                  Clear Current Session
                 </Button>
 
                 {/* Improved Presets Info Section */}
@@ -1123,6 +1159,23 @@ export default function ClientPageRoot() {
           </div>
         </div>
       </div>
+
+      {/* Add the AlertDialog component */}
+      <AlertDialog open={showSwitchConfirmDialog} onOpenChange={setShowSwitchConfirmDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Confirm Source Switch</AlertDialogTitle>
+            <AlertDialogDescription>
+              Switching the source type will clear the current analysis session (file selections, token counts). Your saved project data and presets will remain. Continue?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={cancelTabSwitch}>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmTabSwitch}>Continue</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       <AnalyticsComponent />
     </div>
   );
