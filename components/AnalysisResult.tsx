@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback, useMemo } from 'react';
+import React, { useEffect, useState, useCallback, useMemo, Dispatch, SetStateAction } from 'react';
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import FileSelector from './FileSelector';
-import { AppState, FileData, DataSource } from './types';
+import { AppState, FileData, DataSource, AnalysisResultProps } from './types';
 import { Copy, File, Folder, FileText, CheckCircle2, BarChart3, FileSymlink, Layers, AlertCircle, CopyCheck, Download, Save, AlertTriangle, Archive, ClipboardList } from 'lucide-react';
 import {
   Dialog,
@@ -22,18 +22,6 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { Toaster, toast } from 'sonner';
-
-interface AnalysisResultProps {
-  analysisResult: AppState['analysisResult'] | null;
-  selectedFiles: string[];
-  onSelectedFilesChange: (filesOrUpdater: string[] | ((prev: string[]) => string[])) => void;
-  tokenCount: number;
-  setTokenCount: React.Dispatch<React.SetStateAction<number>>;
-  maxTokens: number;
-  dataSource?: DataSource;
-  setLoadingStatus: React.Dispatch<React.SetStateAction<LoadingStatus>>;
-  loadingStatus: LoadingStatus;
-}
 
 interface LoadingStatus {
   isLoading: boolean;
@@ -152,7 +140,11 @@ const AnalysisResult: React.FC<AnalysisResultProps> = React.memo(({
   maxTokens,
   dataSource,
   setLoadingStatus,
-  loadingStatus
+  loadingStatus,
+  namedSelections,
+  onSaveNamedSelection,
+  onRenameNamedSelection,
+  onDeleteNamedSelection,
 }) => {
   const [copySuccess, setCopySuccess] = useState(false);
   const [activeFileTab, setActiveFileTab] = useState('selector');
@@ -447,6 +439,10 @@ ${selectedFilesData.map(file => `- \`${file.path}\` (${file.lines} lines)`).join
                 tokenCount={tokenCount}
                 setLoadingStatus={setLoadingStatus}
                 loadingStatus={loadingStatus}
+                namedSelections={namedSelections}
+                onSaveNamedSelection={onSaveNamedSelection}
+                onRenameNamedSelection={onRenameNamedSelection}
+                onDeleteNamedSelection={onDeleteNamedSelection}
               />
             </CardContent>
           </Card>

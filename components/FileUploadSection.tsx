@@ -7,7 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { FolderOpen, Ban, FileType, Loader, AlertCircle, Info, RefreshCw, Upload, FileUp } from 'lucide-react';
-import { AppState, FileData } from './types';
+import { AppState, FileData, AnalysisResultData } from './types';
 import {
   Dialog,
   DialogContent,
@@ -38,7 +38,7 @@ interface FileUploadSectionProps {
   setState: React.Dispatch<React.SetStateAction<AppState>>;
   updateCurrentProject: (newState: AppState) => void;
   setError: React.Dispatch<React.SetStateAction<string | null>>;
-  onUploadComplete: (newState: AppState) => void;
+  onUploadComplete: (analysisResult: AnalysisResultData) => void;
   projectTypeSelected: boolean;
   buttonTooltip?: string;
   // Add the unified loading state setter prop
@@ -149,27 +149,23 @@ const FileUploadSection: React.FC<FileUploadSectionProps> = ({
     setLoadingStatus({ isLoading: true, message: 'Finalizing state update...' });
     await new Promise(resolve => setTimeout(resolve, 10));
 
-    const newState: AppState = {
-      ...state,
-      analysisResult: {
-        totalFiles: finalFiles.length,
-        totalLines: newTotalLines,
-        totalTokens: 0,
-        summary: `Project contains ${finalFiles.length} files with ${newTotalLines} total lines of code.`,
-        project_tree: newProjectTree,
-        files: finalFiles
-      },
-      selectedFiles: preservedSelectedFiles,
+    // Construct only the AnalysisResultData part
+    const analysisResultData: AnalysisResultData = {
+      totalFiles: finalFiles.length,
+      totalLines: newTotalLines,
+      totalTokens: 0, // Token calculation will happen later
+      summary: `Project contains ${finalFiles.length} files with ${newTotalLines} total lines of code.`,
+      project_tree: newProjectTree,
+      files: finalFiles
     };
 
-    setState(newState);
-    updateCurrentProject(newState);
-    onUploadComplete(newState);
+    // Pass only the analysis result data up
+    onUploadComplete(analysisResultData); 
 
     setLoadingStatus({ isLoading: false, message: 'Processing complete!' });
     setTimeout(() => setLoadingStatus(prev => ({ ...prev, message: null })), 2000);
 
-  }, [state, setState, updateCurrentProject, onUploadComplete, setError, setLoadingStatus]);
+  }, [state.excludeFolders, state.fileTypes, onUploadComplete, setError, setLoadingStatus]);
 
   const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     console.log('handleFileUpload triggered:', event.target.files);

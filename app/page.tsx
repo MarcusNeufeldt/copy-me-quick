@@ -67,6 +67,7 @@ const initialAppState: AppState = {
   excludeFolders: 'node_modules,.git,dist,.next',
   fileTypes: '.js,.jsx,.ts,.tsx,.py',
   backups: [],
+  namedSelections: {},
 };
 
 interface GitHubUser {
@@ -187,11 +188,16 @@ export default function ClientPageRoot() {
     if (savedProjectId) {
       const currentProject = loadedProjects.find((p: Project) => p.id === savedProjectId);
       if (currentProject) {
-        // Ensure backups is always an array when loading state
+        // Ensure backups is always an array and namedSelections is an object when loading state
         const loadedState = currentProject.state;
         if (!Array.isArray(loadedState.backups)) {
           console.warn("Loaded state backups is not an array, resetting to empty array.");
           loadedState.backups = [];
+        }
+        // Ensure namedSelections is an object
+        if (typeof loadedState.namedSelections !== 'object' || loadedState.namedSelections === null || Array.isArray(loadedState.namedSelections)) {
+          console.warn("Loaded state namedSelections is not an object, resetting to empty object.");
+          loadedState.namedSelections = {};
         }
         setState(loadedState);
       } else {
@@ -281,90 +287,91 @@ export default function ClientPageRoot() {
     fetchBranches();
   }, [repos]);
 
-  // Handle Branch Selection - Modified to fetch tree
+  // Handle Branch Selection - Modified to fetch tree and manage projects
   const handleBranchChange = useCallback((branchName: string) => {
-    setSelectedBranchName(branchName);
+    // Clear previous GitHub specific state before potentially loading a new project
     setGithubSelectionError(null);
     setGithubTree(null);
-    setState(prevState => ({ ...prevState, analysisResult: null, selectedFiles: [] }));
+    // Don't clear the whole state here, wait until project context is determined
+    // setState(prevState => ({ ...prevState, analysisResult: null, selectedFiles: [] }));
     setIsGithubTreeTruncated(false);
+    setFileLoadingProgress({ current: 0, total: 0 });
+    setFileLoadingMessage(null);
 
     if (!branchName || !selectedRepoFullName) {
+      setSelectedBranchName(branchName); // Update selection display even if invalid
       return;
     }
+
+    // Set the selected branch name immediately for UI responsiveness
+    setSelectedBranchName(branchName);
 
     const selectedRepo = repos.find(r => r.full_name === selectedRepoFullName);
     if (!selectedRepo) return;
 
-    const fetchTree = async () => {
-      // Use unified loading state for tree fetching
+    const fetchTreeAndSetProject = async () => {
       setLoadingStatus({ isLoading: true, message: 'Loading file tree...' });
       setGithubSelectionError(null);
+      let analysisResultData: AnalysisResultData | null = null;
+      let loadedTree: GitHubTreeItem[] | null = null;
+
       try {
+        // 1. Fetch Tree Structure
         const apiUrl = `/api/github/tree?owner=${selectedRepo.owner.login}&repo=${selectedRepo.name}&branch=${branchName}`;
-        const response = await fetch(apiUrl);
-        const data = await response.json();
+        const treeResponse = await fetch(apiUrl);
+        const treeData = await treeResponse.json();
+        if (!treeResponse.ok) throw new Error(treeData.error || 'Failed to fetch file tree');
 
-        if (!response.ok) {
-             throw new Error(data.error || 'Failed to fetch file tree');
-        }
+        loadedTree = treeData.tree;
+        setGithubTree(loadedTree); // Update tree state for FileSelector
+        setIsGithubTreeTruncated(treeData.truncated ?? false);
 
-        const totalFileCount = data.tree.filter((item: any) => item.type === 'blob').length;
-        setGithubTree(data.tree);
-        setIsGithubTreeTruncated(data.truncated ?? false);
-
+        const totalFileCount = loadedTree?.filter(item => item.type === 'blob').length || 0;
         const repoInfo: GitHubRepoInfo = {
           owner: selectedRepo.owner.login,
           repo: selectedRepo.name,
           branch: branchName
         };
 
-        const pseudoAnalysis: AnalysisResultData = {
-            totalFiles: totalFileCount,
-            totalLines: 0,
-            totalTokens: 0,
-            summary: `GitHub repo: ${selectedRepoFullName}, Branch: ${branchName}`,
-            project_tree: `GitHub Tree Structure for ${selectedRepoFullName}/${branchName}`,
-            files: [],
+        // Initial analysis data (lines/content/tokens will be added)
+        analysisResultData = {
+          totalFiles: totalFileCount,
+          totalLines: 0,
+          totalTokens: 0,
+          summary: `GitHub repo: ${selectedRepoFullName}, Branch: ${branchName}`,
+          project_tree: `GitHub Tree Structure for ${selectedRepoFullName}/${branchName}`,
+          files: [], // Start with empty files
         };
 
-        setState(prevState => ({
-             ...prevState,
-             analysisResult: pseudoAnalysis,
-             selectedFiles: [],
-        }));
-
-        // Batch fetch content
-        const filesToFetch = data.tree.filter((item: any) => item.type === 'blob');
-
+        // 2. Fetch File Content (Batched)
+        const filesToFetch = loadedTree?.filter(item => item.type === 'blob') || [];
         if (filesToFetch.length > 0) {
-          // Update loading state for file content fetching
           setLoadingStatus({ isLoading: true, message: `Loading ${filesToFetch.length} file contents...` });
+          // ... (rest of file fetching logic: progress, large file warning, batching) ...
+          let totalLineCount = 0;
+          const filesWithContent: FileData[] = [];
+          const treeUpdates: {path: string, lines: number, content: string}[] = [];
 
+          // ... (progress update setup) ...
+          setFileLoadingProgress({ current: 0, total: filesToFetch.length });
+          const updateLoadingProgress = (current: number) => {
+            setFileLoadingProgress({ current, total: filesToFetch.length });
+            setLoadingStatus(prev => ({ ...prev, message: `Loading file contents... (${current}/${filesToFetch.length})` }));
+          };
+          updateLoadingProgress(0);
+          let processedCount = 0;
+          const batchSize = 10;
+          // ... (large file warning) ...
           const largeFiles = filesToFetch.filter((item: any) => item.size && item.size > 500000);
           if (largeFiles.length > 0) {
             setFileLoadingMessage(`Note: Loading ${largeFiles.length} large files (>500KB).`);
             setTimeout(() => setFileLoadingMessage(null), 5000);
           }
 
-          setFileLoadingProgress({ current: 0, total: filesToFetch.length });
-          let totalLineCount = 0;
-          const filesWithContent: FileData[] = [];
-          const treeUpdates: {path: string, lines: number, content: string}[] = [];
-
-          const updateLoadingProgress = (current: number) => {
-            setFileLoadingProgress({ current, total: filesToFetch.length });
-             // Optionally update the loading message with progress
-            setLoadingStatus(prev => ({ ...prev, message: `Loading file contents... (${current}/${filesToFetch.length})` }));
-          };
-          updateLoadingProgress(0);
-
-          const batchSize = 10;
-          let processedCount = 0;
-
           for (let i = 0; i < filesToFetch.length; i += batchSize) {
             const batch = filesToFetch.slice(i, i + batchSize);
             await Promise.all(batch.map(async (file: any) => {
+              // ... (fetch content logic from previous version) ...
               try {
                 const contentUrl = `/api/github/content?owner=${repoInfo.owner}&repo=${repoInfo.repo}&path=${encodeURIComponent(file.path)}`;
                 const contentResponse = await fetch(contentUrl);
@@ -381,11 +388,10 @@ export default function ClientPageRoot() {
                     sha: file.sha,
                     dataSourceType: 'github'
                   });
-                  treeUpdates.push({
-                    path: file.path,
-                    lines: lineCount,
-                    content: content
-                  });
+                  // Add to treeUpdates if needed for live updates, otherwise skip
+                  treeUpdates.push({ path: file.path, lines: lineCount, content: content });
+                } else {
+                    console.warn(`Failed to fetch content for ${file.path}: ${contentResponse.status}`);
                 }
               } catch (error) {
                 console.error(`Error fetching content for ${file.path}:`, error);
@@ -393,73 +399,184 @@ export default function ClientPageRoot() {
               processedCount++;
               updateLoadingProgress(processedCount);
             }));
-
-            if (treeUpdates.length > 0) {
-              setGithubTree(prevTree => {
-                if (!prevTree) return prevTree;
-                return prevTree.map((item) => {
-                  const update = treeUpdates.find(u => u.path === item.path);
-                  if (update && item.type === 'blob') {
-                    return { ...item, lines: update.lines, content: update.content } as GitHubTreeItem & { lines: number, content: string };
-                  }
-                  return item;
-                });
-              });
-            }
           }
-
-          setState(prevState => {
-            if (!prevState.analysisResult) return prevState;
-            return {
-              ...prevState,
-              analysisResult: {
-                ...prevState.analysisResult,
-                totalLines: totalLineCount,
-                files: filesWithContent
-              }
-            };
-          });
-
-          setFileLoadingProgress({ current: 0, total: 0 });
+          // Update the analysisResultData with fetched content
+          if (analysisResultData) {
+            analysisResultData.totalLines = totalLineCount;
+            analysisResultData.files = filesWithContent;
+            // Note: Token count still needs calculation elsewhere
+          }
+          setFileLoadingProgress({ current: 0, total: 0 }); // Reset progress
         }
+
+        // 3. Find or Create Project Context
+        setLoadingStatus({ isLoading: true, message: 'Setting project context...' });
+        let targetProjectId: string | null = null;
+        let finalState: AppState;
+        let projectExists = false;
+
+        const existingProject = projects.find(
+          (p) =>
+            p.sourceType === 'github' &&
+            p.githubRepoFullName === selectedRepoFullName &&
+            p.githubBranch === branchName
+        );
+
+        if (existingProject) {
+          console.log(`Found existing GitHub project ID: ${existingProject.id}`);
+          projectExists = true;
+          targetProjectId = existingProject.id;
+          // Merge new analysis result with existing state
+          finalState = {
+            ...existingProject.state,
+            analysisResult: analysisResultData, // Overwrite with new analysis data
+            selectedFiles: [], // Reset selection for GitHub load?
+          };
+        } else {
+          console.log(`Creating new project for GitHub: ${selectedRepoFullName}/${branchName}`);
+          targetProjectId = Date.now().toString();
+          finalState = {
+            ...initialAppState,
+            analysisResult: analysisResultData,
+            selectedFiles: [],
+            namedSelections: {}, // Start fresh
+          };
+          const newProject: Project = {
+            id: targetProjectId,
+            name: `${selectedRepoFullName} (${branchName})`, // Default name
+            sourceType: 'github',
+            githubRepoFullName: selectedRepoFullName,
+            githubBranch: branchName,
+            state: finalState,
+          };
+          setProjects(prevProjects => [...prevProjects, newProject]);
+        }
+
+        // 4. Update Main State and Project Array
+        setState(finalState);
+        setCurrentProjectId(targetProjectId);
+
+        if (projectExists && targetProjectId) {
+          setProjects(prevProjects =>
+            prevProjects.map(p =>
+              p.id === targetProjectId ? { ...p, state: finalState } : p
+            )
+          );
+        }
+        console.log(`GitHub project context set. Current Project ID: ${targetProjectId}`);
+
       } catch (error) {
-        console.error("Error fetching GitHub tree:", error);
+        console.error("Error during GitHub branch change/load:", error);
         setGithubSelectionError(error instanceof Error ? error.message : String(error));
         setGithubTree(null);
+        setState(initialAppState); // Reset state on error?
+        setCurrentProjectId(null);
         if (error instanceof Error && error.message === 'Invalid GitHub token') setGithubUser(null);
       } finally {
-        // Clear loading state
         setLoadingStatus({ isLoading: false, message: null });
       }
     };
 
-    fetchTree();
+    fetchTreeAndSetProject();
 
-  }, [repos, selectedRepoFullName]);
+  }, [repos, selectedRepoFullName, projects, setProjects, setState, setCurrentProjectId, setLoadingStatus]); // Added projects dependencies
 
   // Persist state changes to localStorage
   useEffect(() => {
     if (!isMounted) return;
-    localStorage.setItem('codebaseReaderProjects', JSON.stringify(projects));
+    // Save the entire projects array and current ID
+    localStorage.setItem('codebaseReaderProjects', JSON.stringify(projects)); 
     localStorage.setItem('currentProjectId', currentProjectId || '');
     localStorage.setItem('projectTemplates', JSON.stringify(projectTypes));
-    if (currentProjectId) {
-        const updatedProjects = projects.map((p: Project) =>
-            p.id === currentProjectId ? { ...p, state: state } : p
-        );
-        if (JSON.stringify(updatedProjects) !== JSON.stringify(projects)) {
-            setProjects(updatedProjects);
-        }
-    }
-  }, [state, projects, currentProjectId, projectTypes, isMounted]);
+    // No longer need to map projects here, as setProjects is called directly when state changes
+  }, [projects, currentProjectId, projectTypes, isMounted]); // Depend on projects array
 
   const updateCurrentProject = (newState: AppState) => {
+    // This function might need rethinking. 
+    // Does it just update the active state or also the persisted project state?
+    // For now, assume it just updates the active state. Named selection handlers will update persisted state.
     setState(newState);
   };
 
-  const handleUploadComplete = (newState: AppState) => {
-    console.log('Upload complete.');
-    setState(newState);
+  // Helper function to get root folder name from file list
+  const getRootFolderName = (files: FileData[]): string => {
+    if (!files || files.length === 0) return 'Untitled Project';
+    // Find the shortest path
+    let shortestPath = files[0].path;
+    for (let i = 1; i < files.length; i++) {
+      if (files[i].path.length < shortestPath.length) {
+        shortestPath = files[i].path;
+      }
+    }
+    // The folder name is the first part of the shortest path
+    const parts = shortestPath.split('/');
+    return parts[0] || 'Untitled Project';
+  };
+
+  // Refactored upload handler to manage projects
+  const handleUploadComplete = (newAnalysisResult: AnalysisResultData) => {
+    console.log('Upload complete, processing project context...');
+    const folderName = getRootFolderName(newAnalysisResult.files);
+    console.log(`Identified folder name: ${folderName}`);
+
+    let targetProjectId: string | null = null;
+    let finalState: AppState;
+    let projectExists = false;
+
+    // Check if a project with this folder name already exists
+    const existingProject = projects.find(
+      (p) => p.sourceType === 'local' && p.sourceFolderName === folderName
+    );
+
+    if (existingProject) {
+      console.log(`Found existing project ID: ${existingProject.id}`);
+      projectExists = true;
+      targetProjectId = existingProject.id;
+      // Merge new analysis result with existing state (preserving namedSelections, etc.)
+      finalState = {
+        ...existingProject.state, // Load existing state (includes namedSelections)
+        analysisResult: newAnalysisResult, // Overwrite with new analysis data
+        selectedFiles: [], // Reset selected files on new upload?
+        // Consider preserving/merging selectedFiles if desired
+      };
+    } else {
+      console.log(`Creating new project for folder: ${folderName}`);
+      targetProjectId = Date.now().toString(); // Generate new ID
+      // Create initial state for the new project
+      finalState = {
+        ...initialAppState,
+        analysisResult: newAnalysisResult,
+        selectedFiles: [], // Start fresh
+        namedSelections: {}, // Ensure empty for new project
+      };
+      // Create the new project object
+      const newProject: Project = {
+        id: targetProjectId,
+        name: folderName,
+        sourceType: 'local',
+        sourceFolderName: folderName,
+        state: finalState,
+      };
+      // Add the new project to the projects array (immutable update)
+      setProjects(prevProjects => [...prevProjects, newProject]);
+    }
+
+    // Update the main state to reflect the loaded/new project
+    setState(finalState);
+    // Set the current project ID
+    setCurrentProjectId(targetProjectId);
+
+    // If the project already existed, we need to update its state in the projects array
+    if (projectExists && targetProjectId) {
+      setProjects(prevProjects =>
+        prevProjects.map(p =>
+          p.id === targetProjectId ? { ...p, state: finalState } : p
+        )
+      );
+    }
+
+    console.log(`Project context set. Current Project ID: ${targetProjectId}`);
+    // The persistence useEffect will handle saving the updated projects array and currentProjectId
   };
 
   const handleProjectTemplateUpdate = (updatedTemplates: typeof projectTypes) => {
@@ -498,21 +615,106 @@ export default function ClientPageRoot() {
   };
 
   const handleResetWorkspace = () => {
-    if (confirm('Are you sure you want to clear the current workspace? This will reset the current view but not delete backups or saved project types.')) {
-      setState(initialAppState);
-      setCurrentProjectId(null);
-      setProjectTypeSelected(false);
-      setTokenCount(0);
-      setError(null);
-      setSelectedRepoFullName(null); // Reset GitHub state too
-      setSelectedBranchName(null);
-      setBranches([]);
-      setGithubTree(null);
-      setGithubSelectionError(null);
-      setActiveSourceTab('local'); // Reset to local tab
-      console.log('Workspace cleared.');
-    }
+    // Clear local storage related to projects and current state
+    localStorage.removeItem('codebaseReaderProjects');
+    localStorage.removeItem('currentProjectId');
+    // Reset component state
+    setProjects([]);
+    setCurrentProjectId(null);
+    setState(initialAppState);
+    setTokenCount(0);
+    setError(null);
+    setFileLoadingProgress({ current: 0, total: 0 });
+    setFileLoadingMessage(null);
+    setProjectTypeSelected(false);
+    // Reset GitHub related state
+    setActiveSourceTab('local');
+    setSelectedRepoFullName(null);
+    setSelectedBranchName(null);
+    setRepos([]);
+    setBranches([]);
+    setGithubTree(null);
+    setIsGithubTreeTruncated(false);
+    setGithubSelectionError(null);
+    console.log("Workspace reset to initial state.");
   };
+
+  // ----- Named Selections Handlers -----
+  const saveNamedSelection = (name: string, files: string[]) => {
+    if (!currentProjectId) return; // Should have a project context
+
+    const updatedNamedSelections = {
+      ...(state.namedSelections || {}), // Ensure starting with an object
+      [name]: files,
+    };
+
+    // 1. Update the main state for immediate UI feedback
+    setState(prevState => ({
+      ...prevState,
+      namedSelections: updatedNamedSelections,
+    }));
+
+    // 2. Update the corresponding project's state in the projects array for persistence
+    setProjects(prevProjects =>
+      prevProjects.map(p =>
+        p.id === currentProjectId
+          ? { ...p, state: { ...p.state, namedSelections: updatedNamedSelections } }
+          : p
+      )
+    );
+    // TODO: Add toast notification using a library like sonner
+    console.log(`Saved selection: ${name} with ${files.length} files for project ${currentProjectId}`);
+  };
+
+  const renameNamedSelection = (oldName: string, newName: string) => {
+    if (!currentProjectId || !state.namedSelections || !state.namedSelections[oldName]) return;
+
+    const selectionsCopy = { ...(state.namedSelections) };
+    selectionsCopy[newName] = selectionsCopy[oldName];
+    delete selectionsCopy[oldName];
+
+    // 1. Update the main state
+    setState(prevState => ({
+      ...prevState,
+      namedSelections: selectionsCopy,
+    }));
+
+    // 2. Update the projects array
+    setProjects(prevProjects =>
+      prevProjects.map(p =>
+        p.id === currentProjectId
+          ? { ...p, state: { ...p.state, namedSelections: selectionsCopy } }
+          : p
+      )
+    );
+    // TODO: Add toast notification
+    console.log(`Renamed selection: ${oldName} -> ${newName} for project ${currentProjectId}`);
+  };
+
+  const deleteNamedSelection = (name: string) => {
+    if (!currentProjectId || !state.namedSelections || !state.namedSelections[name]) return;
+
+    const selectionsCopy = { ...(state.namedSelections) };
+    delete selectionsCopy[name];
+
+    // 1. Update the main state
+    setState(prevState => ({
+      ...prevState,
+      namedSelections: selectionsCopy,
+    }));
+
+    // 2. Update the projects array
+    setProjects(prevProjects =>
+      prevProjects.map(p =>
+        p.id === currentProjectId
+          ? { ...p, state: { ...p.state, namedSelections: selectionsCopy } }
+          : p
+      )
+    );
+    // TODO: Add toast notification
+    console.log(`Deleted selection: ${name} for project ${currentProjectId}`);
+  };
+  // ------------------------------------
 
   // Determine current dataSource based on active tab and state
   // Memoize the dataSource to prevent unnecessary re-renders downstream
@@ -806,7 +1008,7 @@ export default function ClientPageRoot() {
             {currentDataSource ? (
               <>
                 <AnalysisResult
-                  analysisResult={state.analysisResult} // Keep passing analysisResult for data
+                  analysisResult={state.analysisResult}
                   selectedFiles={state.selectedFiles}
                   onSelectedFilesChange={(filesOrUpdater) => {
                     setState(prevState => ({
@@ -819,11 +1021,13 @@ export default function ClientPageRoot() {
                   tokenCount={tokenCount}
                   setTokenCount={setTokenCount}
                   maxTokens={MAX_TOKENS}
-                  dataSource={currentDataSource} // Pass the determined dataSource
-                  // Pass unified loading setter
+                  dataSource={currentDataSource}
                   setLoadingStatus={setLoadingStatus}
-                  // Pass the loading state object itself
-                  loadingStatus={loadingStatus} 
+                  loadingStatus={loadingStatus}
+                  namedSelections={state.namedSelections || {}}
+                  onSaveNamedSelection={saveNamedSelection}
+                  onRenameNamedSelection={renameNamedSelection}
+                  onDeleteNamedSelection={deleteNamedSelection}
                 />
               </>
             ) : (

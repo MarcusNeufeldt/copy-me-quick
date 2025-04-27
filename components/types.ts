@@ -30,11 +30,16 @@ export interface AppState {
   excludeFolders: string;
   fileTypes: string;
   backups: Backup[];
+  namedSelections?: { [name: string]: string[] };
 }
 
 export interface Project {
   id: string;
   name: string;
+  sourceType: 'local' | 'github';
+  sourceFolderName?: string;
+  githubRepoFullName?: string;
+  githubBranch?: string;
   state: AppState;
 }
 
@@ -82,6 +87,11 @@ export interface FileSelectorProps {
   // Add the missing loading status props
   setLoadingStatus: React.Dispatch<React.SetStateAction<LoadingStatus>>;
   loadingStatus: LoadingStatus;
+  // Add named selections props
+  namedSelections?: { [name: string]: string[] }; // Optional since it comes from state
+  onSaveNamedSelection?: (name: string, files: string[]) => void;
+  onRenameNamedSelection?: (oldName: string, newName: string) => void;
+  onDeleteNamedSelection?: (name: string) => void;
 }
 
 export interface AnalysisResultProps {
@@ -98,4 +108,9 @@ export interface AnalysisResultProps {
   // Add the missing loading status props
   setLoadingStatus: React.Dispatch<React.SetStateAction<LoadingStatus>>;
   loadingStatus: LoadingStatus;
+  // Add named selections props
+  namedSelections: { [name: string]: string[] };
+  onSaveNamedSelection: (name: string, files: string[]) => void;
+  onRenameNamedSelection: (oldName: string, newName: string) => void;
+  onDeleteNamedSelection: (name: string) => void;
 }
