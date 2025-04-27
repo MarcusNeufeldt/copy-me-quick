@@ -140,6 +140,7 @@ export default function ClientPageRoot() {
   // Load state from localStorage only on the client after mount
   useEffect(() => {
     setIsMounted(true); // Mark as mounted
+    console.log("[Presets] Initial mount effect running."); // Added logging
 
     // Fetch GitHub user data if token might exist (client-side)
     const checkGitHubAuth = async () => {
@@ -177,10 +178,31 @@ export default function ClientPageRoot() {
     const savedProjectId = localStorage.getItem('currentProjectId'); // Corrected typo
     setCurrentProjectId(savedProjectId);
 
+    // --- Start Preset Loading Logic ---
+    console.groupCollapsed("[Presets] Attempting to load from localStorage"); // Added logging group
     const savedTemplatesStr = localStorage.getItem('projectTemplates'); // Corrected typo
+    console.log("[Presets] Raw string from localStorage:", savedTemplatesStr); // Added logging
+
     if (savedTemplatesStr) {
-      setProjectTypes(JSON.parse(savedTemplatesStr));
+      try { // Added try...catch
+        const parsedTemplates = JSON.parse(savedTemplatesStr);
+        console.log("[Presets] Successfully parsed templates:", parsedTemplates); // Added logging
+        setProjectTypes(parsedTemplates);
+        console.log("[Presets] Set projectTypes state from localStorage."); // Added logging
+      } catch (e) { // Added catch block
+        console.error("[Presets] Failed to parse project templates from localStorage:", e); // Added logging
+        console.warn("[Presets] Using default project types due to parsing error."); // Added logging
+        // Keep defaultProjectTypes state, no need to call setProjectTypes
+        // Optionally remove the corrupted item:
+        // localStorage.removeItem('projectTemplates');
+        // console.log("[Presets] Removed potentially corrupted item from localStorage.");
+      }
+    } else {
+      console.log("[Presets] No saved templates found in localStorage. Using defaults."); // Added logging
+      // Keep defaultProjectTypes state, no need to call setProjectTypes
     }
+    console.groupEnd(); // Added logging group end
+    // --- End Preset Loading Logic ---
 
     // Load the state for the current project
     if (savedProjectId) {
@@ -477,11 +499,29 @@ export default function ClientPageRoot() {
 
   // Persist state changes to localStorage
   useEffect(() => {
-    if (!isMounted) return;
+    console.log("[State Save] Saving effect triggered. isMounted:", isMounted); // Added logging
+    if (!isMounted) {
+        console.log("[State Save] Skipping save because component is not mounted yet."); // Added logging
+        return;
+    }
     // Save the entire projects array and current ID
-    localStorage.setItem('codebaseReaderProjects', JSON.stringify(projects)); 
+    console.log("[State Save] Saving projects and currentProjectId..."); // Added logging
+    localStorage.setItem('codebaseReaderProjects', JSON.stringify(projects));
     localStorage.setItem('currentProjectId', currentProjectId || '');
-    localStorage.setItem('projectTemplates', JSON.stringify(projectTypes));
+
+    // --- Start Preset Saving Logic ---
+    console.groupCollapsed("[Presets] Attempting to save to localStorage"); // Added logging group
+    try { // Added try...catch
+      const templatesToSaveString = JSON.stringify(projectTypes);
+      console.log("[Presets] Current projectTypes state to save:", projectTypes); // Added logging
+      console.log("[Presets] Stringified templates:", templatesToSaveString); // Added logging
+      localStorage.setItem('projectTemplates', templatesToSaveString);
+      console.log("[Presets] Successfully saved projectTemplates to localStorage."); // Added logging
+    } catch (e) { // Added catch block
+      console.error("[Presets] Failed to stringify or save project templates:", e); // Added logging
+    }
+    console.groupEnd(); // Added logging group end
+    // --- End Preset Saving Logic ---
     // No longer need to map projects here, as setProjects is called directly when state changes
   }, [projects, currentProjectId, projectTypes, isMounted]); // Depend on projects array
 
@@ -574,7 +614,12 @@ export default function ClientPageRoot() {
   };
 
   const handleProjectTemplateUpdate = (updatedTemplates: typeof projectTypes) => {
+    console.groupCollapsed("[Presets] handleProjectTemplateUpdate triggered"); // Added logging group
+    console.log("[Presets] Received updated templates:", updatedTemplates); // Added logging
+    console.log("[Presets] Calling setProjectTypes to update state..."); // Added logging
     setProjectTypes(updatedTemplates);
+    console.log("[Presets] setProjectTypes called."); // Added logging
+    console.groupEnd(); // Added logging group end
   };
 
   const handleGitHubLogin = () => {
@@ -609,28 +654,51 @@ export default function ClientPageRoot() {
   };
 
   const handleResetWorkspace = () => {
-    // Clear local storage related to projects and current state
-    localStorage.removeItem('codebaseReaderProjects');
-    localStorage.removeItem('currentProjectId');
-    // Reset component state
-    setProjects([]);
+    console.log("Resetting workspace (preserving projects in localStorage)..."); // Added logging
+
+    // 1. Reset the main application state (keep existing presets if needed, but clear analysis/selection)
+    //    We reset analysisResult and selectedFiles, but keep the structure for namedSelections
+    //    if they were tied to the top-level state (they aren't, they are per-project).
+    //    So, resetting to initialAppState is mostly correct, but we need to ensure
+    //    the projects array *in memory* isn't cleared if we want immediate UI reflection,
+    //    though on reload it would come back from localStorage anyway.
+    //    Let's focus on resetting the *active* session state.
+    setState(prevState => ({ // Use initialAppState to reset
+        // Keep potentially global settings if any were added later
+        ...initialAppState, // Reset analysis, selections, filters to defaults
+        // If namedSelections were somehow global, preserve them:
+        // namedSelections: prevState.namedSelections || {},
+    }));
+
+    // 2. Clear the current project context
     setCurrentProjectId(null);
-    setState(initialAppState);
+    localStorage.removeItem('currentProjectId'); // Remove the pointer to the current project
+
+    // 3. Reset UI/temporary state elements
     setTokenCount(0);
     setError(null);
     setFileLoadingProgress({ current: 0, total: 0 });
     setFileLoadingMessage(null);
     setProjectTypeSelected(false);
-    // Reset GitHub related state
-    setActiveSourceTab('local');
+    setActiveSourceTab('local'); // Or keep the current tab? User preference. 'local' is safer.
     setSelectedRepoFullName(null);
     setSelectedBranchName(null);
-    setRepos([]);
-    setBranches([]);
+    // Keep existing repos/branches list in memory for quicker re-selection if needed
+    // setRepos([]); // Optional: uncomment if you want to force refetching repos
+    // setBranches([]); // Optional: uncomment if you want to force refetching branches
     setGithubTree(null);
     setIsGithubTreeTruncated(false);
     setGithubSelectionError(null);
-    console.log("Workspace reset to initial state.");
+    setLoadingStatus({ isLoading: false, message: null }); // Ensure loading state is cleared
+
+    // 4. Reset the project type selector to 'None' visually and functionally
+    //    (Assuming ProjectSelector's state is driven by AppState's projectType,
+    //     which initialAppState should reset. If not, add direct reset logic here.)
+
+    // 5. CRUCIALLY: DO NOT REMOVE THE PROJECTS DATA
+    // localStorage.removeItem('codebaseReaderProjects'); // <-- REMOVED THIS LINE
+
+    console.log("Workspace reset complete. Active session cleared."); // Added logging
   };
 
   // ----- Named Selections Handlers -----
