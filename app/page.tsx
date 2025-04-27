@@ -661,41 +661,37 @@ export default function ClientPageRoot() {
 
   // Updated handleUploadComplete for useCallback and cleaner state management
   const handleUploadComplete = useCallback((newAnalysisResult: AnalysisResultData) => {
-    console.log('Upload complete, processing project context...');
+    console.log('Upload complete, processing project context. Timestamp:', newAnalysisResult.uploadTimestamp); // Log timestamp
     const folderName = getRootFolderName(newAnalysisResult.files);
     console.log(`Identified folder name: ${folderName}`);
-
     let newCurrentProjectId: string | null = null;
 
     setProjects(prevProjects => {
-      const existingProject = prevProjects.find((p) => p.sourceType === 'local' && p.sourceFolderName === folderName);
-      let updatedProjects = [...prevProjects]; // Start with a copy
+      const existingProjectIndex = prevProjects.findIndex((p) => p.sourceType === 'local' && p.sourceFolderName === folderName);
+      let updatedProjects = [...prevProjects];
 
-      if (existingProject) {
+      if (existingProjectIndex !== -1) {
+        const existingProject = updatedProjects[existingProjectIndex];
         console.log(`Found existing local project ID: ${existingProject.id}`);
         newCurrentProjectId = existingProject.id;
-        // Create the updated state for the existing project
         const updatedState: AppState = {
+          // Keep existing named selections and filters from the previous state of *this* project
           ...existingProject.state,
-          analysisResult: newAnalysisResult,
-          selectedFiles: [], // Reset selected files on re-upload
-          // Keep existing namedSelections
+          analysisResult: newAnalysisResult, // Update with fresh data (including timestamp)
+          selectedFiles: [], // Reset selected files on new upload
         };
-        // Map to update the specific project
-        updatedProjects = prevProjects.map(p =>
-          p.id === newCurrentProjectId ? { ...p, state: updatedState } : p
-        );
+        updatedProjects[existingProjectIndex] = { ...existingProject, state: updatedState };
+        // Don't call setState directly here, let the useEffect handle it based on currentProjectId change
+        // setState(updatedState); // Also update main state directly if this becomes current project
       } else {
         console.log(`Creating new local project for folder: ${folderName}`);
         newCurrentProjectId = Date.now().toString();
-        // Create initial state for the new project
         const newProjectState: AppState = {
-          ...initialAppState, // Base defaults
-          analysisResult: newAnalysisResult,
-          selectedFiles: [],
-          namedSelections: {}, // Start fresh
+          ...initialAppState, // Start with initial filters/selections
+          analysisResult: newAnalysisResult, // Add the uploaded data
+          selectedFiles: [], // Start with no files selected
+          namedSelections: {}, // Start with no named selections
         };
-        // Create the new project object
         const newProject: Project = {
           id: newCurrentProjectId,
           name: folderName,
@@ -703,20 +699,17 @@ export default function ClientPageRoot() {
           sourceFolderName: folderName,
           state: newProjectState,
         };
-        updatedProjects = [...prevProjects, newProject]; // Add the new project
+        updatedProjects = [...prevProjects, newProject];
+        // Don't call setState directly here, let the useEffect handle it based on currentProjectId change
+         // setState(newProjectState); // Update main state directly as this is the new current project
       }
-
-      return updatedProjects; // Return the updated projects array
+      return updatedProjects;
     });
 
-    // Set the current project ID *after* the projects state has been updated.
-    // The main useEffect watching currentProjectId will then load the correct state into `setState`.
-    setCurrentProjectId(newCurrentProjectId);
-
-    console.log(`Project context setting initiated. Target Project ID: ${newCurrentProjectId}`);
-    // Main state 'setState' will be updated by the useEffect that watches currentProjectId
-
-  }, []); // No dependencies needed as setProjects/setCurrentProjectId are stable
+    // Set the current project ID. The useEffect watching this ID will update the main `state`.
+    setCurrentProjectId(newCurrentProjectId); // Set the current project ID
+    console.log(`Project context set. Current Project ID: ${newCurrentProjectId}`);
+  }, [setProjects, setCurrentProjectId /* Remove setState from dependencies */]);
 
   const handleProjectTemplateUpdate = useCallback((updatedTemplates: typeof projectTypes) => {
     console.groupCollapsed("[Presets] handleProjectTemplateUpdate triggered");
@@ -1130,6 +1123,7 @@ export default function ClientPageRoot() {
                        state={state}
                        setState={setState}
                        setLoadingStatus={setLoadingStatus}
+                       loadingStatus={loadingStatus}
                        updateCurrentProject={updateCurrentProject}
                        onUploadComplete={handleUploadComplete}
                        setError={setError}

@@ -153,6 +153,7 @@ const AnalysisResult: React.FC<AnalysisResultProps> = React.memo(({
   const [copyTreeSuccess, setCopyTreeSuccess] = useState(false);
 
   const commitDate = analysisResult?.commitDate;
+  const uploadTimestamp = analysisResult?.uploadTimestamp;
 
   const formattedCommitDate = useMemo(() => {
     if (!commitDate) return null;
@@ -163,6 +164,16 @@ const AnalysisResult: React.FC<AnalysisResultProps> = React.memo(({
       return commitDate;
     }
   }, [commitDate]);
+
+  const formattedUploadTime = useMemo(() => {
+    if (!uploadTimestamp) return null;
+    try {
+      return formatDistanceToNow(new Date(uploadTimestamp), { addSuffix: true });
+    } catch (e) {
+      console.error("Error formatting upload timestamp:", e);
+      return new Date(uploadTimestamp).toLocaleString();
+    }
+  }, [uploadTimestamp]);
 
   const effectiveDataSource = useMemo(() => {
     if (dataSource) {
@@ -406,10 +417,15 @@ const AnalysisResult: React.FC<AnalysisResultProps> = React.memo(({
         </Card>
       </div>
 
-      {formattedCommitDate && effectiveDataSource.type === 'github' && (
-        <div className="text-xs text-muted-foreground flex items-center justify-center gap-1.5 mb-4 px-3 py-1.5 rounded-full bg-muted/50 border border-border w-fit mx-auto animate-fade-in animation-delay-150">
+      {(formattedCommitDate || formattedUploadTime) && (
+        <div className="text-xs text-muted-foreground flex items-center justify-center gap-1.5 mb-4 px-3 py-1.5 rounded-full bg-muted/50 border border-border w-fit mx-auto">
            <Clock className="h-3.5 w-3.5" />
-           <span>Files loaded from commit {formattedCommitDate}</span>
+           {dataSource?.type === 'github' && formattedCommitDate && (
+             <span>Files loaded from commit {formattedCommitDate}</span>
+           )}
+           {dataSource?.type === 'local' && formattedUploadTime && (
+             <span>Local files processed {formattedUploadTime}</span>
+           )}
         </div>
       )}
 
@@ -434,7 +450,7 @@ const AnalysisResult: React.FC<AnalysisResultProps> = React.memo(({
             </CardHeader>
             <CardContent>
               <FileSelector
-                dataSource={effectiveDataSource}
+                dataSource={dataSource}
                 selectedFiles={selectedFiles}
                 setSelectedFiles={handleSetSelectedFiles}
                 maxTokens={maxTokens}

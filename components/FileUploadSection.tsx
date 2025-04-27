@@ -6,7 +6,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
-import { FolderOpen, Ban, FileType, Loader, AlertCircle, Info, RefreshCw, Upload, FileUp } from 'lucide-react';
+import { FolderOpen, Ban, FileType, Loader, AlertCircle, Info, RefreshCw, Upload, FileUp, Loader2 } from 'lucide-react';
 import { AppState, FileData, AnalysisResultData } from './types';
 import {
   Dialog,
@@ -41,8 +41,8 @@ interface FileUploadSectionProps {
   onUploadComplete: (analysisResult: AnalysisResultData) => void;
   projectTypeSelected: boolean;
   buttonTooltip?: string;
-  // Add the unified loading state setter prop
   setLoadingStatus: React.Dispatch<React.SetStateAction<LoadingStatus>>;
+  loadingStatus: LoadingStatus;
 }
 
 const FileUploadSection: React.FC<FileUploadSectionProps> = ({
@@ -53,7 +53,8 @@ const FileUploadSection: React.FC<FileUploadSectionProps> = ({
   onUploadComplete,
   projectTypeSelected,
   buttonTooltip,
-  setLoadingStatus // Destructure the new prop
+  setLoadingStatus,
+  loadingStatus
 }) => {
   const [progress, setProgress] = useState(0);
   const [uploadStats, setUploadStats] = useState<{ total: number; valid: number }>({ total: 0, valid: 0 });
@@ -74,100 +75,122 @@ const FileUploadSection: React.FC<FileUploadSectionProps> = ({
     console.log('processFiles using filters:', state.fileTypes);
     setError(null);
     setProgress(0);
-    setUploadStats(prev => ({ total: files.length, valid: 0 }));
+    setUploadStats({ total: files.length, valid: 0 });
     setLoadingStatus({ isLoading: true, message: 'Initializing file processing...' });
 
-    let currentState = state;
-    setState(latestState => {
-      currentState = latestState;
-      return latestState;
-    });
-    const excludedFolders = currentState.excludeFolders.split(',').map(f => f.trim());
-    const allowedFileTypes = currentState.fileTypes.split(',').map(t => t.trim());
+    const excludedFolders = state.excludeFolders.split(',').map(f => f.trim()).filter(f => f); // Filter empty strings
+    const allowedFileTypes = state.fileTypes.split(',').map(t => t.trim()).filter(t => t); // Filter empty strings
     console.log('Using latest file type filters:', allowedFileTypes);
+    console.log('Using latest exclude folder filters:', excludedFolders);
 
-    const newFileContentsMap = new Map<string, FileData>();
+    let newFileContentsMap = new Map<string, FileData>();
     let newTotalLines = 0;
     let processedFileCount = 0;
 
     setLoadingStatus({ isLoading: true, message: `Processing ${files.length} files...` });
-    for (let i = 0; i < files.length; i++) {
-      const file = files[i];
-      const relativePath = file.webkitRelativePath || file.name;
-      const pathComponents = relativePath.split('/');
 
-      if (i % 10 === 0) {
-         setLoadingStatus(prev => ({ ...prev, message: `Processing ${files.length} files... (${i}/${files.length})` }));
+    try { // Wrap the loop in try/catch for better error handling of the whole process
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        const relativePath = file.webkitRelativePath || file.name;
+        if (!relativePath) {
+           console.warn("Skipping file with no path:", file);
+           continue; // Skip if no path can be determined
+        }
+        const pathComponents = relativePath.split('/');
+
+        if (pathComponents.slice(0, -1).some(component => excludedFolders.includes(component))) {
+          continue;
+        }
+        
+        const fileExtension = relativePath.includes('.') ? '.' + relativePath.split('.').pop() : '';
+        const fileMatchesType = allowedFileTypes.length === 0 || allowedFileTypes.includes('*') ||
+            allowedFileTypes.some(type => {
+                return relativePath === type || (type.startsWith('.') && fileExtension === type);
+            });
+        if (!fileMatchesType) {
+            continue;
+        }
+
+        try {
+          const content = await file.text();
+          const lines = content.split('\n').length;
+          const newFileData: FileData = { path: relativePath, lines, content, size: file.size, dataSourceType: 'local' };
+          newFileContentsMap.set(relativePath, newFileData);
+          newTotalLines += lines;
+          processedFileCount++;
+          setUploadStats(prev => ({ ...prev, valid: processedFileCount }));
+        } catch (error) {
+           console.error(`Error reading file ${relativePath}:`, error);
+           setError(`Error reading file: ${relativePath}. It might be corrupted or unreadable.`);
+           continue; // Skip to next file if one fails
+        }
+
+        setProgress(Math.round(((i + 1) / files.length) * 100));
+        if (i % 50 === 0 || i === files.length - 1) {
+             await new Promise(resolve => setTimeout(resolve, 0)); // Allow UI updates
+             setLoadingStatus(prev => ({ ...prev, message: `Processing files... (${i + 1}/${files.length})` }));
+        }
       }
 
-      if (pathComponents.slice(0, -1).some(component => excludedFolders.includes(component))) {
-        continue;
-      }
-      
-      const fileMatchesType = allowedFileTypes.some(type => {
-        if (type === '*') return true;
-        return relativePath === type || (type.startsWith('.') && relativePath.endsWith(type)); 
-      });
-      if (!fileMatchesType) {
-           continue;
+      const finalFiles: FileData[] = Array.from(newFileContentsMap.values());
+
+      if (finalFiles.length === 0 && files.length > 0) {
+        setError(`No valid files found matching the criteria after processing ${files.length} potential files. Check filters in Project Configuration.`);
+        setLoadingStatus({ isLoading: false, message: 'Processing failed: No valid files found.' });
+        setTimeout(() => setLoadingStatus(prev => ({ ...prev, message: null })), 4000);
+        setProgress(0);
+        setUploadStats({ total: files.length, valid: 0 });
+        return;
+      } else if (finalFiles.length === 0) {
+        setError("No files were selected or found for processing.");
+        setProgress(0);
+        setUploadStats({ total: 0, valid: 0 });
+        setLoadingStatus({ isLoading: false, message: null });
+         setTimeout(() => setError(null), 4000);
+        return;
       }
 
-      try {
-        const content = await file.text();
-        const lines = content.split('\n').length;
-        const newFileData: FileData = { path: relativePath, lines, content };
-        newFileContentsMap.set(relativePath, newFileData);
-        newTotalLines += lines;
-        processedFileCount++;
-        setUploadStats(prev => ({ ...prev, valid: processedFileCount }));
-      } catch (error) {
-          console.error(`Error reading file ${relativePath}:`, error);
-          setError(`Error reading file: ${relativePath}. It might be corrupted or too large.`);
-          setLoadingStatus(prev => ({ ...prev, message: `Error reading: ${relativePath}` }));
-      }
+      setLoadingStatus({ isLoading: true, message: 'Generating project summary...' });
+      await new Promise(resolve => setTimeout(resolve, 10));
 
-      setProgress(Math.round((i + 1) / files.length * 100));
+      const newProjectTree = generateProjectTree(finalFiles);
+      const currentTimestamp = Date.now();
+
+      const analysisResultData: AnalysisResultData = {
+        totalFiles: finalFiles.length,
+        totalLines: newTotalLines,
+        totalTokens: 0,
+        summary: `Project contains ${finalFiles.length.toLocaleString()} files with ${newTotalLines.toLocaleString()} total lines of code.`,
+        project_tree: newProjectTree,
+        files: finalFiles,
+        uploadTimestamp: currentTimestamp
+      };
+
+      setLoadingStatus({ isLoading: true, message: 'Finalizing...' });
+      await new Promise(resolve => setTimeout(resolve, 10));
+
+      onUploadComplete(analysisResultData);
+
+      setLoadingStatus({ isLoading: false, message: 'Processing complete!' });
+      setTimeout(() => setLoadingStatus(prev => ({ ...prev, message: null })), 2000);
+
+    } catch (error) {
+        console.error("Error during file processing:", error);
+        setError(`An unexpected error occurred during file processing: ${error instanceof Error ? error.message : String(error)}`);
+        setLoadingStatus({ isLoading: false, message: 'Processing failed.' });
+        setTimeout(() => setLoadingStatus(prev => ({ ...prev, message: null })), 3000);
+        setProgress(0);
+        setUploadStats(prev => ({ ...prev, valid: 0 }));
     }
 
-    const finalFiles: FileData[] = Array.from(newFileContentsMap.values());
-
-    if (finalFiles.length === 0) {
-      setError(`No valid files found after processing ${files.length} files. Check project type filters.`);
-      setLoadingStatus({ isLoading: false, message: 'Processing failed: No valid files.' });
-      setTimeout(() => setLoadingStatus(prev => ({ ...prev, message: null })), 3000);
-      return;
-    }
-
-    setLoadingStatus({ isLoading: true, message: 'Updating project tree...' });
-    await new Promise(resolve => setTimeout(resolve, 10));
-    const newProjectTree = generateProjectTree(finalFiles);
-
-    setLoadingStatus({ isLoading: true, message: 'Preserving selections...' });
-    await new Promise(resolve => setTimeout(resolve, 10));
-    const preservedSelectedFiles = state.selectedFiles.filter(selectedPath =>
-      newFileContentsMap.has(selectedPath)
-    );
-
-    setLoadingStatus({ isLoading: true, message: 'Finalizing state update...' });
-    await new Promise(resolve => setTimeout(resolve, 10));
-
-    // Construct only the AnalysisResultData part
-    const analysisResultData: AnalysisResultData = {
-      totalFiles: finalFiles.length,
-      totalLines: newTotalLines,
-      totalTokens: 0, // Token calculation will happen later
-      summary: `Project contains ${finalFiles.length} files with ${newTotalLines} total lines of code.`,
-      project_tree: newProjectTree,
-      files: finalFiles
-    };
-
-    // Pass only the analysis result data up
-    onUploadComplete(analysisResultData); 
-
-    setLoadingStatus({ isLoading: false, message: 'Processing complete!' });
-    setTimeout(() => setLoadingStatus(prev => ({ ...prev, message: null })), 2000);
-
-  }, [state.excludeFolders, state.fileTypes, onUploadComplete, setError, setLoadingStatus]);
+  }, [
+      state.excludeFolders,
+      state.fileTypes,
+      onUploadComplete,
+      setError,
+      setLoadingStatus,
+    ]);
 
   const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     console.log('handleFileUpload triggered:', event.target.files);
@@ -193,12 +216,19 @@ const FileUploadSection: React.FC<FileUploadSectionProps> = ({
   const generateProjectTree = (files: FileData[]): string => {
     const tree: { [key: string]: any } = {};
     files.forEach(file => {
-      const parts = file.path.split('/');
+      const parts = file.path.includes('/') ? file.path.split('/') : [file.path];
       let current = tree;
       parts.forEach((part, i) => {
+        if (!part) return;
         if (i === parts.length - 1) {
-          current[part] = null;
+          if (current[part] === undefined) {
+            current[part] = null;
+          }
         } else {
+          if (current[part] === null) {
+              console.warn(`Conflict: File and directory have the same name: ${part} in ${file.path}`);
+              return;
+          }
           current[part] = current[part] || {};
           current = current[part];
         }
@@ -206,16 +236,29 @@ const FileUploadSection: React.FC<FileUploadSectionProps> = ({
     });
 
     const stringify = (node: any, prefix = ''): string => {
-      let result = '';
-      for (const key in node) {
-        const isDirectory = node[key] !== null;
-        const icon = isDirectory ? '📁' : '📄';
-        result += `${prefix}${icon} ${key}${isDirectory ? '/' : ''}\n`;
-        if (isDirectory) {
-          result += stringify(node[key], prefix + '  ');
-        }
-      }
-      return result;
+        let result = '';
+        const sortedKeys = Object.keys(node).sort((a, b) => {
+            const aIsDir = node[a] !== null;
+            const bIsDir = node[b] !== null;
+            if (aIsDir !== bIsDir) {
+                return aIsDir ? -1 : 1;
+            }
+            return a.localeCompare(b);
+        });
+
+        sortedKeys.forEach((key, index) => {
+            const isDirectory = node[key] !== null;
+            const isLast = index === sortedKeys.length - 1;
+            const connector = isLast ? '└── ' : '├── ';
+            const icon = isDirectory ? '📁' : '📄';
+
+            result += `${prefix}${connector}${icon} ${key}\n`;
+            if (isDirectory) {
+                const newPrefix = prefix + (isLast ? '    ' : '│   ');
+                result += stringify(node[key], newPrefix);
+            }
+        });
+        return result;
     };
 
     return stringify(tree);
@@ -333,10 +376,11 @@ const FileUploadSection: React.FC<FileUploadSectionProps> = ({
               <Button
                 type="button"
                 onClick={handleChooseFolder}
-                disabled={!projectTypeSelected}
+                disabled={!projectTypeSelected || loadingStatus.isLoading}
                 className="flex-1"
               >
-                 <FileUp className="mr-2 h-4 w-4" /> Choose Folder
+                 {loadingStatus.isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FileUp className="mr-2 h-4 w-4" />}
+                 {loadingStatus.isLoading ? 'Processing...' : 'Choose Folder'}
               </Button>
             </TooltipTrigger>
             <TooltipContent>
@@ -354,18 +398,28 @@ const FileUploadSection: React.FC<FileUploadSectionProps> = ({
                   variant="outline"
                   size="icon"
                   onClick={handleRefreshClick}
-                  disabled={!projectTypeSelected}
+                  disabled={!projectTypeSelected || loadingStatus.isLoading}
+                  aria-label="Refresh files"
                 >
                   <RefreshCw className="h-4 w-4" />
                 </Button>
               </TooltipTrigger>
               <TooltipContent>
-                <p>Refresh files from the same folder</p>
+                <p>Re-select and process files from the same folder</p>
               </TooltipContent>
             </Tooltip>
           </TooltipProvider>
         )}
       </div>
+
+      {loadingStatus.isLoading && loadingStatus.message?.includes('Processing') && (
+        <div className="space-y-1 pt-2">
+           <Progress value={progress} className="w-full h-2" aria-label="File processing progress" />
+           <p className="text-xs text-muted-foreground text-center">
+                {loadingStatus.message} ({uploadStats.valid}/{uploadStats.total} valid files)
+            </p>
+        </div>
+       )}
     </form>
   );
 };
