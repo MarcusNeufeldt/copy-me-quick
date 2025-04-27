@@ -634,12 +634,10 @@ export default function ClientPageRoot() {
 
 }, [projects, currentProjectId, projectTypes, isMounted]);
 
-  const updateCurrentProject = (newState: AppState) => {
-    // This function might need rethinking. 
-    // Does it just update the active state or also the persisted project state?
-    // For now, assume it just updates the active state. Named selection handlers will update persisted state.
+  const updateCurrentProject = useCallback((newState: AppState) => {
+    // Directly update the active state. Persisted state update is handled by save handlers.
     setState(newState);
-  };
+  }, []); // No dependencies, setState is stable
 
   // Helper function to get root folder name from file list
   const getRootFolderName = (files: FileData[]): string => {
@@ -656,286 +654,273 @@ export default function ClientPageRoot() {
     return parts[0] || 'Untitled Project';
   };
 
-  // Refactored upload handler to manage projects
-  const handleUploadComplete = (newAnalysisResult: AnalysisResultData) => {
+  // Updated handleUploadComplete for useCallback and cleaner state management
+  const handleUploadComplete = useCallback((newAnalysisResult: AnalysisResultData) => {
     console.log('Upload complete, processing project context...');
     const folderName = getRootFolderName(newAnalysisResult.files);
     console.log(`Identified folder name: ${folderName}`);
 
-    let targetProjectId: string | null = null;
-    let finalState: AppState;
-    let projectExists = false;
+    let newCurrentProjectId: string | null = null;
 
-    // Check if a project with this folder name already exists
-    const existingProject = projects.find(
-      (p) => p.sourceType === 'local' && p.sourceFolderName === folderName
-    );
-
-    if (existingProject) {
-      console.log(`Found existing project ID: ${existingProject.id}`);
-      projectExists = true;
-      targetProjectId = existingProject.id;
-      // Merge new analysis result with existing state (preserving namedSelections, etc.)
-      finalState = {
-        ...existingProject.state, // Load existing state (includes namedSelections)
-        analysisResult: newAnalysisResult, // Overwrite with new analysis data
-        selectedFiles: [], // Reset selected files on new upload?
-        // Consider preserving/merging selectedFiles if desired
-      };
-    } else {
-      console.log(`Creating new project for folder: ${folderName}`);
-      targetProjectId = Date.now().toString(); // Generate new ID
-      // Create initial state for the new project
-      finalState = {
-        ...initialAppState,
-        analysisResult: newAnalysisResult,
-        selectedFiles: [], // Start fresh
-        namedSelections: {}, // Ensure empty for new project
-      };
-      // Create the new project object
-      const newProject: Project = {
-        id: targetProjectId,
-        name: folderName,
-        sourceType: 'local',
-        sourceFolderName: folderName,
-        state: finalState,
-      };
-      // Add the new project to the projects array (immutable update)
-      setProjects(prevProjects => [...prevProjects, newProject]);
-    }
-
-    // Update the main state to reflect the loaded/new project
-    setState(finalState);
-    // Set the current project ID
-    setCurrentProjectId(targetProjectId);
-
-    // If the project already existed, we need to update its state in the projects array
-    if (projectExists && targetProjectId) {
-      setProjects(prevProjects =>
-        prevProjects.map(p =>
-          p.id === targetProjectId ? { ...p, state: finalState } : p
-        )
-      );
-    }
-
-    console.log(`Project context set. Current Project ID: ${targetProjectId}`);
-    // The persistence useEffect will handle saving the updated projects array and currentProjectId
-  };
-
-  const handleProjectTemplateUpdate = (updatedTemplates: typeof projectTypes) => {
-    console.groupCollapsed("[Presets] handleProjectTemplateUpdate triggered"); // Added logging group
-    console.log("[Presets] Received updated templates:", updatedTemplates); // Added logging
-    console.log("[Presets] Calling setProjectTypes to update state..."); // Added logging
-    setProjectTypes(updatedTemplates);
-    console.log("[Presets] setProjectTypes called."); // Added logging
-    console.groupEnd(); // Added logging group end
-  };
-
-  const handleGitHubLogin = () => {
-    window.location.href = '/api/auth/github/login';
-  };
-
-  const handleGitHubLogout = async () => {
-    setLoadingStatus({ isLoading: true, message: 'Logging out from GitHub...' });
-    try {
-      const response = await fetch('/api/auth/github/logout', { method: 'POST', credentials: 'include' });
-      if (response.ok) {
-        setGithubUser(null);
-        setGithubError(null);
-        setSelectedRepoFullName(null);
-        setSelectedBranchName(null);
-        setBranches([]);
-        setRepos([]);
-        setGithubTree(null);
-        setActiveSourceTab('local'); // Switch back to local tab on logout
-        setState(prevState => ({ ...prevState, analysisResult: null, selectedFiles: [] })); // Clear analysis
-        console.log("GitHub logout successful");
-      } else {
-        console.error("GitHub logout failed:", await response.text());
-        setGithubError("Logout failed. Please try again.");
-      }
-    } catch (error) {
-      console.error("Error during GitHub logout:", error);
-      setGithubError("Network error during logout.");
-    } finally {
-      setLoadingStatus({ isLoading: false, message: null });
-    }
-  };
-
-  const handleResetWorkspace = () => {
-    console.log("Resetting workspace (preserving projects in localStorage)...");
-
-    // 1. Reset the main application state
-    setState(prevState => ({
-        ...initialAppState,
-    }));
-
-    // 2. Clear the current project context
-    setCurrentProjectId(null);
-    localStorage.removeItem('currentProjectId');
-
-    // 3. Reset UI/temporary state elements
-    setTokenCount(0);
-    setError(null);
-    setFileLoadingProgress({ current: 0, total: 0 });
-    setFileLoadingMessage(null);
-    setProjectTypeSelected(false);
-    // Don't reset activeSourceTab here, it will be set by the switch logic
-    // setActiveSourceTab('local');
-    setSelectedRepoFullName(null);
-    setSelectedBranchName(null);
-    setGithubTree(null);
-    setIsGithubTreeTruncated(false);
-    setGithubSelectionError(null);
-    setLoadingStatus({ isLoading: false, message: null });
-
-    // 4. Reset project type selector handled by initialAppState reset
-
-    // 5. CRUCIALLY: DO NOT REMOVE THE PROJECTS DATA
-    // localStorage.removeItem('codebaseReaderProjects');
-
-    console.log("Workspace reset complete. Active session cleared.");
-  };
-
-  // ----- Tab Switching Logic with Confirmation -----
-  const handleTabChangeAttempt = (newTabValue: string) => {
-      if (newTabValue !== activeSourceTab) { // Only act if tab is actually changing
-        // Check if a project is currently loaded (use a reliable indicator)
-        const isProjectLoaded = !!state.analysisResult; // Or check currentProjectId
-
-        if (isProjectLoaded) {
-          console.log("Project loaded, showing confirmation dialog for tab switch.");
-          setNextTabValue(newTabValue); // Store the tab we want to switch to
-          setShowSwitchConfirmDialog(true); // Open the dialog
-        } else {
-          // No project loaded, switch directly without clearing
-          console.log("No project loaded, switching tab directly.");
-          // handleResetWorkspace(); // No need to reset if nothing is loaded
-          setActiveSourceTab(newTabValue);
-        }
-      }
-    };
-
-    const confirmTabSwitch = () => {
-      console.log("User confirmed tab switch. Clearing workspace and switching.");
-      handleResetWorkspace(); // The modified version
-      if (nextTabValue) {
-        setActiveSourceTab(nextTabValue);
-      }
-      setShowSwitchConfirmDialog(false);
-      setNextTabValue(null);
-    };
-
-    const cancelTabSwitch = () => {
-      console.log("User cancelled tab switch.");
-      setShowSwitchConfirmDialog(false);
-      setNextTabValue(null);
-    };
-  // ----------------------------------------------
-
-  // ----- Named Selections Handlers -----
-  const saveNamedSelection = (name: string, files: string[]) => {
-    if (!currentProjectId) return;
-
-    const updatedNamedSelections = {
-        ...(state.namedSelections || {}),
-        [name]: files,
-    };
-
-    // Update the local state first (for immediate UI feedback on namedSelections list)
-    setState(prevState => ({
-        ...prevState,
-        namedSelections: updatedNamedSelections,
-    }));
-
-    // --- START MODIFICATION: Update projects array more carefully ---
     setProjects(prevProjects => {
-        // Find the index of the project to update
-        const projectIndex = prevProjects.findIndex(p => p.id === currentProjectId);
+      const existingProject = prevProjects.find((p) => p.sourceType === 'local' && p.sourceFolderName === folderName);
+      let updatedProjects = [...prevProjects]; // Start with a copy
 
-        // If project not found, return previous state
-        if (projectIndex === -1) {
-            console.warn("Current project ID not found in projects array during preset save.");
-            return prevProjects;
-        }
-
-        // Create a new array to avoid mutating the original
-        const newProjects = [...prevProjects];
-
-        // Get the specific project
-        const projectToUpdate = newProjects[projectIndex];
-
-        // Create an updated state object for *just this project*
-        // Spread the existing state (includes analysisResult reference) and overwrite/add namedSelections
-        const updatedProjectState: AppState = {
-            ...projectToUpdate.state,
-            namedSelections: updatedNamedSelections,
+      if (existingProject) {
+        console.log(`Found existing local project ID: ${existingProject.id}`);
+        newCurrentProjectId = existingProject.id;
+        // Create the updated state for the existing project
+        const updatedState: AppState = {
+          ...existingProject.state,
+          analysisResult: newAnalysisResult,
+          selectedFiles: [], // Reset selected files on re-upload
+          // Keep existing namedSelections
         };
-
-        // Update the project in the new array
-        newProjects[projectIndex] = {
-            ...projectToUpdate, // Spread the project metadata (id, name, etc.)
-            state: updatedProjectState, // Assign the newly constructed state object
+        // Map to update the specific project
+        updatedProjects = prevProjects.map(p =>
+          p.id === newCurrentProjectId ? { ...p, state: updatedState } : p
+        );
+      } else {
+        console.log(`Creating new local project for folder: ${folderName}`);
+        newCurrentProjectId = Date.now().toString();
+        // Create initial state for the new project
+        const newProjectState: AppState = {
+          ...initialAppState, // Base defaults
+          analysisResult: newAnalysisResult,
+          selectedFiles: [],
+          namedSelections: {}, // Start fresh
         };
+        // Create the new project object
+        const newProject: Project = {
+          id: newCurrentProjectId,
+          name: folderName,
+          sourceType: 'local',
+          sourceFolderName: folderName,
+          state: newProjectState,
+        };
+        updatedProjects = [...prevProjects, newProject]; // Add the new project
+      }
 
-        // Return the new projects array
-        return newProjects;
+      return updatedProjects; // Return the updated projects array
     });
-    // --- END MODIFICATION ---
 
-    console.log(`Saved selection: ${name} with ${files.length} files for project ${currentProjectId}`);
-    // Note: Toast notification is likely handled in the calling component (FileSelector)
-  };
+    // Set the current project ID *after* the projects state has been updated.
+    // The main useEffect watching currentProjectId will then load the correct state into `setState`.
+    setCurrentProjectId(newCurrentProjectId);
 
-  const renameNamedSelection = (oldName: string, newName: string) => {
-    if (!currentProjectId || !state.namedSelections || !state.namedSelections[oldName]) return;
+    console.log(`Project context setting initiated. Target Project ID: ${newCurrentProjectId}`);
+    // Main state 'setState' will be updated by the useEffect that watches currentProjectId
 
-    const selectionsCopy = { ...(state.namedSelections) };
-    selectionsCopy[newName] = selectionsCopy[oldName];
-    delete selectionsCopy[oldName];
+  }, []); // No dependencies needed as setProjects/setCurrentProjectId are stable
 
-    // 1. Update the main state
-    setState(prevState => ({
-      ...prevState,
-      namedSelections: selectionsCopy,
-    }));
+  const handleProjectTemplateUpdate = useCallback((updatedTemplates: typeof projectTypes) => {
+    console.groupCollapsed("[Presets] handleProjectTemplateUpdate triggered");
+    console.log("[Presets] Received updated templates:", updatedTemplates);
+    setProjectTypes(updatedTemplates);
+    console.groupEnd();
+  }, []); // Dependency: setProjectTypes is stable
 
-    // 2. Update the projects array
-    setProjects(prevProjects =>
-      prevProjects.map(p =>
-        p.id === currentProjectId
-          ? { ...p, state: { ...p.state, namedSelections: selectionsCopy } }
-          : p
-      )
-    );
-    // TODO: Add toast notification
-    console.log(`Renamed selection: ${oldName} -> ${newName} for project ${currentProjectId}`);
-  };
+  // This callback is passed to AnalysisResult for its internal state changes
+  const handleSelectedFilesChange = useCallback((filesOrUpdater: string[] | ((prev: string[]) => string[])) => {
+    setState(prevState => {
+      // Calculate the new selectedFiles state
+      const newSelectedFiles = typeof filesOrUpdater === 'function'
+        ? filesOrUpdater(prevState.selectedFiles)
+        : filesOrUpdater;
 
-  const deleteNamedSelection = (name: string) => {
-    if (!currentProjectId || !state.namedSelections || !state.namedSelections[name]) return;
+      // Only update if the value actually changed to prevent unnecessary state updates
+      if (prevState.selectedFiles !== newSelectedFiles) {
+        return {
+          ...prevState,
+          selectedFiles: newSelectedFiles
+        };
+      }
+      // If no change, return the previous state to avoid triggering effects
+      return prevState;
+    });
+    // The main useEffect watching `projects` will handle persistence if needed,
+    // triggered by save/rename/delete actions, not just selection changes.
+  }, []); // Dependency: setState is stable
 
-    const selectionsCopy = { ...(state.namedSelections) };
-    delete selectionsCopy[name];
+  // --- Named Selection Callbacks ---
+  // Note: These now *only* update the `projects` state.
+  // The main `state` (used by UI components) will be updated by the useEffect
+  // that synchronizes `state` with the current project's state from the `projects` array.
+  // This ensures a single source of truth and avoids potential race conditions.
 
-    // 1. Update the main state
-    setState(prevState => ({
-      ...prevState,
-      namedSelections: selectionsCopy,
-    }));
+  const saveNamedSelection = useCallback((name: string, files: string[]) => {
+    if (!currentProjectId) {
+      console.warn("Attempted to save selection without current project ID.");
+      return;
+    }
 
-    // 2. Update the projects array
-    setProjects(prevProjects =>
-      prevProjects.map(p =>
-        p.id === currentProjectId
-          ? { ...p, state: { ...p.state, namedSelections: selectionsCopy } }
-          : p
-      )
-    );
-    // TODO: Add toast notification
-    console.log(`Deleted selection: ${name} for project ${currentProjectId}`);
-  };
-  // ------------------------------------
+    console.log(`Attempting to save selection '${name}' for project ${currentProjectId}`);
+    setProjects(prevProjects => {
+      const projectIndex = prevProjects.findIndex(p => p.id === currentProjectId);
+      if (projectIndex === -1) {
+        console.warn("Current project ID not found in projects array during preset save.");
+        return prevProjects; // Return unchanged state
+      }
+
+      const newProjects = [...prevProjects]; // Copy projects array
+      const projectToUpdate = { ...newProjects[projectIndex] }; // Copy project to update
+      const updatedState = { ...projectToUpdate.state }; // Copy state of that project
+      const updatedNamedSelections = { ...(updatedState.namedSelections || {}), [name]: files }; // Update selections
+
+      updatedState.namedSelections = updatedNamedSelections; // Assign updated selections to copied state
+      projectToUpdate.state = updatedState; // Assign updated state to copied project
+      newProjects[projectIndex] = projectToUpdate; // Put updated project back into copied array
+
+      console.log(`Saved selection: ${name} with ${files.length} files for project ${currentProjectId}. Updated projects state.`);
+      return newProjects; // Return the new projects array
+    });
+    // The useEffect watching `projects` and `currentProjectId` will update the main `state` variable.
+  }, [currentProjectId]); // Dependencies: currentProjectId, setProjects (stable)
+
+  const renameNamedSelection = useCallback((oldName: string, newName: string) => {
+    if (!currentProjectId) {
+      console.warn("Attempted to rename selection without current project ID.");
+      return;
+    }
+    if (!newName || oldName === newName) {
+      console.warn("Invalid rename operation.");
+      return;
+    }
+
+    console.log(`Attempting to rename selection '${oldName}' to '${newName}' for project ${currentProjectId}`);
+    setProjects(prevProjects => {
+      const projectIndex = prevProjects.findIndex(p => p.id === currentProjectId);
+      if (projectIndex === -1) {
+        console.warn("Current project ID not found in projects array during preset rename.");
+        return prevProjects;
+      }
+
+      const newProjects = [...prevProjects];
+      const projectToUpdate = { ...newProjects[projectIndex] };
+      const updatedState = { ...projectToUpdate.state };
+      const updatedNamedSelections = { ...(updatedState.namedSelections || {}) };
+
+      if (!updatedNamedSelections[oldName] || updatedNamedSelections[newName]) {
+        console.warn(`Rename failed: Old name '${oldName}' not found or new name '${newName}' already exists.`);
+        return prevProjects; // Prevent overwriting or renaming non-existent entry
+      }
+
+      updatedNamedSelections[newName] = updatedNamedSelections[oldName];
+      delete updatedNamedSelections[oldName];
+
+      updatedState.namedSelections = updatedNamedSelections;
+      projectToUpdate.state = updatedState;
+      newProjects[projectIndex] = projectToUpdate;
+
+      console.log(`Renamed selection: ${oldName} -> ${newName} for project ${currentProjectId}. Updated projects state.`);
+      return newProjects;
+    });
+  }, [currentProjectId]); // Dependencies: currentProjectId, setProjects (stable)
+
+  const deleteNamedSelection = useCallback((name: string) => {
+    if (!currentProjectId) {
+      console.warn("Attempted to delete selection without current project ID.");
+      return;
+    }
+
+    console.log(`Attempting to delete selection '${name}' for project ${currentProjectId}`);
+    setProjects(prevProjects => {
+      const projectIndex = prevProjects.findIndex(p => p.id === currentProjectId);
+      if (projectIndex === -1) {
+        console.warn("Current project ID not found in projects array during preset delete.");
+        return prevProjects;
+      }
+
+      const newProjects = [...prevProjects];
+      const projectToUpdate = { ...newProjects[projectIndex] };
+      const updatedState = { ...projectToUpdate.state };
+      const updatedNamedSelections = { ...(updatedState.namedSelections || {}) };
+
+      if (!updatedNamedSelections[name]) {
+        console.warn(`Delete failed: Selection '${name}' not found.`);
+        return prevProjects; // Prevent deleting non-existent entry
+      }
+
+      delete updatedNamedSelections[name];
+
+      updatedState.namedSelections = updatedNamedSelections;
+      projectToUpdate.state = updatedState;
+      newProjects[projectIndex] = projectToUpdate;
+
+      console.log(`Deleted selection: ${name} for project ${currentProjectId}. Updated projects state.`);
+      return newProjects;
+    });
+  }, [currentProjectId]); // Dependencies: currentProjectId, setProjects (stable)
+
+  // Effect to synchronize the main 'state' with the current project's state from 'projects'
+  useEffect(() => {
+    console.log("[Sync Effect] Running. currentProjectId:", currentProjectId);
+    if (currentProjectId) {
+      const currentProject = projects.find(p => p.id === currentProjectId);
+      if (currentProject) {
+        console.log("[Sync Effect] Found current project. Comparing states.");
+        // Deep comparison might be needed if state structure is complex
+        // For now, a simple reference check might suffice if state updates are immutable
+        if (state !== currentProject.state) {
+          console.log("[Sync Effect] Project state differs from main state. Updating main state.");
+          // Ensure analysisResult is not accidentally nullified if it exists in project state
+          const newState = { ...currentProject.state };
+          if (!newState.analysisResult && state.analysisResult) {
+            console.warn("[Sync Effect] Project state missing analysisResult, preserving from main state (this might indicate an issue).");
+            newState.analysisResult = state.analysisResult;
+          }
+          setState(newState);
+        } else {
+          console.log("[Sync Effect] Project state matches main state. No update needed.");
+        }
+      } else {
+        console.warn("[Sync Effect] currentProjectId is set, but project not found in projects array. Resetting state.");
+        // If the current project ID doesn't exist (e.g., deleted), reset the main state
+        setState(initialAppState);
+        setCurrentProjectId(null); // Also clear the invalid ID
+      }
+    } else {
+      console.log("[Sync Effect] No currentProjectId. Ensuring main state is initial.");
+      // If there's no current project ID, ensure the main state is reset
+      if (state !== initialAppState) { // Avoid unnecessary reset
+        setState(initialAppState);
+      }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentProjectId, projects]); // Trigger when project ID changes or the projects array itself changes
+
+  // Persist state changes to localStorage (Simplified to depend on projects and currentProjectId)
+  useEffect(() => {
+    console.log("[State Save Effect] Running. isMounted:", isMounted);
+    if (!isMounted) {
+      console.log("[State Save Effect] Skipping save because component is not mounted yet.");
+      return;
+    }
+
+    // Save projects (excluding analysisResult)
+    const projectsToSave = projects.map(p => {
+      const { analysisResult, ...stateToSave } = p.state || {}; // Handle potential undefined state
+      return { ...p, state: stateToSave };
+    });
+    console.log("[State Save Effect] Saving projects to localStorage...");
+    localStorage.setItem('codebaseReaderProjects', JSON.stringify(projectsToSave));
+
+    // Save current project ID
+    console.log(`[State Save Effect] Saving currentProjectId: ${currentProjectId}`);
+    localStorage.setItem('currentProjectId', currentProjectId || '');
+
+    // Save project types (templates)
+    console.groupCollapsed("[Presets] Attempting to save projectTemplates to localStorage");
+    try {
+      const templatesToSaveString = JSON.stringify(projectTypes);
+      localStorage.setItem('projectTemplates', templatesToSaveString);
+      console.log("[Presets] Saved templates:", projectTypes);
+    } catch (e) {
+      console.error("[Presets] Failed to stringify or save project templates:", e);
+    }
+    console.groupEnd();
+
+  }, [projects, currentProjectId, projectTypes, isMounted]); // Dependencies: projects, currentProjectId, projectTypes, isMounted
 
   // Determine current dataSource based on active tab and state
   const currentDataSource: DataSource | undefined = useMemo(() => {
@@ -959,6 +944,103 @@ export default function ClientPageRoot() {
       return undefined;
     }
   }, [activeSourceTab, githubTree, state.analysisResult?.files, selectedBranchName, selectedRepoFullName]); // Dependencies for memoization
+
+  // --- START: Add back missing handlers ---
+  const handleGitHubLogin = () => {
+    window.location.href = '/api/auth/github/login';
+  };
+
+  const handleGitHubLogout = async () => {
+    setLoadingStatus({ isLoading: true, message: 'Logging out from GitHub...' });
+    try {
+      const response = await fetch('/api/auth/github/logout', { method: 'POST', credentials: 'include' });
+      if (response.ok) {
+        setGithubUser(null);
+        setGithubError(null);
+        setSelectedRepoFullName(null);
+        setSelectedBranchName(null);
+        setBranches([]);
+        setRepos([]);
+        setGithubTree(null);
+        setActiveSourceTab('local'); // Switch back to local tab on logout
+        setState(prevState => ({ ...prevState, analysisResult: null, selectedFiles: [] })); // Clear analysis
+        setCurrentProjectId(null); // Clear current project ID
+        console.log("GitHub logout successful");
+      } else {
+        console.error("GitHub logout failed:", await response.text());
+        setGithubError("Logout failed. Please try again.");
+      }
+    } catch (error) {
+      console.error("Error during GitHub logout:", error);
+      setGithubError("Network error during logout.");
+    } finally {
+      setLoadingStatus({ isLoading: false, message: null });
+    }
+  };
+
+  const handleResetWorkspace = () => {
+    console.log("Resetting workspace (preserving projects in localStorage)...");
+
+    // 1. Reset the main application state to initial defaults
+    setState(initialAppState);
+
+    // 2. Clear the current project context
+    setCurrentProjectId(null);
+    // The sync effect will handle saving the cleared currentProjectId to localStorage
+
+    // 3. Reset UI/temporary state elements
+    setTokenCount(0);
+    setError(null);
+    setFileLoadingProgress({ current: 0, total: 0 });
+    setFileLoadingMessage(null);
+    setProjectTypeSelected(false);
+    // Reset GitHub specific UI state
+    setSelectedRepoFullName(null);
+    setSelectedBranchName(null);
+    setGithubTree(null);
+    setIsGithubTreeTruncated(false);
+    setGithubSelectionError(null);
+    setLoadingStatus({ isLoading: false, message: null });
+    // Active tab will be reset if needed by tab switching logic, or default to 'local' via initialAppState
+
+    console.log("Workspace reset complete. Active session cleared.");
+  };
+
+  // ----- Tab Switching Logic with Confirmation -----
+  const handleTabChangeAttempt = (newTabValue: string) => {
+    if (newTabValue !== activeSourceTab) { // Only act if tab is actually changing
+      // Check if a project is currently loaded (use a reliable indicator)
+      const isProjectLoaded = !!currentProjectId && !!state.analysisResult; // Check both ID and analysis data
+
+      if (isProjectLoaded) {
+        console.log("Project loaded, showing confirmation dialog for tab switch.");
+        setNextTabValue(newTabValue); // Store the tab we want to switch to
+        setShowSwitchConfirmDialog(true); // Open the dialog
+      } else {
+        // No project loaded, switch directly without clearing
+        console.log("No project loaded, switching tab directly.");
+        // handleResetWorkspace(); // No need to reset if nothing significant is loaded
+        setActiveSourceTab(newTabValue);
+      }
+    }
+  };
+
+  const confirmTabSwitch = () => {
+    console.log("User confirmed tab switch. Clearing workspace and switching.");
+    handleResetWorkspace(); // Clear the current session state
+    if (nextTabValue) {
+      setActiveSourceTab(nextTabValue); // Set the new active tab
+    }
+    setShowSwitchConfirmDialog(false);
+    setNextTabValue(null);
+  };
+
+  const cancelTabSwitch = () => {
+    console.log("User cancelled tab switch.");
+    setShowSwitchConfirmDialog(false);
+    setNextTabValue(null);
+  };
+  // --- END: Add back missing handlers ---
 
   // Prevent rendering potentially mismatched UI before mount
   if (!isMounted) {
@@ -1042,11 +1124,10 @@ export default function ClientPageRoot() {
                      <FileUploadSection
                        state={state}
                        setState={setState}
-                       // Pass unified loading setter
                        setLoadingStatus={setLoadingStatus}
                        updateCurrentProject={updateCurrentProject}
-                       setError={setError}
                        onUploadComplete={handleUploadComplete}
+                       setError={setError}
                        projectTypeSelected={projectTypeSelected}
                        buttonTooltip="Reads current files from your disk, including uncommitted changes."
                      />
@@ -1239,14 +1320,7 @@ export default function ClientPageRoot() {
                 <AnalysisResult
                   analysisResult={state.analysisResult}
                   selectedFiles={state.selectedFiles}
-                  onSelectedFilesChange={(filesOrUpdater) => {
-                    setState(prevState => ({
-                      ...prevState,
-                      selectedFiles: typeof filesOrUpdater === 'function'
-                        ? filesOrUpdater(prevState.selectedFiles)
-                        : filesOrUpdater
-                    }));
-                  }}
+                  onSelectedFilesChange={handleSelectedFilesChange}
                   tokenCount={tokenCount}
                   setTokenCount={setTokenCount}
                   maxTokens={MAX_TOKENS}
