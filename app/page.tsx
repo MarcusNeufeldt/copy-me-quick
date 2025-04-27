@@ -186,37 +186,83 @@ export default function ClientPageRoot() {
     checkGitHubAuth();
 
     const savedProjectsStr = localStorage.getItem('codebaseReaderProjects');
-    const loadedProjects = savedProjectsStr ? JSON.parse(savedProjectsStr) : [];
+    const loadedProjects: Project[] = savedProjectsStr ? JSON.parse(savedProjectsStr) : [];
     setProjects(loadedProjects);
 
-    const savedProjectId = localStorage.getItem('currentProjectId'); // Corrected typo
-    setCurrentProjectId(savedProjectId);
+    const savedProjectId = localStorage.getItem('currentProjectId');
+    let loadedStateFromStorage = false; // Flag to track if state was loaded
 
-    // --- Start Preset Loading Logic ---
-    console.groupCollapsed("[Presets] Attempting to load from localStorage"); // Added logging group
-    const savedTemplatesStr = localStorage.getItem('projectTemplates'); // Corrected typo
+    if (savedProjectId) {
+      const currentProject = loadedProjects.find((p: Project) => p.id === savedProjectId);
+      if (currentProject) {
+        console.log(`Found saved project: ${currentProject.id}, Type: ${currentProject.sourceType}`);
+
+        // Set the active tab based on the loaded project's source type
+        if (currentProject.sourceType) {
+           console.log(`Setting active source tab to: ${currentProject.sourceType}`);
+           setActiveSourceTab(currentProject.sourceType); // <--- Set the tab here!
+        } else {
+           console.warn(`Project ${currentProject.id} loaded but has no sourceType. Defaulting to 'local' tab.`);
+           setActiveSourceTab('local'); // Fallback if sourceType is somehow missing
+        }
+
+        const loadedState = currentProject.state;
+        if (typeof loadedState.namedSelections !== 'object' || loadedState.namedSelections === null || Array.isArray(loadedState.namedSelections)) {
+          console.warn("Loaded state namedSelections is not an object, resetting to empty object.");
+          loadedState.namedSelections = {};
+        }
+        setState(loadedState);
+        setCurrentProjectId(savedProjectId); // Set project ID after state/tab
+        loadedStateFromStorage = true;
+
+        // If it's a GitHub project, restore relevant GitHub state too
+        if (currentProject.sourceType === 'github' && currentProject.githubRepoFullName && currentProject.githubBranch) {
+            console.log(`Restoring GitHub context: Repo=${currentProject.githubRepoFullName}, Branch=${currentProject.githubBranch}`); // Added log
+            setSelectedRepoFullName(currentProject.githubRepoFullName);
+            setSelectedBranchName(currentProject.githubBranch);
+            // Note: We might still need to re-fetch branches/tree if not persisted or stale,
+            // but setting the selected repo/branch is crucial for UI consistency.
+            // Consider if handleBranchChange needs to be smarter about re-fetching vs using restored state.
+            // For now, just setting the state prevents the immediate clear on tab switch.
+            // If handleBranchChange *always* fetches, this might trigger a reload, but won't clear workspace first.
+            // You might need to enhance handleBranchChange to check if analysisResult is already present for that branch.
+        }
+
+      } else {
+        // Saved project ID exists but project data not found (e.g., cleared localStorage partially)
+        console.warn(`Saved project ID ${savedProjectId} found, but no matching project data. Resetting.`);
+        setState(initialAppState);
+        setCurrentProjectId(null);
+        setActiveSourceTab('local'); // Default to local if load fails
+      }
+    }
+
+    if (!loadedStateFromStorage) {
+        // No saved project ID, or project not found, use initial state
+        console.log("No valid saved project state found. Using initial state.");
+        setState(initialAppState);
+        setCurrentProjectId(null);
+        setActiveSourceTab('local'); // Ensure default tab
+    }
+
+    console.groupCollapsed("[Presets] Attempting to load projectTemplates from localStorage");
+    const savedTemplatesStr = localStorage.getItem('projectTemplates');
     console.log("[Presets] Raw string from localStorage:", savedTemplatesStr); // Added logging
 
     if (savedTemplatesStr) {
-      try { // Added try...catch
+      try {
         const parsedTemplates = JSON.parse(savedTemplatesStr);
         console.log("[Presets] Successfully parsed templates:", parsedTemplates); // Added logging
         setProjectTypes(parsedTemplates);
         console.log("[Presets] Set projectTypes state from localStorage."); // Added logging
-      } catch (e) { // Added catch block
+      } catch (e) {
         console.error("[Presets] Failed to parse project templates from localStorage:", e); // Added logging
         console.warn("[Presets] Using default project types due to parsing error."); // Added logging
-        // Keep defaultProjectTypes state, no need to call setProjectTypes
-        // Optionally remove the corrupted item:
-        // localStorage.removeItem('projectTemplates');
-        // console.log("[Presets] Removed potentially corrupted item from localStorage.");
       }
     } else {
       console.log("[Presets] No saved templates found in localStorage. Using defaults."); // Added logging
-      // Keep defaultProjectTypes state, no need to call setProjectTypes
     }
     console.groupEnd(); // Added logging group end
-    // --- End Preset Loading Logic ---
 
     // Load the state for the current project
     if (savedProjectId) {
