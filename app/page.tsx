@@ -599,31 +599,40 @@ export default function ClientPageRoot() {
 
   // Persist state changes to localStorage
   useEffect(() => {
-    console.log("[State Save] Saving effect triggered. isMounted:", isMounted); // Added logging
+    console.log("[State Save] Effect triggered. isMounted:", isMounted);
     if (!isMounted) {
-        console.log("[State Save] Skipping save because component is not mounted yet."); // Added logging
+        console.log("[State Save] Skipping save because component is not mounted yet.");
         return;
     }
-    // Save the entire projects array and current ID
-    console.log("[State Save] Saving projects and currentProjectId..."); // Added logging
-    localStorage.setItem('codebaseReaderProjects', JSON.stringify(projects));
+
+    // --- START MODIFICATION V2 ---
+    const projectsToSave = projects.map(p => {
+        // Destructure the state, excluding analysisResult
+        const { analysisResult, ...stateToSave } = p.state;
+
+        // Return the project structure with the lightweight state
+        return {
+            ...p,
+            state: stateToSave // stateToSave now implicitly excludes analysisResult
+        };
+    });
+
+    console.log("[State Save] Saving projects to localStorage (lightweight version)...");
+    localStorage.setItem('codebaseReaderProjects', JSON.stringify(projectsToSave));
+    // --- END MODIFICATION V2 ---
+
     localStorage.setItem('currentProjectId', currentProjectId || '');
 
-    // --- Start Preset Saving Logic ---
-    console.groupCollapsed("[Presets] Attempting to save to localStorage"); // Added logging group
-    try { // Added try...catch
-      const templatesToSaveString = JSON.stringify(projectTypes);
-      console.log("[Presets] Current projectTypes state to save:", projectTypes); // Added logging
-      console.log("[Presets] Stringified templates:", templatesToSaveString); // Added logging
-      localStorage.setItem('projectTemplates', templatesToSaveString);
-      console.log("[Presets] Successfully saved projectTemplates to localStorage."); // Added logging
-    } catch (e) { // Added catch block
-      console.error("[Presets] Failed to stringify or save project templates:", e); // Added logging
+    console.groupCollapsed("[Presets] Attempting to save projectTemplates to localStorage");
+    try {
+        const templatesToSaveString = JSON.stringify(projectTypes);
+        localStorage.setItem('projectTemplates', templatesToSaveString);
+    } catch (e) {
+        console.error("[Presets] Failed to stringify or save project templates:", e);
     }
-    console.groupEnd(); // Added logging group end
-    // --- End Preset Saving Logic ---
-    // No longer need to map projects here, as setProjects is called directly when state changes
-  }, [projects, currentProjectId, projectTypes, isMounted]); // Depend on projects array
+    console.groupEnd();
+
+}, [projects, currentProjectId, projectTypes, isMounted]);
 
   const updateCurrentProject = (newState: AppState) => {
     // This function might need rethinking. 
