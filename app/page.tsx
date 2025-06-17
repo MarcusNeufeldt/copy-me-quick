@@ -13,6 +13,7 @@ import { GithubIcon, RotateCcw, Code2, GitBranchPlus, LayoutGrid, Github, CheckC
 import Image from 'next/image';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import FileSelector from '@/components/FileSelector';
+import RecentProjectsDisplay from '@/components/RecentProjectsDisplay'; // Added Import
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -37,6 +38,7 @@ const AnalyticsComponent = dynamic(
 );
 
 const MAX_TOKENS = 1048576;
+const MAX_RECENT_PROJECTS = 10; // Max number of recent projects to store
 
 const baseExclusions = [
   '.git',
@@ -144,6 +146,9 @@ export default function ClientPageRoot() {
   // State for confirmation dialog
   const [showSwitchConfirmDialog, setShowSwitchConfirmDialog] = useState(false);
   const [nextTabValue, setNextTabValue] = useState<string | null>(null);
+  // State for Load Recent Project confirmation
+  const [showLoadRecentConfirmDialog, setShowLoadRecentConfirmDialog] = useState(false);
+  const [projectToLoadId, setProjectToLoadId] = useState<string | null>(null);
 
   // Unified Loading State
   const [loadingStatus, setLoadingStatus] = useState<LoadingStatus>({ isLoading: false, message: null });
@@ -553,6 +558,12 @@ export default function ClientPageRoot() {
             analysisResult: analysisResultData, // Overwrite with new analysis data (includes commitDate)
             selectedFiles: [], // Reset selection for GitHub load?
           };
+          // Update lastAccessed for existing project
+          setProjects(prevProjects =>
+            prevProjects.map(p =>
+              p.id === targetProjectId ? { ...p, state: finalState, lastAccessed: Date.now() } : p
+            )
+          );
         } else {
           console.log(`Creating new project for GitHub: ${selectedRepoFullName}/${branchName}`);
           targetProjectId = Date.now().toString();
@@ -569,6 +580,7 @@ export default function ClientPageRoot() {
             githubRepoFullName: selectedRepoFullName,
             githubBranch: branchName,
             state: finalState, // Ensure the finalState (with commitDate) is saved here
+            lastAccessed: Date.now(),
           };
           setProjects(prevProjects => [...prevProjects, newProject]);
         }
@@ -577,10 +589,12 @@ export default function ClientPageRoot() {
         setState(finalState);
         setCurrentProjectId(targetProjectId);
 
+        // This explicit update might be redundant if the setProjects above correctly updates the project
+        // However, ensuring the state within the *specific* project object in the array is updated is key.
         if (projectExists && targetProjectId) {
           setProjects(prevProjects =>
             prevProjects.map(p =>
-              p.id === targetProjectId ? { ...p, state: finalState } : p // Ensure updated state is saved
+              p.id === targetProjectId ? { ...p, state: finalState, lastAccessed: Date.now() } : p
             )
           );
         }
@@ -610,21 +624,29 @@ export default function ClientPageRoot() {
         return;
     }
 
-    // --- START MODIFICATION V2 ---
-    const projectsToSave = projects.map(p => {
-        // Destructure the state, excluding analysisResult
+    // --- START MODIFICATION FOR RECENT PROJECTS ---
+    let projectsToSave = projects.map(p => {
+        // Destructure the state, excluding analysisResult for lightweight storage
         const { analysisResult, ...stateToSave } = p.state;
-
-        // Return the project structure with the lightweight state
         return {
             ...p,
-            state: stateToSave // stateToSave now implicitly excludes analysisResult
+            state: stateToSave,
+            // Ensure lastAccessed is present, default to 0 if not (for sorting)
+            lastAccessed: p.lastAccessed || 0,
         };
     });
 
-    console.log("[State Save] Saving projects to localStorage (lightweight version)...");
+    // Sort projects by lastAccessed in descending order
+    projectsToSave.sort((a, b) => (b.lastAccessed || 0) - (a.lastAccessed || 0));
+
+    // Limit the number of recent projects
+    if (projectsToSave.length > MAX_RECENT_PROJECTS) {
+      projectsToSave = projectsToSave.slice(0, MAX_RECENT_PROJECTS);
+    }
+
+    console.log(`[State Save] Saving ${projectsToSave.length} projects to localStorage (lightweight, sorted, truncated)...`);
     localStorage.setItem('codebaseReaderProjects', JSON.stringify(projectsToSave));
-    // --- END MODIFICATION V2 ---
+    // --- END MODIFICATION FOR RECENT PROJECTS ---
 
     localStorage.setItem('currentProjectId', currentProjectId || '');
 
@@ -680,9 +702,8 @@ export default function ClientPageRoot() {
           analysisResult: newAnalysisResult, // Update with fresh data (including timestamp)
           selectedFiles: [], // Reset selected files on new upload
         };
-        updatedProjects[existingProjectIndex] = { ...existingProject, state: updatedState };
-        // Don't call setState directly here, let the useEffect handle it based on currentProjectId change
-        // setState(updatedState); // Also update main state directly if this becomes current project
+        // Update lastAccessed for existing project
+        updatedProjects[existingProjectIndex] = { ...existingProject, state: updatedState, lastAccessed: Date.now() };
       } else {
         console.log(`Creating new local project for folder: ${folderName}`);
         newCurrentProjectId = Date.now().toString();
@@ -698,10 +719,9 @@ export default function ClientPageRoot() {
           sourceType: 'local',
           sourceFolderName: folderName,
           state: newProjectState,
+          lastAccessed: Date.now(), // Set lastAccessed for new project
         };
         updatedProjects = [...prevProjects, newProject];
-        // Don't call setState directly here, let the useEffect handle it based on currentProjectId change
-         // setState(newProjectState); // Update main state directly as this is the new current project
       }
       return updatedProjects;
     });
@@ -887,6 +907,88 @@ export default function ClientPageRoot() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentProjectId, projects]); // Trigger when project ID changes or the projects array itself changes
 
+
+  // --- START: Logic for Loading Recent Project ---
+  const proceedToLoadProject = useCallback((projectIdToLoad: string) => {
+    const projectToLoad = projects.find(p => p.id === projectIdToLoad);
+
+    if (!projectToLoad) {
+      console.error(`Error: Project with ID ${projectIdToLoad} not found.`);
+      setShowLoadRecentConfirmDialog(false);
+      setProjectToLoadId(null);
+      return;
+    }
+
+    console.log(`Proceeding to load project: ${projectToLoad.name} (ID: ${projectIdToLoad})`);
+
+    // Update lastAccessed timestamp
+    setProjects(prevProjects =>
+      prevProjects.map(p =>
+        p.id === projectIdToLoad ? { ...p, lastAccessed: Date.now() } : p
+      )
+    );
+
+    // Set current project ID. The main useEffect watching currentProjectId will sync state.
+    setCurrentProjectId(projectIdToLoad);
+
+    if (projectToLoad.sourceType === 'github') {
+      setActiveSourceTab('github');
+      // These will trigger useEffects to fetch repo details and then branch details/tree
+      setSelectedRepoFullName(projectToLoad.githubRepoFullName || null);
+      setSelectedBranchName(projectToLoad.githubBranch || null);
+      // Note: The actual data fetching (tree, content) for GitHub projects is handled
+      // by the useEffects triggered by selectedRepoFullName and handleBranchChange.
+      // If the state (analysisResult) was fully persisted, we might load it here.
+      // For now, we rely on re-fetching, which is safer for potentially stale data.
+      console.log(`Switched to GitHub tab for project ${projectToLoad.name}. Repo: ${projectToLoad.githubRepoFullName}, Branch: ${projectToLoad.githubBranch}`);
+
+    } else if (projectToLoad.sourceType === 'local') {
+      setActiveSourceTab('local');
+      // For local projects, the state (filters, named selections) is restored by the main sync effect.
+      // The analysisResult (file content) is NOT fully stored in localStorage.
+      // The user will need to re-select the folder using FileUploadSection.
+      // The FileUploadSection will then call handleUploadComplete, which re-creates analysisResult.
+      // The restored state will apply its excludeFolders and fileTypes.
+      console.log(`Switched to Local tab for project ${projectToLoad.name}. User needs to re-select folder.`);
+      // Consider adding a toast/notification here to guide the user for local projects.
+      // e.g., "Project settings loaded. Please re-select the project folder to analyze files."
+    }
+
+    setShowLoadRecentConfirmDialog(false);
+    setProjectToLoadId(null);
+  }, [projects, setActiveSourceTab, setSelectedRepoFullName, setSelectedBranchName, setCurrentProjectId, setProjects]);
+
+  const handleLoadRecentProject = useCallback((projectIdToLoad: string) => {
+    console.log(`Attempting to load recent project ID: ${projectIdToLoad}`);
+    const activeProject = projects.find(p => p.id === currentProjectId);
+
+    // Check if there's a loaded project with actual analysis data (not just initial state)
+    if (activeProject && activeProject.state.analysisResult && activeProject.state.analysisResult.files.length > 0) {
+      console.log(`Active project ${activeProject.name} has data. Showing confirmation dialog.`);
+      setProjectToLoadId(projectIdToLoad);
+      setShowLoadRecentConfirmDialog(true);
+    } else {
+      console.log("No active project with data, or user confirmed. Proceeding to load.");
+      proceedToLoadProject(projectIdToLoad);
+    }
+  }, [currentProjectId, projects, proceedToLoadProject]);
+
+  const confirmLoadRecent = () => {
+    if (projectToLoadId) {
+      proceedToLoadProject(projectToLoadId);
+    } else {
+      console.error("Project ID to load is null, cannot proceed.");
+      setShowLoadRecentConfirmDialog(false); // Close dialog
+    }
+  };
+
+  const cancelLoadRecent = () => {
+    setShowLoadRecentConfirmDialog(false);
+    setProjectToLoadId(null);
+  };
+  // --- END: Logic for Loading Recent Project ---
+
+
   // Persist state changes to localStorage (Simplified to depend on projects and currentProjectId)
   useEffect(() => {
     console.log("[State Save Effect] Running. isMounted:", isMounted);
@@ -895,13 +997,22 @@ export default function ClientPageRoot() {
       return;
     }
 
-    // Save projects (excluding analysisResult)
-    const projectsToSave = projects.map(p => {
+    // Save projects (excluding analysisResult, sorted and truncated for recency)
+    let projectsToSaveForStorage = projects.map(p => {
       const { analysisResult, ...stateToSave } = p.state || {}; // Handle potential undefined state
-      return { ...p, state: stateToSave };
+      return { ...p, state: stateToSave, lastAccessed: p.lastAccessed || 0 };
     });
-    console.log("[State Save Effect] Saving projects to localStorage...");
-    localStorage.setItem('codebaseReaderProjects', JSON.stringify(projectsToSave));
+
+    // Sort projects by lastAccessed in descending order
+    projectsToSaveForStorage.sort((a, b) => (b.lastAccessed || 0) - (a.lastAccessed || 0));
+
+    // Limit the number of recent projects
+    if (projectsToSaveForStorage.length > MAX_RECENT_PROJECTS) {
+      projectsToSaveForStorage = projectsToSaveForStorage.slice(0, MAX_RECENT_PROJECTS);
+    }
+
+    console.log(`[State Save Effect] Saving ${projectsToSaveForStorage.length} projects to localStorage (lightweight, sorted, truncated)...`);
+    localStorage.setItem('codebaseReaderProjects', JSON.stringify(projectsToSaveForStorage));
 
     // Save current project ID
     console.log(`[State Save Effect] Saving currentProjectId: ${currentProjectId}`);
@@ -1095,6 +1206,8 @@ export default function ClientPageRoot() {
           <aside className="flex flex-col gap-4">
             <Card className="glass-card animate-slide-up sticky top-[calc(theme(spacing.16)+1rem)]">
               <CardContent className="p-4 sm:p-5 space-y-4 sm:space-y-5">
+                <RecentProjectsDisplay projects={projects} onLoadProject={handleLoadRecentProject} />
+                <hr className="my-3 border-border/60" /> {/* Divider */}
                 <div className="flex items-center gap-2 mb-2 sm:mb-4">
                   <GitBranchPlus className="h-4 w-4 sm:h-5 sm:w-5 text-primary" />
                   <h2 className="font-heading font-semibold text-sm sm:text-base">Project Configuration</h2>
@@ -1367,6 +1480,22 @@ export default function ClientPageRoot() {
           <AlertDialogFooter>
             <AlertDialogCancel onClick={cancelTabSwitch}>Cancel</AlertDialogCancel>
             <AlertDialogAction onClick={confirmTabSwitch}>Continue</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Confirmation Dialog for Loading Recent Project */}
+      <AlertDialog open={showLoadRecentConfirmDialog} onOpenChange={setShowLoadRecentConfirmDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Load Recent Project?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Loading a recent project will clear your current session (file selections, analysis results). Saved configurations for the current project will remain. Continue?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={cancelLoadRecent}>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmLoadRecent}>Load Project</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
