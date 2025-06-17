@@ -389,7 +389,7 @@ const AnalysisResult: React.FC<AnalysisResultProps> = React.memo(({
     copyToClipboard(treeString);
     setCopyTreeSuccess(true);
     setTimeout(() => setCopyTreeSuccess(false), 2000);
-  }, [selectedFilesData, analysisResult]);
+  }, [selectedFilesData, analysisResult, generateProjectTree]);
 
   const tokenPercentage = Math.min(100, (tokenCount / maxTokens) * 100);
   const isTokenWarning = tokenPercentage > 75;
@@ -560,7 +560,7 @@ const AnalysisResult: React.FC<AnalysisResultProps> = React.memo(({
               </p>
               {dataSource.type === 'local' && (localRecencyStatus?.level === 'old' || localRecencyStatus?.level === 'stale') && (
                    <p className="mt-1 text-muted-foreground">
-                      Local files may have changed. Use the refresh button below "Choose Folder" to update.
+                      Local files may have changed. Use the refresh button below &quot;Choose Folder&quot; to update.
                    </p>
                )}
                {dataSource.type === 'github' && (githubCommitInfo?.level === 'moderate' || githubCommitInfo?.level === 'old') && (
