@@ -874,30 +874,23 @@ export default function ClientPageRoot() {
     });
     }, [currentProjectId]); // Dependencies: currentProjectId, setProjects (stable)
 
-  // Restore the original state sync hook, as the persistence logic now handles updates.
-  // This ensures that if the projects array is manipulated, the UI state reflects it.
+  // Effect to handle project switching only (not preset updates)
   useEffect(() => {
-    console.log("[Sync Effect] Running. currentProjectId:", currentProjectId);
+    console.log("[Project Switch Effect] Running. currentProjectId:", currentProjectId);
     if (currentProjectId) {
       const currentProject = projects.find(p => p.id === currentProjectId);
       if (currentProject) {
-        if (state !== currentProject.state) {
-          const newState = { ...currentProject.state };
-          if (!newState.analysisResult && state.analysisResult) {
-            newState.analysisResult = state.analysisResult;
-          }
-          setState(newState);
-        }
+        console.log("[Project Switch Effect] Loading state for project:", currentProject.name);
+        setState(currentProject.state);
       } else {
+        console.warn("[Project Switch Effect] Project not found. Resetting.");
         setState(initialAppState);
         setCurrentProjectId(null);
       }
     } else {
-      if (state !== initialAppState) {
-        setState(initialAppState);
-      }
+      setState(initialAppState);
     }
-  }, [currentProjectId, projects, state]); // Restore `projects` to the dependency array
+  }, [currentProjectId]); // Only watch currentProjectId to avoid circular dependencies
 
 
  
