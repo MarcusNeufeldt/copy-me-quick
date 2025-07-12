@@ -115,6 +115,17 @@ const FileUploadSection: React.FC<FileUploadSectionProps> = ({
       }
 
       const finalFiles: FileData[] = Array.from(newFileContentsMap.values());
+      
+      // Check if we have any valid files
+      if (finalFiles.length === 0) {
+        setError(`No valid files found matching the criteria. Processed ${files.length} files but none matched the filters.`);
+        setLoadingStatus({ isLoading: false, message: 'No valid files found.' });
+        setTimeout(() => setLoadingStatus(prev => ({ ...prev, message: null })), 4000);
+        setProgress(0);
+        setUploadStats({ total: files.length, valid: 0 });
+        return;
+      }
+      
       const analysisResultData: AnalysisResultData = {
         totalFiles: finalFiles.length,
         totalLines: newTotalLines,
@@ -124,7 +135,16 @@ const FileUploadSection: React.FC<FileUploadSectionProps> = ({
         files: finalFiles,
         uploadTimestamp: Date.now(),
       };
+      
+      setLoadingStatus({ isLoading: true, message: 'Finalizing...' });
+      await new Promise(resolve => setTimeout(resolve, 100)); // Brief pause for UI feedback
+      
       onUploadComplete(analysisResultData, rootHandle); // Pass the handle along
+      
+      // Clear loading state and show success
+      setLoadingStatus({ isLoading: false, message: 'Processing complete!' });
+      setTimeout(() => setLoadingStatus(prev => ({ ...prev, message: null })), 2000);
+      
     } catch (error) {
       console.error("Error during file processing:", error);
       setError(`An unexpected error occurred during file processing: ${error instanceof Error ? error.message : String(error)}`);
