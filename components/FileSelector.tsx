@@ -131,13 +131,12 @@ const FileSelector = ({
   }, [dataSource, allFiles]); // Depend on dataSource and allFiles
 
   // Use the custom hook for token calculation
-  const {} = useTokenCalculator({
+  const {} =   useTokenCalculator({
     selectedFiles,
     getAllFilesFromDataSource,
     onTokenCountChange,
     getEncodingFunc,
-    setLoadingStatus,
-    loadingStatus
+    setLoadingStatus
   });
 
   // Use the custom hook for clipboard copy logic

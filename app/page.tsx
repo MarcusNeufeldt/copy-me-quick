@@ -897,7 +897,7 @@ export default function ClientPageRoot() {
         setState(initialAppState);
       }
     }
-  }, [currentProjectId, projects]); // Restore `projects` to the dependency array
+  }, [currentProjectId, projects, state]); // Restore `projects` to the dependency array
 
 
  
