@@ -9,7 +9,7 @@ import AnalysisResult from '@/components/AnalysisResult';
 import { AppState, Project, FileData, AnalysisResultData, DataSource, GitHubRepoInfo } from '@/components/types';
 import dynamic from 'next/dynamic';
 import { Button } from "@/components/ui/button";
-import { GithubIcon, RotateCcw, Code2, GitBranchPlus, LayoutGrid, Github, CheckCircle, XCircle, GitBranch, BookMarked, Computer, Loader2, ShieldCheck, Info } from 'lucide-react';
+import { GithubIcon, RotateCcw, Code2, GitBranchPlus, LayoutGrid, Github, CheckCircle, XCircle, GitBranch, BookMarked, Computer, Loader2, ShieldCheck, Info, RefreshCw } from 'lucide-react';
 import Image from 'next/image';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import FileSelector from '@/components/FileSelector';
@@ -1376,9 +1376,30 @@ export default function ClientPageRoot() {
                          {/* Branch Selector */}
                          {selectedRepoFullName && (
                             <div className="space-y-1.5">
-                             <label htmlFor="github-branch-select" className="flex items-center gap-1 text-xs font-medium text-muted-foreground">
-                               <GitBranch className="h-3 w-3" /> Branch
-                             </label>
+                             <div className="flex items-center justify-between">
+                               <label htmlFor="github-branch-select" className="flex items-center gap-1 text-xs font-medium text-muted-foreground">
+                                 <GitBranch className="h-3 w-3" /> Branch
+                               </label>
+                               <TooltipProvider delayDuration={300}>
+                                 <Tooltip>
+                                   <TooltipTrigger asChild>
+                                     <Button
+                                       variant="ghost"
+                                       size="icon"
+                                       className="h-7 w-7"
+                                       onClick={() => handleBranchChange(selectedBranchName!)}
+                                       disabled={!selectedBranchName || loadingStatus.isLoading}
+                                       aria-label="Refresh branch file list"
+                                     >
+                                       <RefreshCw className="h-4 w-4" />
+                                     </Button>
+                                   </TooltipTrigger>
+                                   <TooltipContent side="top">
+                                     <p>Refresh file tree for current branch</p>
+                                   </TooltipContent>
+                                 </Tooltip>
+                               </TooltipProvider>
+                             </div>
 
                              {loadingStatus.isLoading && loadingStatus.message?.includes('branches') ? (
                                <div className="text-center text-muted-foreground text-xs py-2">Loading branches...</div>
