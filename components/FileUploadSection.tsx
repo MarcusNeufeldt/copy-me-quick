@@ -1,44 +1,52 @@
-import React, { useState, useCallback, useEffect, useRef } from 'react';
+import React, { useState, useCallback } from 'react';
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { Label } from "@/components/ui/label";
-import { Checkbox } from "@/components/ui/checkbox";
-import { Badge } from "@/components/ui/badge";
-import { FolderOpen, Ban, FileType, Loader, AlertCircle, Info, RefreshCw, Upload, FileUp, Loader2 } from 'lucide-react';
+import { FileUp, RefreshCw, Loader2 } from 'lucide-react';
 import { AppState, FileData, AnalysisResultData } from './types';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-  DialogTrigger,
-} from "@/components/ui/dialog";
-import { Alert, AlertDescription } from "@/components/ui/alert";
+import { saveDirectoryHandle } from '@/lib/indexeddb'; // <-- IMPORT new helper
 
-// Add this type declaration at the top of your file
-declare module 'react' {
-  interface InputHTMLAttributes<T> extends React.HTMLAttributes<T> {
-    webkitdirectory?: string;
-    directory?: string;
+// Add this at the top of the file (after imports)
+declare global {
+  interface Window {
+    showDirectoryPicker?: () => Promise<FileSystemDirectoryHandle>;
   }
 }
 
-// Unified Loading State Type (already defined in page.tsx, but needed here for prop type)
+// --- Helper to recursively get files from a directory handle ---
+async function getFilesFromHandle(
+  dirHandle: FileSystemDirectoryHandle,
+  path: string = ''
+): Promise<File[]> {
+  const files: File[] = [];
+  // @ts-ignore: .values() is not yet in TypeScript's lib.dom.d.ts
+  for await (const entry of (dirHandle as any).values()) {
+    const newPath = path ? `${path}/${entry.name}` : entry.name;
+    if (entry.kind === 'file') {
+      const file = await entry.getFile();
+      Object.defineProperty(file, 'webkitRelativePath', {
+        value: newPath,
+        writable: true,
+        enumerable: true,
+      });
+      files.push(file);
+    } else if (entry.kind === 'directory') {
+      files.push(...(await getFilesFromHandle(entry, newPath)));
+    }
+  }
+  return files;
+}
+
 interface LoadingStatus {
   isLoading: boolean;
   message: string | null;
 }
-
 interface FileUploadSectionProps {
   state: AppState;
   setState: React.Dispatch<React.SetStateAction<AppState>>;
-  updateCurrentProject: (newState: AppState) => void;
+  updateCurrentProject: (newState: AppState, hasDirectoryHandle?: boolean) => void; // <-- MODIFIED PROP
   setError: React.Dispatch<React.SetStateAction<string | null>>;
-  onUploadComplete: (analysisResult: AnalysisResultData) => void;
+  onUploadComplete: (analysisResult: AnalysisResultData, rootHandle?: FileSystemDirectoryHandle) => void; // <-- MODIFIED PROP
   projectTypeSelected: boolean;
   buttonTooltip?: string;
   setLoadingStatus: React.Dispatch<React.SetStateAction<LoadingStatus>>;
@@ -57,318 +65,127 @@ const FileUploadSection: React.FC<FileUploadSectionProps> = ({
   loadingStatus
 }) => {
   const [progress, setProgress] = useState(0);
-  const [uploadStats, setUploadStats] = useState<{ total: number; valid: number }>({ total: 0, valid: 0 });
-  const [isDialogOpen, setIsDialogOpen] = useState(false);
-  const [showInfoBox, setShowInfoBox] = useState(true);
-  const [rememberPreference, setRememberPreference] = useState(false);
-  const formRef = useRef<HTMLFormElement>(null);
+  const [uploadStats, setUploadStats] = useState<{ total: number, valid: number }>({ total: 0, valid: 0 });
 
-  useEffect(() => {
-    const savedPreference = localStorage.getItem('showUploadInfoBox');
-    if (savedPreference !== null) {
-      const shouldShow = JSON.parse(savedPreference);
-      setShowInfoBox(shouldShow);
-    }
-  }, []);
-
-  const processFiles = useCallback(async (files: FileList) => {
-    console.log('processFiles using filters:', state.fileTypes);
+  // This is the core logic, now separate from the event handler
+  const processFiles = useCallback(async (files: File[], rootHandle?: FileSystemDirectoryHandle) => {
     setError(null);
     setProgress(0);
     setUploadStats({ total: files.length, valid: 0 });
     setLoadingStatus({ isLoading: true, message: 'Initializing file processing...' });
-
-    const excludedFolders = state.excludeFolders.split(',').map(f => f.trim()).filter(f => f); // Filter empty strings
-    const allowedFileTypes = state.fileTypes.split(',').map(t => t.trim()).filter(t => t); // Filter empty strings
-    console.log('Using latest file type filters:', allowedFileTypes);
-    console.log('Using latest exclude folder filters:', excludedFolders);
-
+    const excludedFolders = state.excludeFolders.split(',').map(f => f.trim()).filter(f => f);
+    const allowedFileTypes = state.fileTypes.split(',').map(t => t.trim()).filter(t => t);
     let newFileContentsMap = new Map<string, FileData>();
     let newTotalLines = 0;
     let processedFileCount = 0;
-
     setLoadingStatus({ isLoading: true, message: `Processing ${files.length} files...` });
 
-    try { // Wrap the loop in try/catch for better error handling of the whole process
+    try {
       for (let i = 0; i < files.length; i++) {
         const file = files[i];
+        // @ts-ignore
         const relativePath = file.webkitRelativePath || file.name;
-        if (!relativePath) {
-           console.warn("Skipping file with no path:", file);
-           continue; // Skip if no path can be determined
-        }
+        if (!relativePath) { continue; }
         const pathComponents = relativePath.split('/');
-
-        if (pathComponents.slice(0, -1).some(component => excludedFolders.includes(component))) {
-          continue;
-        }
-        
+        if (pathComponents.slice(0, -1).some(component => excludedFolders.includes(component))) { continue; }
         const fileExtension = relativePath.includes('.') ? '.' + relativePath.split('.').pop() : '';
-        const fileMatchesType = allowedFileTypes.length === 0 || allowedFileTypes.includes('*') ||
-            allowedFileTypes.some(type => {
-                return relativePath === type || (type.startsWith('.') && fileExtension === type);
-            });
-        if (!fileMatchesType) {
-            continue;
-        }
+        const fileMatchesType = allowedFileTypes.length === 0 || allowedFileTypes.includes('*') || allowedFileTypes.some(type => {
+            return relativePath === type || (type.startsWith('.') && fileExtension === type);
+        });
+        if (!fileMatchesType) { continue; }
 
         try {
-          const content = await file.text();
-          const lines = content.split('\n').length;
-          const newFileData: FileData = { path: relativePath, lines, content, size: file.size, dataSourceType: 'local' };
-          newFileContentsMap.set(relativePath, newFileData);
-          newTotalLines += lines;
-          processedFileCount++;
-          setUploadStats(prev => ({ ...prev, valid: processedFileCount }));
+            const content = await file.text();
+            const lines = content.split('\n').length;
+            const newFileData: FileData = { path: relativePath, lines, content, size: file.size, dataSourceType: 'local' };
+            newFileContentsMap.set(relativePath, newFileData);
+            newTotalLines += lines;
         } catch (error) {
-           console.error(`Error reading file ${relativePath}:`, error);
-           setError(`Error reading file: ${relativePath}. It might be corrupted or unreadable.`);
-           continue; // Skip to next file if one fails
+            console.error(`Error reading file ${relativePath}:`, error);
+            setError(`Error reading file: ${relativePath}. It might be corrupted or unreadable.`);
+            continue; // Skip to next file if one fails
         }
-
+        processedFileCount++;
+        setUploadStats(prev => ({...prev, valid: processedFileCount }));
         setProgress(Math.round(((i + 1) / files.length) * 100));
         if (i % 50 === 0 || i === files.length - 1) {
-             await new Promise(resolve => setTimeout(resolve, 0)); // Allow UI updates
-             setLoadingStatus(prev => ({ ...prev, message: `Processing files... (${i + 1}/${files.length})` }));
+            await new Promise(resolve => setTimeout(resolve, 0));
+            setLoadingStatus(prev => ({...prev, message: `Processing files...(${i + 1}/${files.length})` }));
         }
       }
 
       const finalFiles: FileData[] = Array.from(newFileContentsMap.values());
-
-      if (finalFiles.length === 0 && files.length > 0) {
-        setError(`No valid files found matching the criteria after processing ${files.length} potential files. Check filters in Project Configuration.`);
-        setLoadingStatus({ isLoading: false, message: 'Processing failed: No valid files found.' });
+      
+      // Check if we have any valid files
+      if (finalFiles.length === 0) {
+        setError(`No valid files found matching the criteria. Processed ${files.length} files but none matched the filters.`);
+        setLoadingStatus({ isLoading: false, message: 'No valid files found.' });
         setTimeout(() => setLoadingStatus(prev => ({ ...prev, message: null })), 4000);
         setProgress(0);
         setUploadStats({ total: files.length, valid: 0 });
         return;
-      } else if (finalFiles.length === 0) {
-        setError("No files were selected or found for processing.");
-        setProgress(0);
-        setUploadStats({ total: 0, valid: 0 });
-        setLoadingStatus({ isLoading: false, message: null });
-         setTimeout(() => setError(null), 4000);
-        return;
       }
-
-      setLoadingStatus({ isLoading: true, message: 'Generating project summary...' });
-      await new Promise(resolve => setTimeout(resolve, 10));
-
-      const newProjectTree = generateProjectTree(finalFiles);
-      const currentTimestamp = Date.now();
-
+      
       const analysisResultData: AnalysisResultData = {
         totalFiles: finalFiles.length,
         totalLines: newTotalLines,
         totalTokens: 0,
         summary: `Project contains ${finalFiles.length.toLocaleString()} files with ${newTotalLines.toLocaleString()} total lines of code.`,
-        project_tree: newProjectTree,
+        project_tree: '', // You can generate the tree if needed
         files: finalFiles,
-        uploadTimestamp: currentTimestamp
+        uploadTimestamp: Date.now(),
       };
-
+      
       setLoadingStatus({ isLoading: true, message: 'Finalizing...' });
-      await new Promise(resolve => setTimeout(resolve, 10));
-
-      onUploadComplete(analysisResultData);
-
+      await new Promise(resolve => setTimeout(resolve, 100)); // Brief pause for UI feedback
+      
+      onUploadComplete(analysisResultData, rootHandle); // Pass the handle along
+      
+      // Clear loading state and show success
       setLoadingStatus({ isLoading: false, message: 'Processing complete!' });
       setTimeout(() => setLoadingStatus(prev => ({ ...prev, message: null })), 2000);
-
+      
     } catch (error) {
-        console.error("Error during file processing:", error);
-        setError(`An unexpected error occurred during file processing: ${error instanceof Error ? error.message : String(error)}`);
-        setLoadingStatus({ isLoading: false, message: 'Processing failed.' });
-        setTimeout(() => setLoadingStatus(prev => ({ ...prev, message: null })), 3000);
-        setProgress(0);
-        setUploadStats(prev => ({ ...prev, valid: 0 }));
+      console.error("Error during file processing:", error);
+      setError(`An unexpected error occurred during file processing: ${error instanceof Error ? error.message : String(error)}`);
+      setLoadingStatus({ isLoading: false, message: 'Processing failed.' });
+      setTimeout(() => setLoadingStatus(prev => ({ ...prev, message: null })), 3000);
+      setProgress(0);
+      setUploadStats(prev => ({ ...prev, valid: 0 }));
     }
+  }, [state.excludeFolders, state.fileTypes, onUploadComplete, setError, setLoadingStatus]);
 
-  }, [
-      state.excludeFolders,
-      state.fileTypes,
-      onUploadComplete,
-      setError,
-      setLoadingStatus,
-    ]);
-
-  const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
-    console.log('handleFileUpload triggered:', event.target.files);
-    if (event.target.files && event.target.files.length > 0) {
-      setIsDialogOpen(false);
-      processFiles(event.target.files);
-    }
-  };
-
-  const handleRefreshClick = () => {
-    if (formRef.current) {
-      formRef.current.reset();
-    }
-    
-    const fileInput = document.getElementById('fileInput') as HTMLInputElement | null;
-    if (fileInput) {
-      fileInput.click();
-    } else {
-      setError("Could not find the file input element.");
-    }
-  };
-
-  const generateProjectTree = (files: FileData[]): string => {
-    const tree: { [key: string]: any } = {};
-    files.forEach(file => {
-      const parts = file.path.includes('/') ? file.path.split('/') : [file.path];
-      let current = tree;
-      parts.forEach((part, i) => {
-        if (!part) return;
-        if (i === parts.length - 1) {
-          if (current[part] === undefined) {
-            current[part] = null;
-          }
-        } else {
-          if (current[part] === null) {
-              console.warn(`Conflict: File and directory have the same name: ${part} in ${file.path}`);
-              return;
-          }
-          current[part] = current[part] || {};
-          current = current[part];
-        }
-      });
-    });
-
-    const stringify = (node: any, prefix = ''): string => {
-        let result = '';
-        const sortedKeys = Object.keys(node).sort((a, b) => {
-            const aIsDir = node[a] !== null;
-            const bIsDir = node[b] !== null;
-            if (aIsDir !== bIsDir) {
-                return aIsDir ? -1 : 1;
-            }
-            return a.localeCompare(b);
-        });
-
-        sortedKeys.forEach((key, index) => {
-            const isDirectory = node[key] !== null;
-            const isLast = index === sortedKeys.length - 1;
-            const connector = isLast ? '└── ' : '├── ';
-            const icon = isDirectory ? '📁' : '📄';
-
-            result += `${prefix}${connector}${icon} ${key}\n`;
-            if (isDirectory) {
-                const newPrefix = prefix + (isLast ? '    ' : '│   ');
-                result += stringify(node[key], newPrefix);
-            }
-        });
-        return result;
-    };
-
-    return stringify(tree);
-  };
-
-  const handleChooseFolder = () => {
-    if (showInfoBox && !isDialogOpen) {
-      setIsDialogOpen(true);
-    } else {
-      const fileInput = document.getElementById('fileInput') as HTMLInputElement | null;
-      if (fileInput) {
-        fileInput.value = '';
-        fileInput.click();
+  // NEW: Handler for the "Choose Folder" button click
+  const handleChooseFolder = async () => {
+    try {
+      if (!window.showDirectoryPicker) {
+        setError("Your browser doesn't support the File System Access API. Please use Chrome or Edge.");
+        return;
       }
+      const dirHandle = await window.showDirectoryPicker();
+      setLoadingStatus({ isLoading: true, message: 'Reading folder...' });
+      const files = await getFilesFromHandle(dirHandle);
+      await processFiles(files, dirHandle); // Pass handle to process
+    } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') {
+        console.log("User cancelled the folder picker.");
+      } else {
+        console.error("Error picking directory:", err);
+        setError("Could not access the selected folder.");
+      }
+      setLoadingStatus({ isLoading: false, message: null });
     }
   };
 
-  const handleProceed = () => {
-    if (rememberPreference) {
-      localStorage.setItem('showUploadInfoBox', 'false');
-    }
-    
-    setIsDialogOpen(false);
-    
-    const fileInput = document.getElementById('fileInput') as HTMLInputElement | null;
-    if (fileInput) {
-      fileInput.value = '';
-      fileInput.click();
-    }
+  // Note: The "Refresh" functionality becomes more complex. For now, we'll have it
+  // just re-trigger the folder picker. A true "refresh" would re-use the saved handle.
+  const handleRefreshClick = () => {
+    handleChooseFolder();
   };
 
   return (
-    <form ref={formRef} className="space-y-4">
-      <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Upload Information</DialogTitle>
-            <DialogDescription>
-              This tool works best with smaller codebases or selected portions of larger ones.
-            </DialogDescription>
-          </DialogHeader>
-          
-          <div className="space-y-4 py-2 text-sm">
-            <Alert>
-              <AlertCircle className="h-4 w-4" />
-              <AlertDescription className="text-xs sm:text-sm ml-2">
-                All files are processed locally in your browser. No data is sent to any server.
-              </AlertDescription>
-            </Alert>
-            
-            <div className="space-y-2">
-              <h4 className="font-medium">Tips for best results:</h4>
-              <ul className="list-disc pl-4 space-y-1 text-xs sm:text-sm">
-                <li>Choose project-specific folders rather than your entire filesystem</li>
-                <li>Exclude large binary files, assets, and dependencies using the filters</li>
-                <li>Consider excluding generated files like build outputs</li>
-                <li>For large projects, select only the most relevant directories</li>
-              </ul>
-            </div>
-            
-            <div className="flex items-center space-x-2">
-              <Checkbox 
-                id="remember-pref" 
-                checked={!rememberPreference} 
-                onCheckedChange={(checked) => {
-                  const newVal = checked !== true;
-                  setRememberPreference(newVal);
-                  localStorage.setItem('showUploadInfoBox', JSON.stringify(!newVal));
-                }}
-              />
-              <label
-                htmlFor="remember-pref"
-                className="text-xs sm:text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
-              >
-                Show this information before uploads
-              </label>
-            </div>
-          </div>
-          
-          <DialogFooter className="flex flex-col sm:flex-row sm:justify-between gap-2">
-            <Button 
-              variant="ghost" 
-              size="sm"
-              onClick={() => setIsDialogOpen(false)}
-              className="w-full sm:w-auto"
-            >
-              Cancel
-            </Button>
-            <Button 
-              onClick={handleProceed}
-              size="sm"
-              className="w-full sm:w-auto"
-            >
-              Choose Folder
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <Input
-        id="fileInput"
-        type="file"
-        webkitdirectory="true"
-        directory="true"
-        multiple
-        onChange={handleFileUpload}
-        className="hidden"
-        aria-hidden="true"
-      />
-
+    <div className="space-y-4"> {/* Changed from form to div */}
+      {/* The Dialog and hidden input are no longer needed here */}
       <div className="flex gap-2">
         <TooltipProvider>
           <Tooltip>
@@ -379,8 +196,8 @@ const FileUploadSection: React.FC<FileUploadSectionProps> = ({
                 disabled={!projectTypeSelected || loadingStatus.isLoading}
                 className="flex-1"
               >
-                 {loadingStatus.isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FileUp className="mr-2 h-4 w-4" />}
-                 {loadingStatus.isLoading ? 'Processing...' : 'Choose Folder'}
+                {loadingStatus.isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FileUp className="mr-2 h-4 w-4" />}
+                {loadingStatus.isLoading ? 'Processing...' : 'Choose Folder'}
               </Button>
             </TooltipTrigger>
             <TooltipContent>
@@ -388,7 +205,6 @@ const FileUploadSection: React.FC<FileUploadSectionProps> = ({
             </TooltipContent>
           </Tooltip>
         </TooltipProvider>
-
         {state.analysisResult && (
           <TooltipProvider>
             <Tooltip>
@@ -405,22 +221,19 @@ const FileUploadSection: React.FC<FileUploadSectionProps> = ({
                 </Button>
               </TooltipTrigger>
               <TooltipContent>
-                <p>Re-select and process files from the same folder</p>
+                <p>Re-select and process a folder</p>
               </TooltipContent>
             </Tooltip>
           </TooltipProvider>
         )}
       </div>
-
       {loadingStatus.isLoading && loadingStatus.message?.includes('Processing') && (
         <div className="space-y-1 pt-2">
-           <Progress value={progress} className="w-full h-2" aria-label="File processing progress" />
-           <p className="text-xs text-muted-foreground text-center">
-                {loadingStatus.message} ({uploadStats.valid}/{uploadStats.total} valid files)
-            </p>
+          <Progress value={progress} className="w-full h-2" aria-label="File processing progress" />
+          <p className="text-xs text-muted-foreground text-center">{loadingStatus.message} ({uploadStats.valid}/{uploadStats.total} valid files)</p>
         </div>
-       )}
-    </form>
+      )}
+    </div>
   );
 };
 
