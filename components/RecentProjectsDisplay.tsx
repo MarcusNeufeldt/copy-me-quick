@@ -13,7 +13,7 @@ interface RecentProjectsDisplayProps {
   maxInitialDisplay?: number; // Optional: Max projects to show before "Show More"
 }
 
-const MAX_RECENT_PROJECTS_VISIBLE_DEFAULT = 5;
+const MAX_RECENT_PROJECTS_VISIBLE_DEFAULT = 3;
 
 const RecentProjectsDisplay: React.FC<RecentProjectsDisplayProps> = ({
   projects,
