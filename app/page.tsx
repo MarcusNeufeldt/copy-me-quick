@@ -226,12 +226,11 @@ export default function ClientPageRoot() {
 
   // Load state from localStorage only on the client after mount
   useEffect(() => {
-    setIsMounted(true); // Mark as mounted
-    console.log("[Presets] Initial mount effect running."); // Added logging
+    setIsMounted(true);
+    console.log("[Presets] Initial mount effect running.");
 
     // Fetch GitHub user data if token might exist (client-side)
     const checkGitHubAuth = async () => {
-      // Use unified loading state
       setLoadingStatus({ isLoading: true, message: 'Checking GitHub connection...' });
       setGithubError(null);
       try {
@@ -251,108 +250,60 @@ export default function ClientPageRoot() {
         setGithubError('Network error checking GitHub status');
         setGithubUser(null);
       } finally {
-        // Clear loading state
         setLoadingStatus({ isLoading: false, message: null });
       }
     };
 
     checkGitHubAuth();
-
-    // Load global GitHub filter settings
-    const savedFilters = localStorage.getItem('githubGlobalExclusions');
-    if (savedFilters) {
-      setState(prevState => ({ ...prevState, excludeFolders: savedFilters }));
-    }
-
+    
     const savedProjectsStr = localStorage.getItem('codebaseReaderProjects');
     const loadedProjects: Project[] = savedProjectsStr ? JSON.parse(savedProjectsStr) : [];
     setProjects(loadedProjects);
 
+    let stateToLoad: AppState = { ...initialAppState };
+    let tabToLoad: 'local' | 'github' = 'local';
+    
     const savedProjectId = localStorage.getItem('currentProjectId');
-    let loadedStateFromStorage = false; // Flag to track if state was loaded
+    const projectToLoad = savedProjectId ? loadedProjects.find(p => p.id === savedProjectId) : undefined;
 
-    if (savedProjectId) {
-      const currentProject = loadedProjects.find((p: Project) => p.id === savedProjectId);
-      if (currentProject) {
-        console.log(`Found saved project: ${currentProject.id}, Type: ${currentProject.sourceType}`);
-
-        // Set the active tab based on the loaded project's source type
-        if (currentProject.sourceType) {
-           console.log(`Setting active source tab to: ${currentProject.sourceType}`);
-           setActiveSourceTab(currentProject.sourceType); // <--- Set the tab here!
-        } else {
-           console.warn(`Project ${currentProject.id} loaded but has no sourceType. Defaulting to 'local' tab.`);
-           setActiveSourceTab('local'); // Fallback if sourceType is somehow missing
-        }
-
-        const loadedState = currentProject.state;
-        setState(loadedState);
-        setCurrentProjectId(savedProjectId); // Set project ID after state/tab
-        loadedStateFromStorage = true;
-
-        // If it's a GitHub project, restore relevant GitHub state too
-        if (currentProject.sourceType === 'github' && currentProject.githubRepoFullName && currentProject.githubBranch) {
-            console.log(`Restoring GitHub context: Repo=${currentProject.githubRepoFullName}, Branch=${currentProject.githubBranch}`); // Added log
-            setSelectedRepoFullName(currentProject.githubRepoFullName);
-            setSelectedBranchName(currentProject.githubBranch);
-            // Note: We might still need to re-fetch branches/tree if not persisted or stale,
-            // but setting the selected repo/branch is crucial for UI consistency.
-            // Consider if handleBranchChange needs to be smarter about re-fetching vs using restored state.
-            // For now, just setting the state prevents the immediate clear on tab switch.
-            // If handleBranchChange *always* fetches, this might trigger a reload, but won't clear workspace first.
-            // You might need to enhance handleBranchChange to check if analysisResult is already present for that branch.
-        }
-
-      } else {
-        // Saved project ID exists but project data not found (e.g., cleared localStorage partially)
-        console.warn(`Saved project ID ${savedProjectId} found, but no matching project data. Resetting.`);
-        setState(initialAppState);
-        setCurrentProjectId(null);
-        setActiveSourceTab('local'); // Default to local if load fails
+    if (projectToLoad) {
+      console.log(`[State/Filter] Loading project state for ${projectToLoad.name}`);
+      stateToLoad = { ...initialAppState, ...projectToLoad.state };
+      tabToLoad = projectToLoad.sourceType || 'local';
+      setCurrentProjectId(projectToLoad.id);
+      if (projectToLoad.sourceType === 'github') {
+        setSelectedRepoFullName(projectToLoad.githubRepoFullName || null);
+        setSelectedBranchName(projectToLoad.githubBranch || null);
       }
     }
 
-    if (!loadedStateFromStorage) {
-        // No saved project ID, or project not found, use initial state
-        console.log("No valid saved project state found. Using initial state.");
-        setState(initialAppState);
-        setCurrentProjectId(null);
-        setActiveSourceTab('local'); // Ensure default tab
+    // Apply global GitHub filters AFTER loading project state (this ensures they take precedence)
+    const savedGlobalFilters = localStorage.getItem('githubGlobalExclusions');
+    if (savedGlobalFilters) {
+      console.log(`[State/Filter] Found global filters: ${savedGlobalFilters}. Applying them.`);
+      stateToLoad.excludeFolders = savedGlobalFilters;
     }
+    
+    setState(stateToLoad);
+    setActiveSourceTab(tabToLoad);
 
     console.groupCollapsed("[Presets] Attempting to load projectTemplates from localStorage");
     const savedTemplatesStr = localStorage.getItem('projectTemplates');
-    console.log("[Presets] Raw string from localStorage:", savedTemplatesStr); // Added logging
-
+    console.log("[Presets] Raw string from localStorage:", savedTemplatesStr);
     if (savedTemplatesStr) {
       try {
         const parsedTemplates = JSON.parse(savedTemplatesStr);
-        console.log("[Presets] Successfully parsed templates:", parsedTemplates); // Added logging
+        console.log("[Presets] Successfully parsed templates:", parsedTemplates);
         setProjectTypes(parsedTemplates);
-        console.log("[Presets] Set projectTypes state from localStorage."); // Added logging
       } catch (e) {
-        console.error("[Presets] Failed to parse project templates from localStorage:", e); // Added logging
-        console.warn("[Presets] Using default project types due to parsing error."); // Added logging
+        console.error("[Presets] Failed to parse project templates from localStorage:", e);
+        console.warn("[Presets] Using default project types due to parsing error.");
       }
     } else {
-      console.log("[Presets] No saved templates found in localStorage. Using defaults."); // Added logging
+      console.log("[Presets] No saved templates found in localStorage. Using defaults.");
     }
-    console.groupEnd(); // Added logging group end
-
-    // Load the state for the current project
-    if (savedProjectId) {
-      const currentProject = loadedProjects.find((p: Project) => p.id === savedProjectId);
-      if (currentProject) {
-        const loadedState = currentProject.state;
-        setState(loadedState);
-      } else {
-         setState(initialAppState); // Reset if project not found
-      }
-    } else {
-      setState(initialAppState); // Reset if no project ID
-    }
-
-  }, []); // Initial load effect - dependency array is empty
+    console.groupEnd();
+  }, []);
 
   // Fetch Repos when GitHub user is loaded
   useEffect(() => {
@@ -1135,16 +1086,21 @@ export default function ClientPageRoot() {
 
   // Persist state changes to localStorage (Simplified to depend on projects and currentProjectId)
   useEffect(() => {
-    console.log("[State Save Effect] Running. isMounted:", isMounted);
+    console.log("[State/Filter] Saving state. isMounted:", isMounted, "Current Project ID:", currentProjectId);
     if (!isMounted) {
-      console.log("[State Save Effect] Skipping save because component is not mounted yet.");
+      console.log("[State/Filter] Skipping save because component is not mounted yet.");
       return;
     }
 
-    // Save projects (excluding analysisResult, sorted and truncated for recency)
+    // Save projects (excluding analysisResult and excludeFolders for GitHub projects)
     let projectsToSaveForStorage = projects.map(p => {
-      const { analysisResult, ...stateToSave } = p.state || {}; // Handle potential undefined state
-      return { ...p, state: stateToSave, lastAccessed: p.lastAccessed || 0 };
+      let stateToSave: Partial<AppState> = { ...p.state };
+      delete stateToSave.analysisResult;
+      // Don't save excludeFolders for GitHub projects since they use global filters
+      if (p.sourceType === 'github') {
+        delete stateToSave.excludeFolders;
+      }
+      return { ...p, state: stateToSave as AppState, lastAccessed: p.lastAccessed || 0 };
     });
 
     // Sort projects by lastAccessed in descending order
@@ -1155,11 +1111,11 @@ export default function ClientPageRoot() {
       projectsToSaveForStorage = projectsToSaveForStorage.slice(0, MAX_RECENT_PROJECTS);
     }
 
-    console.log(`[State Save Effect] Saving ${projectsToSaveForStorage.length} projects to localStorage (lightweight, sorted, truncated)...`);
+    console.log(`[State/Filter] Saving ${projectsToSaveForStorage.length} projects to localStorage (lightweight)...`);
     localStorage.setItem('codebaseReaderProjects', JSON.stringify(projectsToSaveForStorage));
 
     // Save current project ID
-    console.log(`[State Save Effect] Saving currentProjectId: ${currentProjectId}`);
+    console.log(`[State/Filter] Saving currentProjectId: ${currentProjectId}`);
     localStorage.setItem('currentProjectId', currentProjectId || '');
 
     // Save project types (templates)
