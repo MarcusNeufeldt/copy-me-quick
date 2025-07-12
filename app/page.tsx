@@ -984,7 +984,7 @@ export default function ClientPageRoot() {
   // --- END: Logic for Loading Recent Project ---
 
 
-  // Persist state changes to localStorage (Deferred to prevent UI freeze)
+  // Persist state changes to localStorage (Simplified to depend on projects and currentProjectId)
   useEffect(() => {
     console.log("[State Save Effect] Running. isMounted:", isMounted);
     if (!isMounted) {
@@ -992,46 +992,37 @@ export default function ClientPageRoot() {
       return;
     }
 
-    // FIX: Wrap the entire save logic in a setTimeout to make it non-blocking.
-    const saveTimeoutId = setTimeout(() => {
-      console.log("[State Save Effect] Executing deferred save.");
-      
-      try {
-        // This is the existing logic for preparing and saving the projects array.
-        let projectsToSaveForStorage = projects.map(p => {
-          const { analysisResult, ...stateToSave } = p.state || {};
-          return { ...p, state: stateToSave, lastAccessed: p.lastAccessed || 0 };
-        });
+    // Save projects (excluding analysisResult, sorted and truncated for recency)
+    let projectsToSaveForStorage = projects.map(p => {
+      const { analysisResult, ...stateToSave } = p.state || {}; // Handle potential undefined state
+      return { ...p, state: stateToSave, lastAccessed: p.lastAccessed || 0 };
+    });
 
-        projectsToSaveForStorage.sort((a, b) => (b.lastAccessed || 0) - (a.lastAccessed || 0));
+    // Sort projects by lastAccessed in descending order
+    projectsToSaveForStorage.sort((a, b) => (b.lastAccessed || 0) - (a.lastAccessed || 0));
 
-        if (projectsToSaveForStorage.length > MAX_RECENT_PROJECTS) {
-          projectsToSaveForStorage = projectsToSaveForStorage.slice(0, MAX_RECENT_PROJECTS);
-        }
+    // Limit the number of recent projects
+    if (projectsToSaveForStorage.length > MAX_RECENT_PROJECTS) {
+      projectsToSaveForStorage = projectsToSaveForStorage.slice(0, MAX_RECENT_PROJECTS);
+    }
 
-        console.log(`[State Save Effect] Saving ${projectsToSaveForStorage.length} projects to localStorage...`);
-        localStorage.setItem('codebaseReaderProjects', JSON.stringify(projectsToSaveForStorage));
+    console.log(`[State Save Effect] Saving ${projectsToSaveForStorage.length} projects to localStorage (lightweight, sorted, truncated)...`);
+    localStorage.setItem('codebaseReaderProjects', JSON.stringify(projectsToSaveForStorage));
 
-        console.log(`[State Save Effect] Saving currentProjectId: ${currentProjectId}`);
-        localStorage.setItem('currentProjectId', currentProjectId || '');
+    // Save current project ID
+    console.log(`[State Save Effect] Saving currentProjectId: ${currentProjectId}`);
+    localStorage.setItem('currentProjectId', currentProjectId || '');
 
-        // Also defer the template saving
-        const templatesToSaveString = JSON.stringify(projectTypes);
-        localStorage.setItem('projectTemplates', templatesToSaveString);
-
-        console.log("[State Save Effect] Deferred save complete.");
-      } catch (e) {
-        console.error("[State Save Effect] Failed to save to localStorage:", e);
-        if (e instanceof Error && e.name === 'QuotaExceededError') {
-          // Optional: Consider adding a user-facing notification here.
-          console.error("Storage quota exceeded. Please clear some browser data or manage saved projects.");
-        }
-      }
-    }, 0); // 0ms delay yields to the event loop.
-
-    // It's good practice to clean up the timeout if the component unmounts
-    // before the timeout completes.
-    return () => clearTimeout(saveTimeoutId);
+    // Save project types (templates)
+    console.groupCollapsed("[Presets] Attempting to save projectTemplates to localStorage");
+    try {
+      const templatesToSaveString = JSON.stringify(projectTypes);
+      localStorage.setItem('projectTemplates', templatesToSaveString);
+      console.log("[Presets] Saved templates:", projectTypes);
+    } catch (e) {
+      console.error("[Presets] Failed to stringify or save project templates:", e);
+    }
+    console.groupEnd();
 
   }, [projects, currentProjectId, projectTypes, isMounted]); // Dependencies: projects, currentProjectId, projectTypes, isMounted
 
