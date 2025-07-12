@@ -146,6 +146,7 @@ const AnalysisResult: React.FC<AnalysisResultProps> = React.memo(({
   onSelectedFilesChange,
   tokenCount,
   setTokenCount,
+  tokenDetails,
   maxTokens,
   activeSourceTab,
   githubTree,

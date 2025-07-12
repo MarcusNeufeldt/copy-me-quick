@@ -31,6 +31,7 @@ import {
 import { SpeedInsights } from "@vercel/speed-insights/next";
 import { formatDistanceToNow } from 'date-fns';
 import { saveDirectoryHandle, getDirectoryHandle } from '@/lib/indexeddb';
+import { TokenCountDetails } from '@/hooks/useTokenCalculator';
 
 // Dynamically import Analytics with error handling
 const AnalyticsComponent = dynamic(
@@ -180,6 +181,7 @@ export default function ClientPageRoot() {
 
   const [error, setError] = useState<string | null>(null);
   const [tokenCount, setTokenCount] = useState(0);
+  const [tokenDetails, setTokenDetails] = useState<TokenCountDetails | null>(null);
   const [projectTypeSelected, setProjectTypeSelected] = useState(false);
   const [githubUser, setGithubUser] = useState<GitHubUser | null>(null);
   const [githubError, setGithubError] = useState<string | null>(null);
@@ -458,96 +460,22 @@ export default function ClientPageRoot() {
           commitDate: loadedCommitDate // Store date in analysisResult too
         };
 
-        // 2. Fetch File Content (Batched)
-        const filesToFetch = loadedTree?.filter(item => item.type === 'blob') || [];
-        if (filesToFetch.length > 0) {
-          setLoadingStatus({ isLoading: true, message: `Loading ${filesToFetch.length} file contents...` });
-          let totalLineCount = 0;
-          const filesWithContent: FileData[] = [];
-          const treeUpdates: { path: string, lines: number }[] = [];
+        // 2. Create metadata-only files (no content fetching)
+        const filesMetadata: FileData[] = (loadedTree || [])
+          .filter(item => item.type === 'blob')
+          .map(item => ({
+            path: item.path,
+            lines: 0, // Set lines to 0 since we don't have content to count
+            content: '', // Set content to empty string
+            size: item.size,
+            sha: item.sha,
+            dataSourceType: 'github'
+          }));
 
-          // ... (progress update setup) ...
-          setFileLoadingProgress({ current: 0, total: filesToFetch.length });
-          const updateLoadingProgress = (current: number) => {
-            setFileLoadingProgress({ current, total: filesToFetch.length });
-            setLoadingStatus(prev => ({ ...prev, message: `Loading file contents... (${current}/${filesToFetch.length})` }));
-          };
-          updateLoadingProgress(0);
-          let processedCount = 0;
-          const batchSize = 10;
-          // ... (large file warning) ...
-          const largeFiles = filesToFetch.filter((item: any) => item.size && item.size > 500000);
-          if (largeFiles.length > 0) {
-            setFileLoadingMessage(`Note: Loading ${largeFiles.length} large files (>500KB).`);
-            setTimeout(() => setFileLoadingMessage(null), 5000);
-          }
-
-          for (let i = 0; i < filesToFetch.length; i += batchSize) {
-            const batch = filesToFetch.slice(i, i + batchSize);
-            await Promise.all(batch.map(async (file: any) => {
-              try {
-                const contentUrl = `/api/github/content?owner=${repoInfo.owner}&repo=${repoInfo.repo}&path=${encodeURIComponent(file.path)}`;
-                const contentResponse = await fetch(contentUrl);
-                if (contentResponse.ok) {
-                  const contentData = await contentResponse.json();
-                  const content = contentData.content || '';
-                  const lineCount = content.split('\n').length;
-                  totalLineCount += lineCount;
-                  filesWithContent.push({
-                    path: file.path,
-                    lines: lineCount,
-                    content: content,
-                    size: file.size,
-                    sha: file.sha,
-                    dataSourceType: 'github'
-                  });
-                  // Store update info separately
-                  treeUpdates.push({ path: file.path, lines: lineCount }); // Populate treeUpdates
-                } else {
-                    console.warn(`Failed to fetch content for ${file.path}: ${contentResponse.status}`);
-                }
-              } catch (error) {
-                console.error(`Error fetching content for ${file.path}:`, error);
-              }
-              processedCount++;
-              updateLoadingProgress(processedCount);
-            }));
-          }
-
-          // Update the analysisResultData with fetched content
-          if (analysisResultData) {
-            analysisResultData.totalLines = totalLineCount;
-            analysisResultData.files = filesWithContent;
-            // Note: Token count still needs calculation elsewhere
-          }
-          setFileLoadingProgress({ current: 0, total: 0 }); // Reset progress
-
-          // --- START: New Code to Merge Line Counts into Tree (Correct Scope) ---
-          if (loadedTree) {
-              console.log(`Merging ${treeUpdates.length} content updates into the GitHub tree structure...`);
-              const treePathMap = new Map<string, GitHubTreeItem>();
-              // Create a new array for the updated tree to ensure state immutability
-              const updatedTreeItems = loadedTree.map(item => ({ ...item })); // Shallow copy items
-              updatedTreeItems.forEach(item => treePathMap.set(item.path, item));
-
-              treeUpdates.forEach(update => {
-                  const treeItem = treePathMap.get(update.path);
-                  if (treeItem && treeItem.type === 'blob') {
-                      // Add lines and formattedSize directly to the copied tree item object
-                      (treeItem as any).lines = update.lines;
-                       if (treeItem.size !== undefined && !(treeItem as any).formattedSize) {
-                            (treeItem as any).formattedSize = formatFileSize(treeItem.size);
-                       }
-                  } else {
-                       console.warn(`Could not find matching blob item in tree for update: ${update.path}`);
-                  }
-              });
-              // Update the state variable with the new array reference
-               setGithubTree(updatedTreeItems); // Use the new array with updated items
-               console.log("GitHub tree structure updated with line counts.");
-          }
-          // --- END: New Code ---
-
+        // Update the analysisResultData with metadata-only files
+        if (analysisResultData) {
+          analysisResultData.totalLines = 0; // No line count without content
+          analysisResultData.files = filesMetadata;
         }
 
         // 3. Find or Create Project Context
@@ -813,11 +741,31 @@ export default function ClientPageRoot() {
     console.groupEnd();
   }, []); // Dependency: setProjectTypes is stable
 
+  // Wrapper function to handle the new token calculator signature
+  const handleTokenCountChange = useCallback((count: number, details?: TokenCountDetails) => {
+    setTokenCount(count);
+    setTokenDetails(details || null);
+  }, []);
+
+  // Create stable GitHub repo info to avoid object recreation
+  const githubRepoInfo = useMemo(() => {
+    if (selectedRepoFullName && selectedBranchName) {
+      return {
+        owner: selectedRepoFullName.split('/')[0],
+        repo: selectedRepoFullName.split('/')[1],
+        branch: selectedBranchName
+      };
+    }
+    return undefined;
+  }, [selectedRepoFullName, selectedBranchName]);
+
   // This callback is passed to AnalysisResult for its internal state changes
-  const handleSelectedFilesChange = useCallback((filesOrUpdater: string[] | ((prev: string[]) => string[])) => {
+  const handleSelectedFilesChange = useCallback(async (filesOrUpdater: string[] | ((prev: string[]) => string[])) => {
+    // First, update the selected files state
+    let newSelectedFiles: string[] = [];
     setState(prevState => {
       // Calculate the new selectedFiles state
-      const newSelectedFiles = typeof filesOrUpdater === 'function'
+      newSelectedFiles = typeof filesOrUpdater === 'function'
         ? filesOrUpdater(prevState.selectedFiles)
         : filesOrUpdater;
 
@@ -831,9 +779,76 @@ export default function ClientPageRoot() {
       // If no change, return the previous state to avoid triggering effects
       return prevState;
     });
-    // The main useEffect watching `projects` will handle persistence if needed,
-    // triggered by save/rename/delete actions, not just selection changes.
-  }, []); // Dependency: setState is stable
+
+    // Check if we need to fetch content for any newly selected GitHub files
+    if (activeSourceTab === 'github' && githubRepoInfo && state.analysisResult) {
+      const previousSelectedFiles = state.selectedFiles;
+      const newlySelectedFiles = newSelectedFiles.filter(path => !previousSelectedFiles.includes(path));
+      
+      if (newlySelectedFiles.length > 0) {
+        // Find files that need content fetching
+        const filesToFetch = state.analysisResult.files.filter(file => 
+          newlySelectedFiles.includes(file.path) && 
+          file.dataSourceType === 'github' && 
+          !file.content
+        );
+
+        if (filesToFetch.length > 0) {
+          setLoadingStatus({ isLoading: true, message: `Fetching content for ${filesToFetch.length} files for token calculation...` });
+          
+          try {
+            const fetchPromises = filesToFetch.map(async (file) => {
+              try {
+                const contentUrl = `/api/github/content?owner=${githubRepoInfo.owner}&repo=${githubRepoInfo.repo}&path=${encodeURIComponent(file.path)}`;
+                const response = await fetch(contentUrl);
+                if (!response.ok) {
+                  const errorData = await response.json();
+                  throw new Error(errorData.error || `Failed to fetch content (${response.status})`);
+                }
+                const data = await response.json();
+                return { path: file.path, content: data.content, lines: data.content.split('\n').length };
+              } catch (err) {
+                console.error(`Failed to fetch content for ${file.path}:`, err);
+                return { path: file.path, content: '', lines: 0 };
+              }
+            });
+
+            const fetchedContents = await Promise.all(fetchPromises);
+
+            // Update the state with fetched content
+            setState(prevState => {
+              if (!prevState.analysisResult) return prevState;
+              
+              const updatedFiles = prevState.analysisResult.files.map(file => {
+                const fetchedContent = fetchedContents.find(fc => fc.path === file.path);
+                if (fetchedContent) {
+                  return {
+                    ...file,
+                    content: fetchedContent.content,
+                    lines: fetchedContent.lines
+                  };
+                }
+                return file;
+              });
+
+              return {
+                ...prevState,
+                analysisResult: {
+                  ...prevState.analysisResult,
+                  files: updatedFiles
+                }
+              };
+            });
+
+          } catch (error) {
+            console.error('Error fetching file contents for token calculation:', error);
+          } finally {
+            setLoadingStatus({ isLoading: false, message: null });
+          }
+        }
+      }
+    }
+  }, [activeSourceTab, githubRepoInfo, state.analysisResult, state.selectedFiles, setLoadingStatus]); // Updated dependencies
 
   // --- Named Selection Callbacks ---
   // Note: These now *only* update the `projects` state.
@@ -971,18 +986,6 @@ export default function ClientPageRoot() {
     console.groupEnd();
 
   }, [projects, currentProjectId, projectTypes, isMounted]); // Dependencies: projects, currentProjectId, projectTypes, isMounted
-
-  // Create stable GitHub repo info to avoid object recreation
-  const githubRepoInfo = useMemo(() => {
-    if (selectedRepoFullName && selectedBranchName) {
-      return {
-        owner: selectedRepoFullName.split('/')[0],
-        repo: selectedRepoFullName.split('/')[1],
-        branch: selectedBranchName
-      };
-    }
-    return undefined;
-  }, [selectedRepoFullName, selectedBranchName]);
 
   // --- START: Add back missing handlers ---
   const handleGitHubLogin = () => {
@@ -1351,7 +1354,8 @@ export default function ClientPageRoot() {
                   selectedFiles={state.selectedFiles}
                   onSelectedFilesChange={handleSelectedFilesChange}
                   tokenCount={tokenCount}
-                  setTokenCount={setTokenCount}
+                  setTokenCount={handleTokenCountChange}
+                  tokenDetails={tokenDetails}
                   maxTokens={MAX_TOKENS}
                   activeSourceTab={activeSourceTab}
                   githubTree={githubTree}

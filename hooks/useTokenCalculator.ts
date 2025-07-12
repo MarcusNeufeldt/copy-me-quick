@@ -6,15 +6,23 @@ interface LoadingStatus {
   isLoading: boolean; 
   message: string | null; 
 }
-interface UseTokenCalculatorProps {
-  selectedFiles: string[];
-  getAllFilesFromDataSource: () => FileData[];
-  onTokenCountChange: (count: number) => void;
-  getEncodingFunc: GetEncodingFunc | null;
+export interface TokenCountDetails {
+  totalTokens: number;
+  exactTokens: number;
+  estimatedTokens: number;
+  exactFileCount: number;
+  estimatedFileCount: number;
 }
 
 interface UseTokenCalculatorReturn {
   // No return values needed
+}
+
+interface UseTokenCalculatorProps {
+  selectedFiles: string[];
+  getAllFilesFromDataSource: () => FileData[];
+  onTokenCountChange: (count: number, details?: TokenCountDetails) => void;
+  getEncodingFunc: GetEncodingFunc | null;
 }
 
 export function useTokenCalculator({
@@ -43,22 +51,40 @@ export function useTokenCalculator({
 
     const allFiles = getAllFilesFromDataSource();
     const filesToProcess = allFiles.filter(f => selectedFiles.includes(f.path));
-    let currentTokenCount = 0;
+    
+    let exactTokens = 0;
+    let estimatedTokens = 0;
+    let exactFileCount = 0;
+    let estimatedFileCount = 0;
 
     for (const file of filesToProcess) {
       if (encoding && file.content) {
         try {
-          currentTokenCount += encoding.encode(file.content).length;
+          exactTokens += encoding.encode(file.content).length;
+          exactFileCount++;
         } catch {
-          currentTokenCount += Math.ceil((file.content.length || 0) / 4);
+          const fallbackTokens = Math.ceil((file.content.length || 0) / 4);
+          exactTokens += fallbackTokens;
+          exactFileCount++;
         }
       } else {
-        currentTokenCount += Math.ceil((file.size || 0) / 4);
+        const estimatedFileTokens = Math.ceil((file.size || 0) / 4);
+        estimatedTokens += estimatedFileTokens;
+        estimatedFileCount++;
       }
     }
     
-    console.log('Finished token calculation');
-    onTokenCountChange(currentTokenCount);
+    const totalTokens = exactTokens + estimatedTokens;
+    const details: TokenCountDetails = {
+      totalTokens,
+      exactTokens,
+      estimatedTokens,
+      exactFileCount,
+      estimatedFileCount
+    };
+    
+    console.log('Finished token calculation', details);
+    onTokenCountChange(totalTokens, details);
 
   }, [selectedFiles, getAllFilesFromDataSource, onTokenCountChange, getEncodingFunc]);
 

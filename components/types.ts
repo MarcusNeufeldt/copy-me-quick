@@ -74,7 +74,7 @@ export interface FileSelectorProps {
   selectedFiles: string[];
   setSelectedFiles: (filesOrUpdater: string[] | ((prev: string[]) => string[])) => void;
   maxTokens: number;
-  onTokenCountChange: (count: number) => void;
+  onTokenCountChange: (count: number, details?: import('../hooks/useTokenCalculator').TokenCountDetails) => void;
   allFiles?: FileData[];
   setLoadingStatus: React.Dispatch<React.SetStateAction<LoadingStatus>>;
   loadingStatus: LoadingStatus;
@@ -87,7 +87,8 @@ export interface AnalysisResultProps {
   selectedFiles: string[];
   onSelectedFilesChange: (filesOrUpdater: string[] | ((prev: string[]) => string[])) => void;
   tokenCount: number;
-  setTokenCount: React.Dispatch<React.SetStateAction<number>>;
+  setTokenCount: (count: number, details?: import('../hooks/useTokenCalculator').TokenCountDetails) => void;
+  tokenDetails?: import('../hooks/useTokenCalculator').TokenCountDetails | null;
   maxTokens: number;
   activeSourceTab: 'local' | 'github';
   githubTree: GitHubTreeItem[] | null;
