@@ -150,10 +150,6 @@ const AnalysisResult: React.FC<AnalysisResultProps> = React.memo(({
   dataSource,
   setLoadingStatus,
   loadingStatus,
-  namedSelections,
-  onSaveNamedSelection,
-  onRenameNamedSelection,
-  onDeleteNamedSelection,
 }) => {
   const [copySuccess, setCopySuccess] = useState(false);
   const [activeFileTab, setActiveFileTab] = useState('selector');
@@ -603,10 +599,6 @@ const AnalysisResult: React.FC<AnalysisResultProps> = React.memo(({
                 tokenCount={tokenCount}
                 setLoadingStatus={setLoadingStatus}
                 loadingStatus={loadingStatus}
-                namedSelections={namedSelections}
-                onSaveNamedSelection={onSaveNamedSelection}
-                onRenameNamedSelection={onRenameNamedSelection}
-                onDeleteNamedSelection={onDeleteNamedSelection}
               />
             </CardContent>
           </Card>

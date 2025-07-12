@@ -1,15 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef, Dispatch, SetStateAction } from 'react';
 import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-  DialogTrigger,
-} from "@/components/ui/dialog";
-import { Label } from "@/components/ui/label";
+
 import { Toaster, toast } from 'sonner';
 
 // Removed synchronous loading attempts
@@ -43,9 +34,7 @@ import {
   X, 
   FileSearch, 
   FileWarning, 
-  Ban, 
-  BookMarked, 
-  Trash2
+  Ban
 } from 'lucide-react';
 import { FileData, AppState, DataSource, GitHubTreeItem, GitHubRepoInfo, FileSelectorProps } from './types';
 import FileTreeNodeMemo, { InternalTreeNode } from './FileTreeNode';
@@ -61,7 +50,7 @@ import {
 } from './fileSelectorUtils';
 import { useTokenCalculator } from '../hooks/useTokenCalculator'; // Adjust path if needed
 import { useClipboardCopy } from '../hooks/useClipboardCopy'; // Adjust path if needed
-import NamedSelectionsManager from './NamedSelectionsManager'; // Import the manager
+
 
 // Add LoadingStatus interface definition
 interface LoadingStatus {
@@ -82,10 +71,6 @@ const FileSelector = ({
   tokenCount,
   setLoadingStatus,
   loadingStatus,
-  namedSelections,
-  onSaveNamedSelection,
-  onRenameNamedSelection,
-  onDeleteNamedSelection,
 }: FileSelectorProps & { tokenCount: number }) => {
   const [fileTree, setFileTree] = useState<{ [key: string]: InternalTreeNode } | null>(null);
   const [expandedNodes, setExpandedNodes] = useState<Set<string>>(new Set());
@@ -94,9 +79,6 @@ const FileSelector = ({
   const [minifyOnCopy, setMinifyOnCopy] = useState<boolean>(true);
   const [aiError, setAiError] = useState<string | null>(null);
   const [highlightSearch, setHighlightSearch] = useState(false);
-  const [isSaveDialogOpen, setIsSaveDialogOpen] = useState(false);
-  const [newSelectionName, setNewSelectionName] = useState('');
-  const [isManageDialogOpen, setIsManageDialogOpen] = useState(false); // State for manager dialog
 
   // State to hold the get_encoding function once loaded
   const [getEncodingFunc, setGetEncodingFunc] = useState<(() => any) | null>(null);
@@ -509,46 +491,7 @@ const FileSelector = ({
       return { totalFilesCount: files.length, totalLinesCount: lines };
   }, [getAllFilesFromDataSource]);
 
-  const handleSaveSelection = () => {
-    if (!onSaveNamedSelection || !newSelectionName.trim()) {
-      toast.error("Please enter a valid name for the selection.");
-      return;
-    }
-    const name = newSelectionName.trim();
 
-    if (namedSelections && namedSelections[name]) {
-      if (!confirm(`A selection named "${name}" already exists. Overwrite it?`)) {
-        return;
-      }
-    }
-    onSaveNamedSelection(name, selectedFiles);
-    toast.success(`Selection "${name}" saved.`);
-    setIsSaveDialogOpen(false);
-    setNewSelectionName('');
-  };
-
-  const handleLoadSelection = (name: string) => {
-    if (!namedSelections || !namedSelections[name]) {
-      toast.error(`Selection "${name}" not found.`);
-      return;
-    }
-    const savedPaths = namedSelections[name];
-    const allCurrentFiles = getAllFilesFromDataSource();
-    const availablePaths = new Set(allCurrentFiles.map(f => f.path));
-    
-    const validPathsToLoad = savedPaths.filter(p => availablePaths.has(p));
-    const skippedCount = savedPaths.length - validPathsToLoad.length;
-
-    onSelectedFilesChange(validPathsToLoad);
-
-    let message = `Loaded selection "${name}".`;
-    if (skippedCount > 0) {
-      message += ` Skipped ${skippedCount} file(s) not found in the current project.`;
-      toast.warning(message);
-    } else {
-      toast.success(message);
-    }
-  };
 
   if (!fileTree) {
     return (
@@ -680,74 +623,7 @@ const FileSelector = ({
               </DropdownMenuContent>
             </DropdownMenu>
 
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="sm" className="h-7 px-2">
-                  <BookMarked className="mr-1.5 h-3.5 w-3.5 text-muted-foreground" />
-                  <span className="text-muted-foreground">Presets</span>
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="start">
-                <DropdownMenuItem
-                  disabled={selectedFiles.length === 0}
-                  onSelect={() => setIsSaveDialogOpen(true)}
-                >
-                  Save Current Selection...
-                </DropdownMenuItem>
-                {namedSelections && Object.keys(namedSelections).length > 0 && (
-                  <>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuLabel>Load Selection</DropdownMenuLabel>
-                    {Object.entries(namedSelections).map(([name, paths]) => (
-                      <DropdownMenuItem 
-                        key={name} 
-                        onClick={() => handleLoadSelection(name)}
-                      >
-                        {name} ({paths.length} files)
-                      </DropdownMenuItem>
-                    ))}
-                  </>
-                )}
-                {namedSelections && Object.keys(namedSelections).length > 0 && (
-                  <>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem onClick={() => setIsManageDialogOpen(true)}>
-                      Manage Selections...
-                    </DropdownMenuItem>
-                  </>
-                )}
-              </DropdownMenuContent>
-            </DropdownMenu>
 
-            {/* The Dialog is now a separate, sibling component */}
-            <Dialog open={isSaveDialogOpen} onOpenChange={setIsSaveDialogOpen}>
-              <DialogContent>
-                <DialogHeader>
-                  <DialogTitle>Save Current Selection</DialogTitle>
-                  <DialogDescription>
-                    Enter a name to save the currently selected {selectedFiles.length} file(s).
-                  </DialogDescription>
-                </DialogHeader>
-                <div className="grid gap-4 py-4">
-                  <div className="grid grid-cols-4 items-center gap-4">
-                    <Label htmlFor="selection-name" className="text-right">
-                      Name
-                    </Label>
-                    <Input
-                      id="selection-name"
-                      value={newSelectionName}
-                      onChange={(e) => setNewSelectionName(e.target.value)}
-                      className="col-span-3"
-                      placeholder="e.g., Authentication Logic"
-                    />
-                  </div>
-                </div>
-                <DialogFooter>
-                  <Button variant="outline" onClick={() => setIsSaveDialogOpen(false)}>Cancel</Button>
-                  <Button onClick={handleSaveSelection} disabled={!newSelectionName.trim()}>Save</Button>
-                </DialogFooter>
-              </DialogContent>
-            </Dialog>
         </div>
 
          {/* File Size Legend (Condensed) */}
@@ -839,16 +715,7 @@ const FileSelector = ({
         </div>
       </div>
 
-      {/* Render Manager Dialog */} 
-      {onRenameNamedSelection && onDeleteNamedSelection && (
-        <NamedSelectionsManager 
-          isOpen={isManageDialogOpen}
-          onOpenChange={setIsManageDialogOpen}
-          namedSelections={namedSelections || {}}
-          onRenameSelection={onRenameNamedSelection}
-          onDeleteSelection={onDeleteNamedSelection}
-        />
-      )}
+
     </div>
   );
 };

@@ -79,7 +79,6 @@ const initialAppState: AppState = {
   selectedFiles: [],
   excludeFolders: 'node_modules,.git,dist,.next',
   fileTypes: '.js,.jsx,.ts,.tsx,.py',
-  namedSelections: {},
 };
 
 interface GitHubUser {
@@ -227,10 +226,6 @@ export default function ClientPageRoot() {
         }
 
         const loadedState = currentProject.state;
-        if (typeof loadedState.namedSelections !== 'object' || loadedState.namedSelections === null || Array.isArray(loadedState.namedSelections)) {
-          console.warn("Loaded state namedSelections is not an object, resetting to empty object.");
-          loadedState.namedSelections = {};
-        }
         setState(loadedState);
         setCurrentProjectId(savedProjectId); // Set project ID after state/tab
         loadedStateFromStorage = true;
@@ -288,13 +283,7 @@ export default function ClientPageRoot() {
     if (savedProjectId) {
       const currentProject = loadedProjects.find((p: Project) => p.id === savedProjectId);
       if (currentProject) {
-        // Ensure namedSelections is an object when loading state
         const loadedState = currentProject.state;
-        // Ensure namedSelections is an object
-        if (typeof loadedState.namedSelections !== 'object' || loadedState.namedSelections === null || Array.isArray(loadedState.namedSelections)) {
-          console.warn("Loaded state namedSelections is not an object, resetting to empty object.");
-          loadedState.namedSelections = {};
-        }
         setState(loadedState);
       } else {
          setState(initialAppState); // Reset if project not found
@@ -571,7 +560,6 @@ export default function ClientPageRoot() {
             ...initialAppState,
             analysisResult: analysisResultData, // Includes commitDate
             selectedFiles: [],
-            namedSelections: {}, // Start fresh
           };
           const newProject: Project = {
             id: targetProjectId,
@@ -712,7 +700,6 @@ export default function ClientPageRoot() {
           ...initialAppState,
           analysisResult: newAnalysisResult,
           selectedFiles: [],
-          namedSelections: {},
         };
         const newProject: Project = {
           id: newCurrentProjectId,
@@ -771,136 +758,7 @@ export default function ClientPageRoot() {
   // that synchronizes `state` with the current project's state from the `projects` array.
   // This ensures a single source of truth and avoids potential race conditions.
 
-  const saveNamedSelection = useCallback((name: string, files: string[]) => {
-    if (!currentProjectId) {
-      console.warn("Attempted to save selection without current project ID.");
-      return;
-    }
 
-    console.log(`Attempting to save selection '${name}' for project ${currentProjectId}`);
-    
-    // Update the projects array for persistence
-    setProjects(prevProjects => {
-      const projectIndex = prevProjects.findIndex(p => p.id === currentProjectId);
-      if (projectIndex === -1) {
-        console.warn("Current project ID not found in projects array during preset save.");
-        return prevProjects; // Return unchanged state
-      }
-
-      const newProjects = [...prevProjects]; // Copy projects array
-      const projectToUpdate = { ...newProjects[projectIndex] }; // Copy project to update
-      const updatedState = { ...projectToUpdate.state }; // Copy state of that project
-      updatedState.namedSelections = { ...(updatedState.namedSelections || {}), [name]: files }; // Update selections
-      projectToUpdate.state = updatedState; // Assign updated state to copied project
-      newProjects[projectIndex] = projectToUpdate; // Put updated project back into copied array
-
-      console.log(`Saved selection: ${name} with ${files.length} files for project ${currentProjectId}. Updated projects state.`);
-      return newProjects; // Return the new projects array
-    });
-
-    // Update the live state object directly and precisely.
-    // This is cheap and prevents a re-render cascade.
-    setState(s => ({
-      ...s,
-      namedSelections: { ...(s.namedSelections || {}), [name]: files },
-    }));
-  }, [currentProjectId]); // Dependencies: currentProjectId, setProjects (stable)
-
-  const renameNamedSelection = useCallback((oldName: string, newName: string) => {
-    if (!currentProjectId) {
-      console.warn("Attempted to rename selection without current project ID.");
-      return;
-    }
-    if (!newName || oldName === newName) {
-      console.warn("Invalid rename operation.");
-      return;
-    }
-
-    console.log(`Attempting to rename selection '${oldName}' to '${newName}' for project ${currentProjectId}`);
-    
-    // Update the projects array for persistence
-    setProjects(prevProjects => {
-      const projectIndex = prevProjects.findIndex(p => p.id === currentProjectId);
-      if (projectIndex === -1) {
-        console.warn("Current project ID not found in projects array during preset rename.");
-        return prevProjects;
-      }
-
-      const newProjects = [...prevProjects];
-      const projectToUpdate = { ...newProjects[projectIndex] };
-      const updatedState = { ...projectToUpdate.state };
-      const updatedNamedSelections = { ...(updatedState.namedSelections || {}) };
-
-      if (!updatedNamedSelections[oldName] || updatedNamedSelections[newName]) {
-        console.warn(`Rename failed: Old name '${oldName}' not found or new name '${newName}' already exists.`);
-        return prevProjects; // Prevent overwriting or renaming non-existent entry
-      }
-
-      updatedNamedSelections[newName] = updatedNamedSelections[oldName];
-      delete updatedNamedSelections[oldName];
-
-      updatedState.namedSelections = updatedNamedSelections;
-      projectToUpdate.state = updatedState;
-      newProjects[projectIndex] = projectToUpdate;
-
-      console.log(`Renamed selection: ${oldName} -> ${newName} for project ${currentProjectId}. Updated projects state.`);
-      return newProjects;
-    });
-
-    // Update the live state object directly and precisely.
-    setState(s => {
-      const newSelections = { ...(s.namedSelections || {}) };
-      if (newSelections[oldName]) {
-        newSelections[newName] = newSelections[oldName];
-        delete newSelections[oldName];
-      }
-      return { ...s, namedSelections: newSelections };
-    });
-  }, [currentProjectId]); // Dependencies: currentProjectId, setProjects (stable)
-
-    const deleteNamedSelection = useCallback((name: string) => {
-    if (!currentProjectId) {
-      console.warn("Attempted to delete selection without current project ID.");
-      return;
-    }
-
-    console.log(`Attempting to delete selection '${name}' for project ${currentProjectId}`);
-    
-    // Update the projects array for persistence
-    setProjects(prevProjects => {
-      const projectIndex = prevProjects.findIndex(p => p.id === currentProjectId);
-      if (projectIndex === -1) {
-        console.warn("Current project ID not found in projects array during preset delete.");
-        return prevProjects;
-      }
-
-      const newProjects = [...prevProjects];
-      const projectToUpdate = { ...newProjects[projectIndex] };
-      const updatedState = { ...projectToUpdate.state };
-      const updatedNamedSelections = { ...(updatedState.namedSelections || {}) };
-
-      if (!updatedNamedSelections[name]) {
-        console.warn(`Delete failed: Selection '${name}' not found.`);
-        return prevProjects; // Prevent deleting non-existent entry
-      }
-
-      delete updatedNamedSelections[name];
-
-      updatedState.namedSelections = updatedNamedSelections;
-      projectToUpdate.state = updatedState;
-      newProjects[projectIndex] = projectToUpdate;
-
-      console.log(`Deleted selection: ${name} for project ${currentProjectId}. Updated projects state.`);
-      return newProjects;
-    });
-
-    // Update the live state object directly and precisely.
-    setState(s => {
-      const newSelections = { ...(s.namedSelections || {}) };
-      delete newSelections[name];
-      return { ...s, namedSelections: newSelections };
-    });
-  }, [currentProjectId]); // Dependencies: currentProjectId, setProjects (stable)
 
 
 
@@ -1400,20 +1258,7 @@ export default function ClientPageRoot() {
                   Clear Current Session
                 </Button>
 
-                {/* Improved Presets Info Section */}
-                <Alert variant="default" className="mt-4 bg-blue-50 border-blue-200 dark:bg-blue-950 dark:border-blue-800 flex flex-col">
-                  <div className="flex items-center mb-1"> {/* Container for icon and title */}
-                    <Info className="h-4 w-4 text-blue-600 dark:text-blue-400 mr-2 flex-shrink-0" />
-                    <AlertTitle className="text-sm font-semibold text-blue-800 dark:text-blue-300">
-                      New Feature: Presets!
-                    </AlertTitle>
-                  </div>
-                  <AlertDescription className="text-xs text-blue-700 dark:text-blue-400 pl-6"> {/* Indent description */}
-                    Quickly save and load common file selections using the <BookMarked className="inline-block h-3 w-3 mx-0.5" /> <strong>Presets</strong> button in the File Selector.
-                    <br /> {/* Line break */}
-                    <span className="opacity-80"> (Saved per-project in browser storage).</span>
-                  </AlertDescription>
-                </Alert>
+
               </CardContent>
             </Card>
           </aside>
@@ -1439,10 +1284,6 @@ export default function ClientPageRoot() {
                   dataSource={currentDataSource}
                   setLoadingStatus={setLoadingStatus}
                   loadingStatus={loadingStatus}
-                  namedSelections={state.namedSelections || {}}
-                  onSaveNamedSelection={saveNamedSelection}
-                  onRenameNamedSelection={renameNamedSelection}
-                  onDeleteNamedSelection={deleteNamedSelection}
                 />
               </>
             ) : (
