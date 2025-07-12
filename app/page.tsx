@@ -224,6 +224,7 @@ export default function ClientPageRoot() {
   // Refs for stable filter handling
   const excludeFoldersRef = useRef(state.excludeFolders);
   const isInitialMount = useRef(true);
+  const isInitialLoad = useRef(true);
 
   // Load state from localStorage only on the client after mount
   useEffect(() => {
@@ -359,6 +360,7 @@ export default function ClientPageRoot() {
   useEffect(() => {
     excludeFoldersRef.current = state.excludeFolders;
   }, [state.excludeFolders]);
+
 
   // Fetch Branches when a repo is selected
   const handleRepoChange = useCallback((repoFullName: string) => {
@@ -591,6 +593,36 @@ export default function ClientPageRoot() {
     fetchTreeAndSetProject();
 
   }, [repos, selectedRepoFullName, projects, setProjects, setState, setCurrentProjectId, setLoadingStatus]); // Removed state.excludeFolders dependency
+
+  // Controller useEffect: Programmatically trigger data load on refresh (Fix #3: Missing Trigger)
+  useEffect(() => {
+    // This effect should only run once after the initial data is ready.
+    if (
+      isInitialLoad.current &&
+      activeSourceTab === 'github' &&
+      githubAuthChecked &&
+      repos.length > 0 &&
+      selectedRepoFullName &&
+      selectedBranchName
+    ) {
+      console.log("Page refresh detected. Programmatically loading restored GitHub project...");
+      
+      // Find the repo to ensure it's valid before proceeding
+      const repoExists = repos.some(r => r.full_name === selectedRepoFullName);
+      if (repoExists) {
+        handleBranchChange(selectedBranchName);
+      }
+      
+      isInitialLoad.current = false; // Mark that we've handled the initial load.
+    }
+  }, [
+    githubAuthChecked,
+    repos,
+    selectedRepoFullName,
+    selectedBranchName,
+    handleBranchChange,
+    activeSourceTab
+  ]);
 
   // Handler for saving filters - now saves globally for GitHub tab
   const handleSaveFilters = useCallback((newExclusions: string) => {
