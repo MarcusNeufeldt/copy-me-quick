@@ -34,6 +34,7 @@ export interface Project {
   githubRepoFullName?: string;
   githubBranch?: string;
   state: AppState;
+  lastAccessed?: number; // Unix timestamp
 }
 
 export interface GitHubTreeItem {
