@@ -6,6 +6,13 @@ import { FileUp, RefreshCw, Loader2 } from 'lucide-react';
 import { AppState, FileData, AnalysisResultData } from './types';
 import { saveDirectoryHandle } from '@/lib/indexeddb'; // <-- IMPORT new helper
 
+// Add this at the top of the file (after imports)
+declare global {
+  interface Window {
+    showDirectoryPicker?: () => Promise<FileSystemDirectoryHandle>;
+  }
+}
+
 // --- Helper to recursively get files from a directory handle ---
 async function getFilesFromHandle(
   dirHandle: FileSystemDirectoryHandle,
