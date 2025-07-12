@@ -41,8 +41,7 @@ const ProjectSelector: React.FC<ProjectSelectorProps> = ({
         projectType: type,
       }));
     }
-    // "none" is a valid selection that should enable uploads (it means "all files")
-    onProjectTypeSelected(true);
+    onProjectTypeSelected(type !== "none");
   };
 
   const handleEditClick = () => {
