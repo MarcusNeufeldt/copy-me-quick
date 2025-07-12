@@ -138,6 +138,10 @@ const FileUploadSection: React.FC<FileUploadSectionProps> = ({
   // NEW: Handler for the "Choose Folder" button click
   const handleChooseFolder = async () => {
     try {
+      if (!window.showDirectoryPicker) {
+        setError("Your browser doesn't support the File System Access API. Please use Chrome or Edge.");
+        return;
+      }
       const dirHandle = await window.showDirectoryPicker();
       setLoadingStatus({ isLoading: true, message: 'Reading folder...' });
       const files = await getFilesFromHandle(dirHandle);
