@@ -9,7 +9,7 @@ import AnalysisResult from '@/components/AnalysisResult';
 import { AppState, Project, FileData, AnalysisResultData, DataSource, GitHubRepoInfo } from '@/components/types';
 import dynamic from 'next/dynamic';
 import { Button } from "@/components/ui/button";
-import { GithubIcon, RotateCcw, Code2, GitBranchPlus, LayoutGrid, Github, CheckCircle, XCircle, GitBranch, BookMarked, Computer, Loader2, ShieldCheck, Info, RefreshCw } from 'lucide-react';
+import { GithubIcon, RotateCcw, Code2, GitBranchPlus, LayoutGrid, Github, CheckCircle, XCircle, GitBranch, BookMarked, Computer, Loader2, ShieldCheck, Info, RefreshCw, Filter } from 'lucide-react';
 import Image from 'next/image';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import FileSelector from '@/components/FileSelector';
@@ -32,6 +32,8 @@ import { SpeedInsights } from "@vercel/speed-insights/next";
 import { formatDistanceToNow } from 'date-fns';
 import { saveDirectoryHandle, getDirectoryHandle } from '@/lib/indexeddb';
 import { TokenCountDetails } from '@/hooks/useTokenCalculator';
+import GitHubFilterManager from '@/components/GitHubFilterManager';
+import { toast, Toaster } from 'sonner';
 
 // Dynamically import Analytics with error handling
 const AnalyticsComponent = dynamic(
@@ -216,6 +218,7 @@ export default function ClientPageRoot() {
   const [githubTree, setGithubTree] = useState<GitHubTreeItem[] | null>(null);
   const [isGithubTreeTruncated, setIsGithubTreeTruncated] = useState(false);
   const [fileLoadingMessage, setFileLoadingMessage] = useState<string | null>(null); // Keep this for specific warnings
+  const [isFilterSheetOpen, setIsFilterSheetOpen] = useState(false);
 
   // Load state from localStorage only on the client after mount
   useEffect(() => {
@@ -455,7 +458,33 @@ export default function ClientPageRoot() {
         const treeData = await treeResponse.json();
         if (!treeResponse.ok) throw new Error(treeData.error || 'Failed to fetch file tree');
 
-        loadedTree = treeData.tree;
+        // Apply current filters to the tree
+        const excludedPatterns = state.excludeFolders.split(',').map(f => f.trim()).filter(Boolean);
+        const fullTreeFromAPI: GitHubTreeItem[] = treeData.tree;
+        
+        const filteredApiTree = fullTreeFromAPI.filter(item => {
+          if (item.type !== 'blob') {
+            return true; // Keep directories
+          }
+          const pathComponents = item.path.split('/');
+          const fileName = pathComponents[pathComponents.length - 1];
+          const parentFolders = pathComponents.slice(0, -1);
+          
+          for (const pattern of excludedPatterns) {
+            if (parentFolders.includes(pattern)) {
+              return false;
+            }
+            if (pattern.startsWith('*.')) {
+              if (fileName.endsWith(pattern.substring(1))) return false;
+            } else if (fileName === pattern) {
+              return false;
+            }
+          }
+          
+          return true;
+        });
+
+        loadedTree = filteredApiTree;
         loadedCommitDate = treeData.commitDate; // Capture the commit date
 
         // Add formatted file sizes to tree items for display
@@ -473,6 +502,9 @@ export default function ClientPageRoot() {
         setIsGithubTreeTruncated(treeData.truncated ?? false);
 
         const totalFileCount = loadedTree?.filter(item => item.type === 'blob').length || 0;
+        const totalScannedCount = (fullTreeFromAPI).filter(item => item.type === 'blob').length || 0;
+        const filteredCount = totalScannedCount - totalFileCount;
+        
         const repoInfo: GitHubRepoInfo = {
           owner: selectedRepo.owner.login,
           repo: selectedRepo.name,
@@ -484,7 +516,7 @@ export default function ClientPageRoot() {
           totalFiles: totalFileCount,
           totalLines: 0,
           totalTokens: 0,
-          summary: `GitHub repo: ${selectedRepoFullName}, Branch: ${branchName}`,
+          summary: `GitHub repo: ${selectedRepoFullName}, Branch: ${branchName}. ${filteredCount > 0 ? `${filteredCount} files filtered.` : ''}`,
           project_tree: `GitHub Tree Structure for ${selectedRepoFullName}/${branchName}`,
           files: [], // Start with empty files
           commitDate: loadedCommitDate // Store date in analysisResult too
@@ -586,7 +618,16 @@ export default function ClientPageRoot() {
 
     fetchTreeAndSetProject();
 
-  }, [repos, selectedRepoFullName, projects, setProjects, setState, setCurrentProjectId, setLoadingStatus]); // Added projects dependencies
+  }, [repos, selectedRepoFullName, projects, setProjects, setState, setCurrentProjectId, setLoadingStatus, state.excludeFolders]); // Added projects dependencies
+
+  // Handler for saving filters
+  const handleSaveFilters = useCallback((newExclusions: string) => {
+    setState(prevState => ({ ...prevState, excludeFolders: newExclusions }));
+    if (selectedBranchName) {
+      toast("Filters updated. Refreshing file tree...");
+      // The handleBranchChange will be triggered by the dependency change
+    }
+  }, [selectedBranchName]);
 
   // Persist state changes to localStorage
   useEffect(() => {
@@ -1220,6 +1261,9 @@ export default function ClientPageRoot() {
 
   return (
     <div className="relative">
+      {/* Toast notifications */}
+      <Toaster position="top-center" />
+      
       {/* Unified Loading Indicator */}
       {loadingStatus.isLoading && (
         <div className="fixed top-0 left-0 w-full h-1 bg-primary/10 z-50">
@@ -1342,6 +1386,14 @@ export default function ClientPageRoot() {
                            </div>
                            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={handleGitHubLogout} title="Disconnect GitHub">
                              <XCircle className="h-4 w-4 text-muted-foreground" />
+                           </Button>
+                         </div>
+
+                         {/* Filter Button */}
+                         <div className="space-y-1.5">
+                           <Button variant="outline" className="w-full" onClick={() => setIsFilterSheetOpen(true)}>
+                             <Filter className="mr-2 h-4 w-4" />
+                             Filter Files & Folders
                            </Button>
                          </div>
 
@@ -1571,6 +1623,14 @@ export default function ClientPageRoot() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* GitHub Filter Manager */}
+      <GitHubFilterManager
+        isOpen={isFilterSheetOpen}
+        onClose={() => setIsFilterSheetOpen(false)}
+        currentExclusions={state.excludeFolders}
+        onSave={handleSaveFilters}
+      />
 
       <AnalyticsComponent />
       <SpeedInsights />
