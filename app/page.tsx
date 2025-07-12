@@ -440,37 +440,46 @@ export default function ClientPageRoot() {
         const treeData = await treeResponse.json();
         if (!treeResponse.ok) throw new Error(treeData.error || 'Failed to fetch file tree');
 
-        // Apply current filters to the tree
-        const excludedPatterns = (excludeFoldersRef.current || '').split(',').map(f => f.trim()).filter(Boolean);
         const fullTreeFromAPI: GitHubTreeItem[] = treeData.tree || [];
-        
-        const filteredApiTree = fullTreeFromAPI.filter(item => {
-          if (item.type !== 'blob') {
-            return true; // Keep directories
-          }
-          const pathComponents = item.path.split('/');
-          const fileName = pathComponents[pathComponents.length - 1];
-          const parentFolders = pathComponents.slice(0, -1);
-          
-          for (const pattern of excludedPatterns) {
-            if (parentFolders.includes(pattern)) {
-              return false;
-            }
-            if (pattern.startsWith('*.')) {
-              if (fileName.endsWith(pattern.substring(1))) return false;
-            } else if (fileName === pattern) {
-              return false;
-            }
-          }
-          
-          return true;
-        });
-
-        loadedTree = filteredApiTree;
         loadedCommitDate = treeData.commitDate; // Capture the commit date
 
+        // --- SINGLE, CONSOLIDATED FILTERING PASS ---
+        const excludedFolders = state.excludeFolders.split(',').map(f => f.trim()).filter(Boolean);
+        const allowedFileTypes = state.fileTypes.split(',').map(t => t.trim()).filter(Boolean);
+        
+        const filesMetadata: FileData[] = fullTreeFromAPI
+          .filter(item => {
+            if (item.type !== 'blob') return false; // Only operate on files
+
+            const pathComponents = item.path.split('/');
+            const isExcluded = pathComponents.slice(0, -1).some(folder => excludedFolders.includes(folder));
+            if (isExcluded) return false;
+            
+            // Apply file-level exclusion (like specific filenames)
+            if (excludedFolders.includes(item.path)) return false;
+
+            // Apply file type filters
+            const fileExtension = item.path.includes('.') ? '.' + item.path.split('.').pop() : '';
+            const fileMatchesType = allowedFileTypes.length === 0 || allowedFileTypes.includes('*') ||
+              allowedFileTypes.some(type => {
+                return item.path === type || (type.startsWith('.') && fileExtension === type);
+              });
+            if (!fileMatchesType) return false;
+            
+            return true;
+          })
+          .map(item => ({
+            path: item.path,
+            lines: 0,
+            content: '',
+            size: item.size,
+            sha: item.sha,
+            dataSourceType: 'github'
+          }));
+        // --- END: SINGLE, CONSOLIDATED FILTERING PASS ---
+
         // Add formatted file sizes to tree items for display
-        const enhancedTree = loadedTree?.map(item => {
+        const enhancedTree = fullTreeFromAPI.map(item => {
           if (item.type === 'blob' && item.size !== undefined) {
             return {
               ...item,
@@ -478,14 +487,13 @@ export default function ClientPageRoot() {
             };
           }
           return item;
-        }) || null;
+        });
 
         setGithubTree(enhancedTree); // Update tree state for FileSelector with enhanced data
         setIsGithubTreeTruncated(treeData.truncated ?? false);
 
-        const totalFileCount = loadedTree?.filter(item => item.type === 'blob').length || 0;
-        const totalScannedCount = (fullTreeFromAPI).filter(item => item.type === 'blob').length || 0;
-        const filteredCount = totalScannedCount - totalFileCount;
+        const totalScannedCount = fullTreeFromAPI.filter(item => item.type === 'blob').length;
+        const filteredCount = totalScannedCount - filesMetadata.length;
         
         const repoInfo: GitHubRepoInfo = {
           owner: selectedRepo.owner.login,
@@ -495,54 +503,14 @@ export default function ClientPageRoot() {
 
         // Initial analysis data (lines/content/tokens will be added)
         analysisResultData = {
-          totalFiles: totalFileCount,
+          totalFiles: filesMetadata.length, // Correctly reflects the count AFTER filtering
           totalLines: 0,
           totalTokens: 0,
-          summary: `GitHub repo: ${selectedRepoFullName}, Branch: ${branchName}. ${filteredCount > 0 ? `${filteredCount} files filtered.` : ''}`,
+          summary: `GitHub repo: ${selectedRepoFullName}, Branch: ${branchName}. ${filteredCount > 0 ? `${filteredCount} files hidden by filters.` : ''}`,
           project_tree: `GitHub Tree Structure for ${selectedRepoFullName}/${branchName}`,
-          files: [], // Start with empty files
-          commitDate: loadedCommitDate // Store date in analysisResult too
+          files: filesMetadata, // Use the correctly filtered list
+          commitDate: loadedCommitDate
         };
-
-        // 2. Get project state for filtering (Fix #2: Apply Filters to GitHub Tree)
-        const projectStateForFiltering = projects.find(p => p.githubRepoFullName === selectedRepoFullName && p.githubBranch === branchName)?.state || state;
-        const excludedFolders = projectStateForFiltering.excludeFolders.split(',').map(f => f.trim()).filter(f => f);
-        const allowedFileTypes = projectStateForFiltering.fileTypes.split(',').map(t => t.trim()).filter(t => t);
-
-        // Create metadata-only files with filtering applied
-        const filesMetadata: FileData[] = (loadedTree || [])
-          .filter(item => {
-            if (item.type !== 'blob') return false;
-
-            // Apply folder exclusion filters
-            const pathComponents = item.path.split('/');
-            const isExcluded = pathComponents.slice(0, -1).some(component => excludedFolders.includes(component));
-            if (isExcluded) return false;
-
-            // Apply file type filters
-            const fileExtension = item.path.includes('.') ? '.' + item.path.split('.').pop() : '';
-            const fileMatchesType = allowedFileTypes.length === 0 || allowedFileTypes.includes('*') ||
-              allowedFileTypes.some(type => {
-                return item.path === type || (type.startsWith('.') && fileExtension === type);
-              });
-            if (!fileMatchesType) return false;
-
-            return true; // Keep the file
-          })
-          .map(item => ({
-            path: item.path,
-            lines: 0, // Set lines to 0 since we don't have content to count
-            content: '', // Set content to empty string
-            size: item.size,
-            sha: item.sha,
-            dataSourceType: 'github'
-          }));
-
-        // Update the analysisResultData with metadata-only files
-        if (analysisResultData) {
-          analysisResultData.totalLines = 0; // No line count without content
-          analysisResultData.files = filesMetadata;
-        }
 
         // 3. Find or Create Project Context
         setLoadingStatus({ isLoading: true, message: 'Setting project context...' });
