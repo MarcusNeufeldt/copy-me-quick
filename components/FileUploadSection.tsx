@@ -12,7 +12,8 @@ async function getFilesFromHandle(
   path: string = ''
 ): Promise<File[]> {
   const files: File[] = [];
-  for await (const entry of dirHandle.values()) {
+  // @ts-ignore: .values() is not yet in TypeScript's lib.dom.d.ts
+  for await (const entry of (dirHandle as any).values()) {
     const newPath = path ? `${path}/${entry.name}` : entry.name;
     if (entry.kind === 'file') {
       const file = await entry.getFile();
