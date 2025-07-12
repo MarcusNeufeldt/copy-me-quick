@@ -260,15 +260,15 @@ export default function ClientPageRoot() {
     const loadedProjects: Project[] = savedProjectsStr ? JSON.parse(savedProjectsStr) : [];
     setProjects(loadedProjects);
 
-    let stateToLoad: AppState = { ...initialAppState };
+    let stateFromStorage: Partial<AppState> = {};
     let tabToLoad: 'local' | 'github' = 'local';
     
     const savedProjectId = localStorage.getItem('currentProjectId');
     const projectToLoad = savedProjectId ? loadedProjects.find(p => p.id === savedProjectId) : undefined;
 
     if (projectToLoad) {
-      console.log(`[State/Filter] Loading project state for ${projectToLoad.name}`);
-      stateToLoad = { ...initialAppState, ...projectToLoad.state };
+      console.log(`[State] Loading project state for ${projectToLoad.name}`);
+      stateFromStorage = projectToLoad.state;
       tabToLoad = projectToLoad.sourceType || 'local';
       setCurrentProjectId(projectToLoad.id);
       if (projectToLoad.sourceType === 'github') {
@@ -277,14 +277,13 @@ export default function ClientPageRoot() {
       }
     }
 
-    // Apply global GitHub filters AFTER loading project state (this ensures they take precedence)
+    const finalState = { ...initialAppState, ...stateFromStorage };
     const savedGlobalFilters = localStorage.getItem('githubGlobalExclusions');
-    if (savedGlobalFilters) {
-      console.log(`[State/Filter] Found global filters: ${savedGlobalFilters}. Applying them.`);
-      stateToLoad.excludeFolders = savedGlobalFilters;
+    if (tabToLoad === 'github' || typeof finalState.excludeFolders !== 'string') {
+      finalState.excludeFolders = savedGlobalFilters || initialAppState.excludeFolders;
     }
-    
-    setState(stateToLoad);
+
+    setState(finalState);
     setActiveSourceTab(tabToLoad);
 
     console.groupCollapsed("[Presets] Attempting to load projectTemplates from localStorage");
@@ -425,8 +424,8 @@ export default function ClientPageRoot() {
         if (!treeResponse.ok) throw new Error(treeData.error || 'Failed to fetch file tree');
 
         // Apply current filters to the tree
-        const excludedPatterns = excludeFoldersRef.current.split(',').map(f => f.trim()).filter(Boolean);
-        const fullTreeFromAPI: GitHubTreeItem[] = treeData.tree;
+        const excludedPatterns = (excludeFoldersRef.current || '').split(',').map(f => f.trim()).filter(Boolean);
+        const fullTreeFromAPI: GitHubTreeItem[] = treeData.tree || [];
         
         const filteredApiTree = fullTreeFromAPI.filter(item => {
           if (item.type !== 'blob') {
@@ -590,23 +589,26 @@ export default function ClientPageRoot() {
   const handleSaveFilters = useCallback((newExclusions: string) => {
     localStorage.setItem('githubGlobalExclusions', newExclusions);
     setState(prevState => ({ ...prevState, excludeFolders: newExclusions }));
-    
-    // Trigger refresh only if we're currently viewing a GitHub branch
-    if (selectedBranchName && activeSourceTab === 'github') {
-      toast("Filters updated. Refreshing file tree...");
-      // Use a timeout to break out of the current render cycle
-      setTimeout(() => {
-        handleBranchChange(selectedBranchName);
-      }, 0);
+  }, []);
+
+  // React to filter changes and refresh GitHub tree
+  useEffect(() => {
+    if (isInitialMount.current) {
+      isInitialMount.current = false;
+      return;
     }
-  }, [selectedBranchName, activeSourceTab, handleBranchChange]);
+    if (activeSourceTab === 'github' && selectedBranchName) {
+      toast("Filters updated. Refreshing file tree...");
+      handleBranchChange(selectedBranchName);
+    }
+  }, [state.excludeFolders, handleBranchChange, activeSourceTab, selectedBranchName]);
 
   // Persist state changes to localStorage
   useEffect(() => {
-    console.log("[State Save] Effect triggered. isMounted:", isMounted);
+    console.log("[State] Saving state. isMounted:", isMounted, "Current Project ID:", currentProjectId);
     if (!isMounted) {
-        console.log("[State Save] Skipping save because component is not mounted yet.");
-        return;
+      console.log("[State] Skipping save because component is not mounted yet.");
+      return;
     }
 
     // --- START MODIFICATION FOR RECENT PROJECTS ---
@@ -1111,11 +1113,11 @@ export default function ClientPageRoot() {
       projectsToSaveForStorage = projectsToSaveForStorage.slice(0, MAX_RECENT_PROJECTS);
     }
 
-    console.log(`[State/Filter] Saving ${projectsToSaveForStorage.length} projects to localStorage (lightweight)...`);
+    console.log(`[State] Saving ${projectsToSaveForStorage.length} projects to localStorage (lightweight)...`);
     localStorage.setItem('codebaseReaderProjects', JSON.stringify(projectsToSaveForStorage));
 
     // Save current project ID
-    console.log(`[State/Filter] Saving currentProjectId: ${currentProjectId}`);
+    console.log(`[State] Saving currentProjectId: ${currentProjectId}`);
     localStorage.setItem('currentProjectId', currentProjectId || '');
 
     // Save project types (templates)
