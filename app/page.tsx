@@ -773,6 +773,8 @@ export default function ClientPageRoot() {
     }
 
     console.log(`Attempting to save selection '${name}' for project ${currentProjectId}`);
+    
+    // Update projects for persistence
     setProjects(prevProjects => {
       const projectIndex = prevProjects.findIndex(p => p.id === currentProjectId);
       if (projectIndex === -1) {
@@ -792,7 +794,12 @@ export default function ClientPageRoot() {
       console.log(`Saved selection: ${name} with ${files.length} files for project ${currentProjectId}. Updated projects state.`);
       return newProjects; // Return the new projects array
     });
-    // The useEffect watching `projects` and `currentProjectId` will update the main `state` variable.
+
+    // FIX: Surgically update the live state to prevent UI freeze
+    setState(currentState => ({
+      ...currentState,
+      namedSelections: { ...(currentState.namedSelections || {}), [name]: files }
+    }));
   }, [currentProjectId]); // Dependencies: currentProjectId, setProjects (stable)
 
   const renameNamedSelection = useCallback((oldName: string, newName: string) => {
@@ -806,6 +813,8 @@ export default function ClientPageRoot() {
     }
 
     console.log(`Attempting to rename selection '${oldName}' to '${newName}' for project ${currentProjectId}`);
+    
+    // Update projects for persistence
     setProjects(prevProjects => {
       const projectIndex = prevProjects.findIndex(p => p.id === currentProjectId);
       if (projectIndex === -1) {
@@ -833,6 +842,16 @@ export default function ClientPageRoot() {
       console.log(`Renamed selection: ${oldName} -> ${newName} for project ${currentProjectId}. Updated projects state.`);
       return newProjects;
     });
+
+    // FIX: Surgically update the live state to prevent UI freeze
+    setState(currentState => {
+      const newSelections = { ...(currentState.namedSelections || {}) };
+      if (newSelections[oldName]) {
+        newSelections[newName] = newSelections[oldName];
+        delete newSelections[oldName];
+      }
+      return { ...currentState, namedSelections: newSelections };
+    });
   }, [currentProjectId]); // Dependencies: currentProjectId, setProjects (stable)
 
   const deleteNamedSelection = useCallback((name: string) => {
@@ -842,6 +861,8 @@ export default function ClientPageRoot() {
     }
 
     console.log(`Attempting to delete selection '${name}' for project ${currentProjectId}`);
+    
+    // Update projects for persistence
     setProjects(prevProjects => {
       const projectIndex = prevProjects.findIndex(p => p.id === currentProjectId);
       if (projectIndex === -1) {
@@ -868,44 +889,34 @@ export default function ClientPageRoot() {
       console.log(`Deleted selection: ${name} for project ${currentProjectId}. Updated projects state.`);
       return newProjects;
     });
+
+    // FIX: Surgically update the live state to prevent UI freeze
+    setState(currentState => {
+      const newSelections = { ...(currentState.namedSelections || {}) };
+      delete newSelections[name];
+      return { ...currentState, namedSelections: newSelections };
+    });
   }, [currentProjectId]); // Dependencies: currentProjectId, setProjects (stable)
 
   // Effect to synchronize the main 'state' with the current project's state from 'projects'
   useEffect(() => {
-    console.log("[Sync Effect] Running. currentProjectId:", currentProjectId);
+    console.log("[Project Load Effect] Running. currentProjectId:", currentProjectId);
     if (currentProjectId) {
       const currentProject = projects.find(p => p.id === currentProjectId);
       if (currentProject) {
-        console.log("[Sync Effect] Found current project. Comparing states.");
-        // Deep comparison might be needed if state structure is complex
-        // For now, a simple reference check might suffice if state updates are immutable
-        if (state !== currentProject.state) {
-          console.log("[Sync Effect] Project state differs from main state. Updating main state.");
-          // Ensure analysisResult is not accidentally nullified if it exists in project state
-          const newState = { ...currentProject.state };
-          if (!newState.analysisResult && state.analysisResult) {
-            console.warn("[Sync Effect] Project state missing analysisResult, preserving from main state (this might indicate an issue).");
-            newState.analysisResult = state.analysisResult;
-          }
-          setState(newState);
-        } else {
-          console.log("[Sync Effect] Project state matches main state. No update needed.");
-        }
+        // This now only runs when switching projects, which is correct.
+        console.log("[Project Load Effect] Loading state for project:", currentProject.name);
+        setState(currentProject.state);
       } else {
-        console.warn("[Sync Effect] currentProjectId is set, but project not found in projects array. Resetting state.");
-        // If the current project ID doesn't exist (e.g., deleted), reset the main state
+        console.warn("[Project Load Effect] currentProjectId is set, but project not found. Resetting.");
         setState(initialAppState);
-        setCurrentProjectId(null); // Also clear the invalid ID
+        setCurrentProjectId(null);
       }
-    } else {
-      console.log("[Sync Effect] No currentProjectId. Ensuring main state is initial.");
-      // If there's no current project ID, ensure the main state is reset
-      if (state !== initialAppState) { // Avoid unnecessary reset
-        setState(initialAppState);
-      }
+    } else if (state !== initialAppState) {
+      // Handle cases where no project is active (e.g., after "Clear Session").
+      setState(initialAppState);
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentProjectId, projects]); // Trigger when project ID changes or the projects array itself changes
+  }, [currentProjectId]); // Dependency array updated to ONLY watch `currentProjectId`
 
 
   // --- START: Logic for Loading Recent Project ---
