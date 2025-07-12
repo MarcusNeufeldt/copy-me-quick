@@ -623,11 +623,23 @@ export default function ClientPageRoot() {
   // Handler for saving filters
   const handleSaveFilters = useCallback((newExclusions: string) => {
     setState(prevState => ({ ...prevState, excludeFolders: newExclusions }));
+    
+    // Also update the current project in the projects array to persist the filter changes
+    if (currentProjectId) {
+      setProjects(prevProjects => 
+        prevProjects.map(p => 
+          p.id === currentProjectId 
+            ? { ...p, state: { ...p.state, excludeFolders: newExclusions }, lastAccessed: Date.now() }
+            : p
+        )
+      );
+    }
+    
     if (selectedBranchName) {
       toast("Filters updated. Refreshing file tree...");
       // The handleBranchChange will be triggered by the dependency change
     }
-  }, [selectedBranchName]);
+  }, [selectedBranchName, currentProjectId]);
 
   // Persist state changes to localStorage
   useEffect(() => {
