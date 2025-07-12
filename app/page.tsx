@@ -779,9 +779,7 @@ export default function ClientPageRoot() {
 
     console.log(`Attempting to save selection '${name}' for project ${currentProjectId}`);
     
-    // DIAGNOSTIC TEST: Comment out setProjects to isolate if this causes the freeze
     // Update the projects array for persistence
-    /*
     setProjects(prevProjects => {
       const projectIndex = prevProjects.findIndex(p => p.id === currentProjectId);
       if (projectIndex === -1) {
@@ -799,9 +797,8 @@ export default function ClientPageRoot() {
       console.log(`Saved selection: ${name} with ${files.length} files for project ${currentProjectId}. Updated projects state.`);
       return newProjects; // Return the new projects array
     });
-    */
 
-    // FIX: Update the live state object directly and precisely.
+    // Update the live state object directly and precisely.
     // This is cheap and prevents a re-render cascade.
     setState(s => ({
       ...s,
@@ -821,9 +818,7 @@ export default function ClientPageRoot() {
 
     console.log(`Attempting to rename selection '${oldName}' to '${newName}' for project ${currentProjectId}`);
     
-    // DIAGNOSTIC TEST: Comment out setProjects to isolate if this causes the freeze
     // Update the projects array for persistence
-    /*
     setProjects(prevProjects => {
       const projectIndex = prevProjects.findIndex(p => p.id === currentProjectId);
       if (projectIndex === -1) {
@@ -851,9 +846,8 @@ export default function ClientPageRoot() {
       console.log(`Renamed selection: ${oldName} -> ${newName} for project ${currentProjectId}. Updated projects state.`);
       return newProjects;
     });
-    */
 
-    // FIX: Update the live state object directly and precisely.
+    // Update the live state object directly and precisely.
     setState(s => {
       const newSelections = { ...(s.namedSelections || {}) };
       if (newSelections[oldName]) {
@@ -872,9 +866,7 @@ export default function ClientPageRoot() {
 
     console.log(`Attempting to delete selection '${name}' for project ${currentProjectId}`);
     
-    // DIAGNOSTIC TEST: Comment out setProjects to isolate if this causes the freeze
     // Update the projects array for persistence
-    /*
     setProjects(prevProjects => {
       const projectIndex = prevProjects.findIndex(p => p.id === currentProjectId);
       if (projectIndex === -1) {
@@ -898,11 +890,11 @@ export default function ClientPageRoot() {
       projectToUpdate.state = updatedState;
       newProjects[projectIndex] = projectToUpdate;
 
+      console.log(`Deleted selection: ${name} for project ${currentProjectId}. Updated projects state.`);
       return newProjects;
     });
-    */
 
-    // FIX: Update the live state object directly and precisely.
+    // Update the live state object directly and precisely.
     setState(s => {
       const newSelections = { ...(s.namedSelections || {}) };
       delete newSelections[name];

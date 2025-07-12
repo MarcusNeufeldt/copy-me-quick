@@ -680,44 +680,47 @@ const FileSelector = ({
               </DropdownMenuContent>
             </DropdownMenu>
 
-            <Dialog open={isSaveDialogOpen} onOpenChange={setIsSaveDialogOpen}>
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" size="sm" className="h-7 px-2">
-                    <BookMarked className="mr-1.5 h-3.5 w-3.5 text-muted-foreground" />
-                    <span className="text-muted-foreground">Presets</span>
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="start">
-                  <DialogTrigger asChild>
-                    <DropdownMenuItem disabled={selectedFiles.length === 0}>
-                      Save Current Selection...
-                    </DropdownMenuItem>
-                  </DialogTrigger>
-                  {namedSelections && Object.keys(namedSelections).length > 0 && (
-                    <>
-                      <DropdownMenuSeparator />
-                      <DropdownMenuLabel>Load Selection</DropdownMenuLabel>
-                      {Object.entries(namedSelections).map(([name, paths]) => (
-                        <DropdownMenuItem 
-                          key={name} 
-                          onClick={() => handleLoadSelection(name)}
-                        >
-                          {name} ({paths.length} files)
-                        </DropdownMenuItem>
-                      ))}
-                    </>
-                  )}
-                  {namedSelections && Object.keys(namedSelections).length > 0 && (
-                    <>
-                      <DropdownMenuSeparator />
-                      <DropdownMenuItem onClick={() => setIsManageDialogOpen(true)}>
-                        Manage Selections...
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="sm" className="h-7 px-2">
+                  <BookMarked className="mr-1.5 h-3.5 w-3.5 text-muted-foreground" />
+                  <span className="text-muted-foreground">Presets</span>
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start">
+                <DropdownMenuItem
+                  disabled={selectedFiles.length === 0}
+                  onSelect={() => setIsSaveDialogOpen(true)}
+                >
+                  Save Current Selection...
+                </DropdownMenuItem>
+                {namedSelections && Object.keys(namedSelections).length > 0 && (
+                  <>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuLabel>Load Selection</DropdownMenuLabel>
+                    {Object.entries(namedSelections).map(([name, paths]) => (
+                      <DropdownMenuItem 
+                        key={name} 
+                        onClick={() => handleLoadSelection(name)}
+                      >
+                        {name} ({paths.length} files)
                       </DropdownMenuItem>
-                    </>
-                  )}
-                </DropdownMenuContent>
-              </DropdownMenu>
+                    ))}
+                  </>
+                )}
+                {namedSelections && Object.keys(namedSelections).length > 0 && (
+                  <>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem onClick={() => setIsManageDialogOpen(true)}>
+                      Manage Selections...
+                    </DropdownMenuItem>
+                  </>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
+
+            {/* The Dialog is now a separate, sibling component */}
+            <Dialog open={isSaveDialogOpen} onOpenChange={setIsSaveDialogOpen}>
               <DialogContent>
                 <DialogHeader>
                   <DialogTitle>Save Current Selection</DialogTitle>
