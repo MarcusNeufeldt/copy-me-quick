@@ -589,19 +589,16 @@ export default function ClientPageRoot() {
   const handleSaveFilters = useCallback((newExclusions: string) => {
     localStorage.setItem('githubGlobalExclusions', newExclusions);
     setState(prevState => ({ ...prevState, excludeFolders: newExclusions }));
-  }, []);
-
-  // React to filter changes and refresh GitHub tree
-  useEffect(() => {
-    if (isInitialMount.current) {
-      isInitialMount.current = false;
-      return;
-    }
+    
+    // Only refresh if currently viewing a GitHub branch
     if (activeSourceTab === 'github' && selectedBranchName) {
       toast("Filters updated. Refreshing file tree...");
-      handleBranchChange(selectedBranchName);
+      // Use setTimeout to avoid render loop
+      setTimeout(() => {
+        handleBranchChange(selectedBranchName);
+      }, 100);
     }
-  }, [state.excludeFolders, handleBranchChange, activeSourceTab, selectedBranchName]);
+  }, [activeSourceTab, selectedBranchName, handleBranchChange]);
 
   // Persist state changes to localStorage
   useEffect(() => {
