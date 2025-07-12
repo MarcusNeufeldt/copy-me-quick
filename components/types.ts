@@ -23,7 +23,6 @@ export interface AppState {
   selectedFiles: string[];
   excludeFolders: string;
   fileTypes: string;
-  namedSelections?: { [name: string]: string[] };
 }
 
 export interface Project {
@@ -77,10 +76,7 @@ export interface FileSelectorProps {
   setLoadingStatus: React.Dispatch<React.SetStateAction<LoadingStatus>>;
   loadingStatus: LoadingStatus;
   tokenCount: number;
-  namedSelections?: { [name: string]: string[] };
-  onSaveNamedSelection?: (name: string, files: string[]) => void;
-  onRenameNamedSelection?: (oldName: string, newName: string) => void;
-  onDeleteNamedSelection?: (name: string) => void;
+  currentProjectId?: string | null;
 }
 
 export interface AnalysisResultProps {
@@ -93,8 +89,5 @@ export interface AnalysisResultProps {
   dataSource: DataSource;
   setLoadingStatus: React.Dispatch<React.SetStateAction<LoadingStatus>>;
   loadingStatus: LoadingStatus;
-  namedSelections: { [name: string]: string[] };
-  onSaveNamedSelection: (name: string, files: string[]) => void;
-  onRenameNamedSelection: (oldName: string, newName: string) => void;
-  onDeleteNamedSelection: (name: string) => void;
+  currentProjectId?: string | null;
 }
