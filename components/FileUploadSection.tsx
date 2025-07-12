@@ -75,6 +75,7 @@ const FileUploadSection: React.FC<FileUploadSectionProps> = ({
     setLoadingStatus({ isLoading: true, message: 'Initializing file processing...' });
     const excludedFolders = state.excludeFolders.split(',').map(f => f.trim()).filter(f => f);
     const allowedFileTypes = state.fileTypes.split(',').map(t => t.trim()).filter(t => t);
+    console.log('Excluded folders:', excludedFolders);
     let newFileContentsMap = new Map<string, FileData>();
     let newTotalLines = 0;
     let processedFileCount = 0;
@@ -87,7 +88,11 @@ const FileUploadSection: React.FC<FileUploadSectionProps> = ({
         const relativePath = file.webkitRelativePath || file.name;
         if (!relativePath) { continue; }
         const pathComponents = relativePath.split('/');
-        if (pathComponents.slice(0, -1).some(component => excludedFolders.includes(component))) { continue; }
+        const excludedComponent = pathComponents.slice(0, -1).find(component => excludedFolders.includes(component));
+        if (excludedComponent) { 
+          console.log(`Excluding file ${relativePath} due to folder: ${excludedComponent}`);
+          continue; 
+        }
         const fileExtension = relativePath.includes('.') ? '.' + relativePath.split('.').pop() : '';
         const fileMatchesType = allowedFileTypes.length === 0 || allowedFileTypes.includes('*') || allowedFileTypes.some(type => {
             return relativePath === type || (type.startsWith('.') && fileExtension === type);

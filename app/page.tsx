@@ -58,6 +58,7 @@ const baseExclusions = [
   '*.tmp',
   '*.temp',
   'coverage',
+  // Note: .github is intentionally NOT excluded by default to support GitHub Actions workflows
 ];
 
 const defaultProjectTypes = [
@@ -757,6 +758,7 @@ export default function ClientPageRoot() {
       // Filtering and processing logic (same as in FileUploadSection)
       const excludedFolders = projectToLoad.state.excludeFolders.split(',').map(f => f.trim()).filter(f => f);
       const allowedFileTypes = projectToLoad.state.fileTypes.split(',').map(t => t.trim()).filter(t => t);
+      console.log('Project loading - Excluded folders:', excludedFolders);
       let newFileContentsMap = new Map<string, FileData>();
       let newTotalLines = 0;
       for (const file of fileList) {
@@ -764,7 +766,11 @@ export default function ClientPageRoot() {
         const relativePath = file.webkitRelativePath || file.name;
         if (!relativePath) { continue; }
         const pathComponents = relativePath.split('/');
-        if (pathComponents.slice(0, -1).some(component => excludedFolders.includes(component))) { continue; }
+        const excludedComponent = pathComponents.slice(0, -1).find(component => excludedFolders.includes(component));
+        if (excludedComponent) { 
+          console.log(`Project loading - Excluding file ${relativePath} due to folder: ${excludedComponent}`);
+          continue; 
+        }
         const fileExtension = relativePath.includes('.') ? '.' + relativePath.split('.').pop() : '';
         const fileMatchesType = allowedFileTypes.length === 0 || allowedFileTypes.includes('*') || allowedFileTypes.some(type => {
             return relativePath === type || (type.startsWith('.') && fileExtension === type);
