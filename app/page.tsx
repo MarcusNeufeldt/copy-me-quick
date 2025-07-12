@@ -687,6 +687,7 @@ export default function ClientPageRoot() {
     const folderName = getRootFolderName(newAnalysisResult.files);
     console.log(`Identified folder name: ${folderName}`);
     let newCurrentProjectId: string | null = null;
+    let finalState: AppState | null = null; // Use a variable to hold the final state
 
     setProjects(prevProjects => {
       const existingProjectIndex = prevProjects.findIndex((p) => p.sourceType === 'local' && p.sourceFolderName === folderName);
@@ -696,22 +697,22 @@ export default function ClientPageRoot() {
         const existingProject = updatedProjects[existingProjectIndex];
         console.log(`Found existing local project ID: ${existingProject.id}`);
         newCurrentProjectId = existingProject.id;
+        // FIX: Prepare the updated state that needs to be pushed to the UI
         const updatedState: AppState = {
-          // Keep existing named selections and filters from the previous state of *this* project
           ...existingProject.state,
-          analysisResult: newAnalysisResult, // Update with fresh data (including timestamp)
-          selectedFiles: [], // Reset selected files on new upload
+          analysisResult: newAnalysisResult,
+          selectedFiles: [],
         };
-        // Update lastAccessed for existing project
         updatedProjects[existingProjectIndex] = { ...existingProject, state: updatedState, lastAccessed: Date.now() };
+        finalState = updatedState; // Assign to the outer variable
       } else {
         console.log(`Creating new local project for folder: ${folderName}`);
         newCurrentProjectId = Date.now().toString();
         const newProjectState: AppState = {
-          ...initialAppState, // Start with initial filters/selections
-          analysisResult: newAnalysisResult, // Add the uploaded data
-          selectedFiles: [], // Start with no files selected
-          namedSelections: {}, // Start with no named selections
+          ...initialAppState,
+          analysisResult: newAnalysisResult,
+          selectedFiles: [],
+          namedSelections: {},
         };
         const newProject: Project = {
           id: newCurrentProjectId,
@@ -722,14 +723,18 @@ export default function ClientPageRoot() {
           lastAccessed: Date.now(), // Set lastAccessed for new project
         };
         updatedProjects = [...prevProjects, newProject];
+        finalState = newProjectState; // Assign to the outer variable
       }
       return updatedProjects;
     });
 
-    // Set the current project ID. The useEffect watching this ID will update the main `state`.
-    setCurrentProjectId(newCurrentProjectId); // Set the current project ID
+    // FIX: Explicitly set the state and the project ID
+    if (finalState) {
+      setState(finalState);
+    }
+    setCurrentProjectId(newCurrentProjectId);
     console.log(`Project context set. Current Project ID: ${newCurrentProjectId}`);
-  }, [setProjects, setCurrentProjectId /* Remove setState from dependencies */]);
+  }, [setProjects, setCurrentProjectId, setState]);
 
   const handleProjectTemplateUpdate = useCallback((updatedTemplates: typeof projectTypes) => {
     console.groupCollapsed("[Presets] handleProjectTemplateUpdate triggered");
@@ -898,25 +903,7 @@ export default function ClientPageRoot() {
     });
   }, [currentProjectId]); // Dependencies: currentProjectId, setProjects (stable)
 
-  // Effect to synchronize the main 'state' with the current project's state from 'projects'
-  useEffect(() => {
-    console.log("[Project Load Effect] Running. currentProjectId:", currentProjectId);
-    if (currentProjectId) {
-      const currentProject = projects.find(p => p.id === currentProjectId);
-      if (currentProject) {
-        // This now only runs when switching projects, which is correct.
-        console.log("[Project Load Effect] Loading state for project:", currentProject.name);
-        setState(currentProject.state);
-      } else {
-        console.warn("[Project Load Effect] currentProjectId is set, but project not found. Resetting.");
-        setState(initialAppState);
-        setCurrentProjectId(null);
-      }
-    } else if (state !== initialAppState) {
-      // Handle cases where no project is active (e.g., after "Clear Session").
-      setState(initialAppState);
-    }
-  }, [currentProjectId]); // Dependency array updated to ONLY watch `currentProjectId`
+
 
 
   // --- START: Logic for Loading Recent Project ---
@@ -939,7 +926,8 @@ export default function ClientPageRoot() {
       )
     );
 
-    // Set current project ID. The main useEffect watching currentProjectId will sync state.
+    // FIX: Explicitly set the state instead of relying on useEffect
+    setState(projectToLoad.state);
     setCurrentProjectId(projectIdToLoad);
 
     if (projectToLoad.sourceType === 'github') {
@@ -967,7 +955,7 @@ export default function ClientPageRoot() {
 
     setShowLoadRecentConfirmDialog(false);
     setProjectToLoadId(null);
-  }, [projects, setActiveSourceTab, setSelectedRepoFullName, setSelectedBranchName, setCurrentProjectId, setProjects]);
+  }, [projects, setActiveSourceTab, setSelectedRepoFullName, setSelectedBranchName, setCurrentProjectId, setProjects, setState]);
 
   const handleLoadRecentProject = useCallback((projectIdToLoad: string) => {
     console.log(`Attempting to load recent project ID: ${projectIdToLoad}`);
