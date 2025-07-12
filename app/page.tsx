@@ -30,6 +30,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { SpeedInsights } from "@vercel/speed-insights/next";
 import { formatDistanceToNow } from 'date-fns';
+import { saveDirectoryHandle, getDirectoryHandle } from '@/lib/indexeddb';
 
 // Dynamically import Analytics with error handling
 const AnalyticsComponent = dynamic(
@@ -131,6 +132,30 @@ function formatFileSize(bytes: number, decimals = 2): string {
   const i = Math.floor(Math.log(bytes) / Math.log(k));
 
   return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
+}
+
+// --- Helper to recursively get files from a directory handle (move from FileUploadSection) ---
+async function getFilesFromHandle(
+  dirHandle: FileSystemDirectoryHandle,
+  path: string = ''
+): Promise<File[]> {
+  const files: File[] = [];
+  // @ts-ignore: .values() is not yet in TypeScript's lib.dom.d.ts
+  for await (const entry of (dirHandle as any).values()) {
+    const newPath = path ? `${path}/${entry.name}` : entry.name;
+    if (entry.kind === 'file') {
+      const file = await entry.getFile();
+      Object.defineProperty(file, 'webkitRelativePath', {
+        value: newPath,
+        writable: true,
+        enumerable: true,
+      });
+      files.push(file);
+    } else if (entry.kind === 'directory') {
+      files.push(...(await getFilesFromHandle(entry, newPath)));
+    }
+  }
+  return files;
 }
 
 export default function ClientPageRoot() {
@@ -669,59 +694,111 @@ export default function ClientPageRoot() {
     return parts[0] || 'Untitled Project';
   };
 
-  // Updated handleUploadComplete for useCallback and cleaner state management
-  const handleUploadComplete = useCallback((newAnalysisResult: AnalysisResultData) => {
-    console.log('Upload complete, processing project context. Timestamp:', newAnalysisResult.uploadTimestamp); // Log timestamp
+  // MODIFIED handleUploadComplete
+  const handleUploadComplete = useCallback(async (
+    newAnalysisResult: AnalysisResultData,
+    rootHandle?: FileSystemDirectoryHandle
+  ) => {
+    console.log('Upload complete, processing project context. Timestamp:', newAnalysisResult.uploadTimestamp);
     const folderName = getRootFolderName(newAnalysisResult.files);
-    console.log(`Identified folder name: ${folderName}`);
     let newCurrentProjectId: string | null = null;
-    let finalState: AppState | null = null; // Use a variable to hold the final state
+    let finalState: AppState | null = null;
 
     setProjects(prevProjects => {
       const existingProjectIndex = prevProjects.findIndex((p) => p.sourceType === 'local' && p.sourceFolderName === folderName);
       let updatedProjects = [...prevProjects];
-
       if (existingProjectIndex !== -1) {
         const existingProject = updatedProjects[existingProjectIndex];
-        console.log(`Found existing local project ID: ${existingProject.id}`);
         newCurrentProjectId = existingProject.id;
-        // FIX: Prepare the updated state that needs to be pushed to the UI
-        const updatedState: AppState = {
-          ...existingProject.state,
-          analysisResult: newAnalysisResult,
-          selectedFiles: [],
-        };
-        updatedProjects[existingProjectIndex] = { ...existingProject, state: updatedState, lastAccessed: Date.now() };
-        finalState = updatedState; // Assign to the outer variable
+        const updatedState: AppState = { ...existingProject.state, analysisResult: newAnalysisResult, selectedFiles: [] };
+        updatedProjects[existingProjectIndex] = { ...existingProject, state: updatedState, lastAccessed: Date.now(), hasDirectoryHandle: !!rootHandle };
+        finalState = updatedState;
       } else {
-        console.log(`Creating new local project for folder: ${folderName}`);
         newCurrentProjectId = Date.now().toString();
-        const newProjectState: AppState = {
-          ...initialAppState,
-          analysisResult: newAnalysisResult,
-          selectedFiles: [],
-        };
+        const newProjectState: AppState = { ...initialAppState, analysisResult: newAnalysisResult, selectedFiles: [] };
         const newProject: Project = {
           id: newCurrentProjectId,
           name: folderName,
           sourceType: 'local',
           sourceFolderName: folderName,
           state: newProjectState,
-          lastAccessed: Date.now(), // Set lastAccessed for new project
+          lastAccessed: Date.now(),
+          hasDirectoryHandle: !!rootHandle,
         };
         updatedProjects = [...prevProjects, newProject];
-        finalState = newProjectState; // Assign to the outer variable
+        finalState = newProjectState;
       }
       return updatedProjects;
     });
 
-    // FIX: Explicitly set the state and the project ID
+    // Save the handle to IndexedDB after the project ID is known
+    if (rootHandle && newCurrentProjectId) {
+      await saveDirectoryHandle(newCurrentProjectId, rootHandle);
+    }
+    
     if (finalState) {
       setState(finalState);
     }
     setCurrentProjectId(newCurrentProjectId);
-    console.log(`Project context set. Current Project ID: ${newCurrentProjectId}`);
   }, [setProjects, setCurrentProjectId, setState]);
+
+  // NEW: Function to reload a local project from its handle
+  const handleReloadLocalProject = useCallback(async (projectToLoad: Project) => {
+    setLoadingStatus({ isLoading: true, message: `Re-opening ${projectToLoad.name}...` });
+    setError(null);
+    try {
+      const handle = await getDirectoryHandle(projectToLoad.id);
+      if (!handle) {
+        throw new Error("Folder permission handle not found. Please re-select the folder manually.");
+      }
+      // @ts-ignore: .requestPermission() is not yet in TypeScript's lib.dom.d.ts
+      await (handle as any).requestPermission({ mode: 'read' });
+      const fileList = await getFilesFromHandle(handle);
+      // Filtering and processing logic (same as in FileUploadSection)
+      const excludedFolders = projectToLoad.state.excludeFolders.split(',').map(f => f.trim()).filter(f => f);
+      const allowedFileTypes = projectToLoad.state.fileTypes.split(',').map(t => t.trim()).filter(t => t);
+      let newFileContentsMap = new Map<string, FileData>();
+      let newTotalLines = 0;
+      for (const file of fileList) {
+        // @ts-ignore
+        const relativePath = file.webkitRelativePath || file.name;
+        if (!relativePath) { continue; }
+        const pathComponents = relativePath.split('/');
+        if (pathComponents.slice(0, -1).some(component => excludedFolders.includes(component))) { continue; }
+        const fileExtension = relativePath.includes('.') ? '.' + relativePath.split('.').pop() : '';
+        const fileMatchesType = allowedFileTypes.length === 0 || allowedFileTypes.includes('*') || allowedFileTypes.some(type => {
+            return relativePath === type || (type.startsWith('.') && fileExtension === type);
+        });
+        if (!fileMatchesType) { continue; }
+        const content = await file.text();
+        const lines = content.split('\n').length;
+        newFileContentsMap.set(relativePath, { path: relativePath, lines, content, size: file.size, dataSourceType: 'local' });
+        newTotalLines += lines;
+      }
+      const finalFiles: FileData[] = Array.from(newFileContentsMap.values());
+      const newAnalysisResult: AnalysisResultData = {
+        totalFiles: finalFiles.length,
+        totalLines: newTotalLines,
+        totalTokens: 0,
+        summary: `Project ${projectToLoad.name} reloaded.`,
+        project_tree: '', // generateProjectTree(finalFiles) if you move the util
+        files: finalFiles,
+        uploadTimestamp: Date.now(),
+      };
+      // Now set the state
+      const newState = { ...projectToLoad.state, analysisResult: newAnalysisResult, selectedFiles: [] };
+      setState(newState);
+      setCurrentProjectId(projectToLoad.id);
+      setProjects(prev => prev.map(p => p.id === projectToLoad.id ? { ...p, lastAccessed: Date.now(), state: newState } : p));
+    } catch (err: any) {
+      console.error("Failed to reload local project:", err);
+      setError(err.message || "Failed to re-open project. You may need to select it again.");
+      setState(projectToLoad.state);
+      setCurrentProjectId(projectToLoad.id);
+    } finally {
+      setLoadingStatus({ isLoading: false, message: null });
+    }
+  }, [setLoadingStatus, setError, setState, setCurrentProjectId, setProjects]);
 
   const handleProjectTemplateUpdate = useCallback((updatedTemplates: typeof projectTypes) => {
     console.groupCollapsed("[Presets] handleProjectTemplateUpdate triggered");
@@ -800,21 +877,21 @@ export default function ClientPageRoot() {
       // For now, we rely on re-fetching, which is safer for potentially stale data.
       console.log(`Switched to GitHub tab for project ${projectToLoad.name}. Repo: ${projectToLoad.githubRepoFullName}, Branch: ${projectToLoad.githubBranch}`);
 
-    } else if (projectToLoad.sourceType === 'local') {
+    } else if (projectToLoad.sourceType === 'local' && projectToLoad.hasDirectoryHandle) {
       setActiveSourceTab('local');
-      // For local projects, the state (filters, named selections) is restored by the main sync effect.
-      // The analysisResult (file content) is NOT fully stored in localStorage.
-      // The user will need to re-select the folder using FileUploadSection.
-      // The FileUploadSection will then call handleUploadComplete, which re-creates analysisResult.
-      // The restored state will apply its excludeFolders and fileTypes.
-      console.log(`Switched to Local tab for project ${projectToLoad.name}. User needs to re-select folder.`);
-      // Consider adding a toast/notification here to guide the user for local projects.
-      // e.g., "Project settings loaded. Please re-select the project folder to analyze files."
+      handleReloadLocalProject(projectToLoad); // Use the new function!
+    } else if (projectToLoad.sourceType === 'local') {
+      // Fallback for older projects or if handle was lost
+      setActiveSourceTab('local');
+      setState(projectToLoad.state);
+      setCurrentProjectId(projectToLoad.id);
+      setError("Please re-select your project folder to analyze files.");
+      setTimeout(() => setError(null), 5000);
     }
 
     setShowLoadRecentConfirmDialog(false);
     setProjectToLoadId(null);
-  }, [projects, setActiveSourceTab, setSelectedRepoFullName, setSelectedBranchName, setCurrentProjectId, setProjects, setState]);
+  }, [projects, setActiveSourceTab, setSelectedRepoFullName, setSelectedBranchName, setCurrentProjectId, setProjects, setState, handleReloadLocalProject, setError]);
 
   const handleLoadRecentProject = useCallback((projectIdToLoad: string) => {
     console.log(`Attempting to load recent project ID: ${projectIdToLoad}`);
