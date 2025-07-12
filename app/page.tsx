@@ -778,8 +778,6 @@ export default function ClientPageRoot() {
     }
 
     console.log(`Attempting to save selection '${name}' for project ${currentProjectId}`);
-    
-    // Update projects for persistence
     setProjects(prevProjects => {
       const projectIndex = prevProjects.findIndex(p => p.id === currentProjectId);
       if (projectIndex === -1) {
@@ -799,12 +797,6 @@ export default function ClientPageRoot() {
       console.log(`Saved selection: ${name} with ${files.length} files for project ${currentProjectId}. Updated projects state.`);
       return newProjects; // Return the new projects array
     });
-
-    // FIX: Surgically update the live state to prevent UI freeze
-    setState(currentState => ({
-      ...currentState,
-      namedSelections: { ...(currentState.namedSelections || {}), [name]: files }
-    }));
   }, [currentProjectId]); // Dependencies: currentProjectId, setProjects (stable)
 
   const renameNamedSelection = useCallback((oldName: string, newName: string) => {
@@ -818,8 +810,6 @@ export default function ClientPageRoot() {
     }
 
     console.log(`Attempting to rename selection '${oldName}' to '${newName}' for project ${currentProjectId}`);
-    
-    // Update projects for persistence
     setProjects(prevProjects => {
       const projectIndex = prevProjects.findIndex(p => p.id === currentProjectId);
       if (projectIndex === -1) {
@@ -847,16 +837,6 @@ export default function ClientPageRoot() {
       console.log(`Renamed selection: ${oldName} -> ${newName} for project ${currentProjectId}. Updated projects state.`);
       return newProjects;
     });
-
-    // FIX: Surgically update the live state to prevent UI freeze
-    setState(currentState => {
-      const newSelections = { ...(currentState.namedSelections || {}) };
-      if (newSelections[oldName]) {
-        newSelections[newName] = newSelections[oldName];
-        delete newSelections[oldName];
-      }
-      return { ...currentState, namedSelections: newSelections };
-    });
   }, [currentProjectId]); // Dependencies: currentProjectId, setProjects (stable)
 
   const deleteNamedSelection = useCallback((name: string) => {
@@ -866,8 +846,6 @@ export default function ClientPageRoot() {
     }
 
     console.log(`Attempting to delete selection '${name}' for project ${currentProjectId}`);
-    
-    // Update projects for persistence
     setProjects(prevProjects => {
       const projectIndex = prevProjects.findIndex(p => p.id === currentProjectId);
       if (projectIndex === -1) {
@@ -894,17 +872,35 @@ export default function ClientPageRoot() {
       console.log(`Deleted selection: ${name} for project ${currentProjectId}. Updated projects state.`);
       return newProjects;
     });
+    }, [currentProjectId]); // Dependencies: currentProjectId, setProjects (stable)
 
-    // FIX: Surgically update the live state to prevent UI freeze
-    setState(currentState => {
-      const newSelections = { ...(currentState.namedSelections || {}) };
-      delete newSelections[name];
-      return { ...currentState, namedSelections: newSelections };
-    });
-  }, [currentProjectId]); // Dependencies: currentProjectId, setProjects (stable)
+  // Restore the original state sync hook, as the persistence logic now handles updates.
+  // This ensures that if the projects array is manipulated, the UI state reflects it.
+  useEffect(() => {
+    console.log("[Sync Effect] Running. currentProjectId:", currentProjectId);
+    if (currentProjectId) {
+      const currentProject = projects.find(p => p.id === currentProjectId);
+      if (currentProject) {
+        if (state !== currentProject.state) {
+          const newState = { ...currentProject.state };
+          if (!newState.analysisResult && state.analysisResult) {
+            newState.analysisResult = state.analysisResult;
+          }
+          setState(newState);
+        }
+      } else {
+        setState(initialAppState);
+        setCurrentProjectId(null);
+      }
+    } else {
+      if (state !== initialAppState) {
+        setState(initialAppState);
+      }
+    }
+  }, [currentProjectId, projects]); // Restore `projects` to the dependency array
 
 
-
+ 
 
   // --- START: Logic for Loading Recent Project ---
   const proceedToLoadProject = useCallback((projectIdToLoad: string) => {
@@ -988,7 +984,7 @@ export default function ClientPageRoot() {
   // --- END: Logic for Loading Recent Project ---
 
 
-  // Persist state changes to localStorage (Simplified to depend on projects and currentProjectId)
+  // Persist state changes to localStorage (Deferred to prevent UI freeze)
   useEffect(() => {
     console.log("[State Save Effect] Running. isMounted:", isMounted);
     if (!isMounted) {
@@ -996,37 +992,46 @@ export default function ClientPageRoot() {
       return;
     }
 
-    // Save projects (excluding analysisResult, sorted and truncated for recency)
-    let projectsToSaveForStorage = projects.map(p => {
-      const { analysisResult, ...stateToSave } = p.state || {}; // Handle potential undefined state
-      return { ...p, state: stateToSave, lastAccessed: p.lastAccessed || 0 };
-    });
+    // FIX: Wrap the entire save logic in a setTimeout to make it non-blocking.
+    const saveTimeoutId = setTimeout(() => {
+      console.log("[State Save Effect] Executing deferred save.");
+      
+      try {
+        // This is the existing logic for preparing and saving the projects array.
+        let projectsToSaveForStorage = projects.map(p => {
+          const { analysisResult, ...stateToSave } = p.state || {};
+          return { ...p, state: stateToSave, lastAccessed: p.lastAccessed || 0 };
+        });
 
-    // Sort projects by lastAccessed in descending order
-    projectsToSaveForStorage.sort((a, b) => (b.lastAccessed || 0) - (a.lastAccessed || 0));
+        projectsToSaveForStorage.sort((a, b) => (b.lastAccessed || 0) - (a.lastAccessed || 0));
 
-    // Limit the number of recent projects
-    if (projectsToSaveForStorage.length > MAX_RECENT_PROJECTS) {
-      projectsToSaveForStorage = projectsToSaveForStorage.slice(0, MAX_RECENT_PROJECTS);
-    }
+        if (projectsToSaveForStorage.length > MAX_RECENT_PROJECTS) {
+          projectsToSaveForStorage = projectsToSaveForStorage.slice(0, MAX_RECENT_PROJECTS);
+        }
 
-    console.log(`[State Save Effect] Saving ${projectsToSaveForStorage.length} projects to localStorage (lightweight, sorted, truncated)...`);
-    localStorage.setItem('codebaseReaderProjects', JSON.stringify(projectsToSaveForStorage));
+        console.log(`[State Save Effect] Saving ${projectsToSaveForStorage.length} projects to localStorage...`);
+        localStorage.setItem('codebaseReaderProjects', JSON.stringify(projectsToSaveForStorage));
 
-    // Save current project ID
-    console.log(`[State Save Effect] Saving currentProjectId: ${currentProjectId}`);
-    localStorage.setItem('currentProjectId', currentProjectId || '');
+        console.log(`[State Save Effect] Saving currentProjectId: ${currentProjectId}`);
+        localStorage.setItem('currentProjectId', currentProjectId || '');
 
-    // Save project types (templates)
-    console.groupCollapsed("[Presets] Attempting to save projectTemplates to localStorage");
-    try {
-      const templatesToSaveString = JSON.stringify(projectTypes);
-      localStorage.setItem('projectTemplates', templatesToSaveString);
-      console.log("[Presets] Saved templates:", projectTypes);
-    } catch (e) {
-      console.error("[Presets] Failed to stringify or save project templates:", e);
-    }
-    console.groupEnd();
+        // Also defer the template saving
+        const templatesToSaveString = JSON.stringify(projectTypes);
+        localStorage.setItem('projectTemplates', templatesToSaveString);
+
+        console.log("[State Save Effect] Deferred save complete.");
+      } catch (e) {
+        console.error("[State Save Effect] Failed to save to localStorage:", e);
+        if (e instanceof Error && e.name === 'QuotaExceededError') {
+          // Optional: Consider adding a user-facing notification here.
+          console.error("Storage quota exceeded. Please clear some browser data or manage saved projects.");
+        }
+      }
+    }, 0); // 0ms delay yields to the event loop.
+
+    // It's good practice to clean up the timeout if the component unmounts
+    // before the timeout completes.
+    return () => clearTimeout(saveTimeoutId);
 
   }, [projects, currentProjectId, projectTypes, isMounted]); // Dependencies: projects, currentProjectId, projectTypes, isMounted
 
