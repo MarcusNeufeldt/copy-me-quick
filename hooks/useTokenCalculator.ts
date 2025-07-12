@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { FileData } from '../components/types';
 
 // Keep these types, they are correct.
@@ -15,83 +15,79 @@ interface UseTokenCalculatorProps {
   setLoadingStatus: React.Dispatch<React.SetStateAction<LoadingStatus>>;
 }
 
-// Replace the entire useTokenCalculator function with this new, robust version.
+interface UseTokenCalculatorReturn {
+  // No return values needed
+}
+
 export function useTokenCalculator({
   selectedFiles,
   getAllFilesFromDataSource,
   onTokenCountChange,
   getEncodingFunc,
   setLoadingStatus,
-}: UseTokenCalculatorProps) {
+}: UseTokenCalculatorProps): UseTokenCalculatorReturn {
+  const calculationRef = useRef(0);
 
   useEffect(() => {
-    // Use a unique ID for each calculation to prevent race conditions
-    // if the selected files change quickly.
-    const calculationId = Date.now();
-    let isCancelled = false;
+    const runId = Date.now();
+    calculationRef.current = runId;
+
+    if (selectedFiles.length === 0) {
+      onTokenCountChange(0);
+      return;
+    }
 
     const calculate = async () => {
-      if (!selectedFiles.length) {
-        onTokenCountChange(0);
-        return;
-      }
-      
-      // Only show loading status for potentially long calculations
-      if (selectedFiles.length > 50) {
-        setLoadingStatus({ isLoading: true, message: 'Calculating tokens...' });
-      }
+      console.log(`Starting token calculation (run ID: ${runId})`);
+      setLoadingStatus({ isLoading: true, message: 'Calculating tokens...' });
 
-      let totalTokens = 0;
-      const allFiles = getAllFilesFromDataSource();
-      const filesToProcess = allFiles.filter(f => selectedFiles.includes(f.path));
-      
-      let encoding: ReturnType<GetEncodingFunc> | null = null;
-      if (typeof getEncodingFunc === 'function') {
+      let encoding;
+      if (getEncodingFunc) {
         try {
           encoding = getEncodingFunc("cl100k_base");
         } catch (e) {
-          console.warn("Failed to initialize tiktoken, using fallback estimation.", e);
-          encoding = null;
+          console.warn("Tiktoken init failed, using fallback.", e);
         }
       }
 
-      for (const file of filesToProcess) {
-        if (isCancelled) break; // Abort if a new calculation has started
+      const allFiles = getAllFilesFromDataSource();
+      const filesToProcess = allFiles.filter(f => selectedFiles.includes(f.path));
+      let currentTokenCount = 0;
 
-        try {
-          if (encoding && file.content) {
-            totalTokens += encoding.encode(file.content).length;
-          } else {
-            // Fallback estimation for binary files, missing content, or tiktoken failure
-            totalTokens += Math.ceil((file.size || file.content?.length || 0) / 4);
+      for (const file of filesToProcess) {
+        // If a new calculation has started, abort this one.
+        if (calculationRef.current !== runId) {
+          console.log(`Aborting stale calculation (run ID: ${runId})`);
+          return;
+        }
+        
+        if (encoding && file.content) {
+          try {
+            currentTokenCount += encoding.encode(file.content).length;
+          } catch {
+            currentTokenCount += Math.ceil((file.content.length || 0) / 4);
           }
-        } catch (error) {
-          console.error(`Token calculation failed for ${file.path}, using fallback.`, error);
-          totalTokens += Math.ceil((file.size || file.content?.length || 0) / 4);
+        } else {
+          currentTokenCount += Math.ceil((file.size || 0) / 4);
         }
       }
       
-      if (!isCancelled) {
-        onTokenCountChange(totalTokens);
-        if (selectedFiles.length > 50) {
-          setLoadingStatus({ isLoading: false, message: null });
-        }
+      // Final check to prevent race conditions
+      if (calculationRef.current === runId) {
+        console.log(`Finished token calculation (run ID: ${runId})`);
+        onTokenCountChange(currentTokenCount);
+        setLoadingStatus({ isLoading: false, message: null });
       }
     };
+    
+    // Defer the calculation to the next event loop cycle.
+    const timeoutId = setTimeout(calculate, 0);
 
-    // Defer the expensive calculation using setTimeout(0)
-    const timeoutId = setTimeout(calculate, 50); // A small delay to allow UI to be responsive
-
-    // Cleanup function: This is crucial. It runs when the component unmounts
-    // OR when the dependencies change (triggering a new effect run).
-    // It prevents old, slow calculations from overwriting new ones.
     return () => {
-      isCancelled = true;
       clearTimeout(timeoutId);
     };
 
-  }, [selectedFiles, getAllFilesFromDataSource, onTokenCountChange, getEncodingFunc, setLoadingStatus]); // Effect runs when selection changes
+  }, [selectedFiles, getAllFilesFromDataSource, onTokenCountChange, getEncodingFunc, setLoadingStatus]);
 
-  // The hook itself doesn't need to return anything.
   return {};
 } 

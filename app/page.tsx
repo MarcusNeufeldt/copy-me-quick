@@ -778,6 +778,8 @@ export default function ClientPageRoot() {
     }
 
     console.log(`Attempting to save selection '${name}' for project ${currentProjectId}`);
+    
+    // Update the projects array for persistence
     setProjects(prevProjects => {
       const projectIndex = prevProjects.findIndex(p => p.id === currentProjectId);
       if (projectIndex === -1) {
@@ -788,15 +790,20 @@ export default function ClientPageRoot() {
       const newProjects = [...prevProjects]; // Copy projects array
       const projectToUpdate = { ...newProjects[projectIndex] }; // Copy project to update
       const updatedState = { ...projectToUpdate.state }; // Copy state of that project
-      const updatedNamedSelections = { ...(updatedState.namedSelections || {}), [name]: files }; // Update selections
-
-      updatedState.namedSelections = updatedNamedSelections; // Assign updated selections to copied state
+      updatedState.namedSelections = { ...(updatedState.namedSelections || {}), [name]: files }; // Update selections
       projectToUpdate.state = updatedState; // Assign updated state to copied project
       newProjects[projectIndex] = projectToUpdate; // Put updated project back into copied array
 
       console.log(`Saved selection: ${name} with ${files.length} files for project ${currentProjectId}. Updated projects state.`);
       return newProjects; // Return the new projects array
     });
+
+    // FIX: Update the live state object directly and precisely.
+    // This is cheap and prevents a re-render cascade.
+    setState(s => ({
+      ...s,
+      namedSelections: { ...(s.namedSelections || {}), [name]: files },
+    }));
   }, [currentProjectId]); // Dependencies: currentProjectId, setProjects (stable)
 
   const renameNamedSelection = useCallback((oldName: string, newName: string) => {
@@ -810,6 +817,8 @@ export default function ClientPageRoot() {
     }
 
     console.log(`Attempting to rename selection '${oldName}' to '${newName}' for project ${currentProjectId}`);
+    
+    // Update the projects array for persistence
     setProjects(prevProjects => {
       const projectIndex = prevProjects.findIndex(p => p.id === currentProjectId);
       if (projectIndex === -1) {
@@ -837,15 +846,27 @@ export default function ClientPageRoot() {
       console.log(`Renamed selection: ${oldName} -> ${newName} for project ${currentProjectId}. Updated projects state.`);
       return newProjects;
     });
+
+    // FIX: Update the live state object directly and precisely.
+    setState(s => {
+      const newSelections = { ...(s.namedSelections || {}) };
+      if (newSelections[oldName]) {
+        newSelections[newName] = newSelections[oldName];
+        delete newSelections[oldName];
+      }
+      return { ...s, namedSelections: newSelections };
+    });
   }, [currentProjectId]); // Dependencies: currentProjectId, setProjects (stable)
 
-  const deleteNamedSelection = useCallback((name: string) => {
+    const deleteNamedSelection = useCallback((name: string) => {
     if (!currentProjectId) {
       console.warn("Attempted to delete selection without current project ID.");
       return;
     }
 
     console.log(`Attempting to delete selection '${name}' for project ${currentProjectId}`);
+    
+    // Update the projects array for persistence
     setProjects(prevProjects => {
       const projectIndex = prevProjects.findIndex(p => p.id === currentProjectId);
       if (projectIndex === -1) {
@@ -872,25 +893,16 @@ export default function ClientPageRoot() {
       console.log(`Deleted selection: ${name} for project ${currentProjectId}. Updated projects state.`);
       return newProjects;
     });
-    }, [currentProjectId]); // Dependencies: currentProjectId, setProjects (stable)
 
-  // Effect to handle project switching only (not preset updates)
-  useEffect(() => {
-    console.log("[Project Switch Effect] Running. currentProjectId:", currentProjectId);
-    if (currentProjectId) {
-      const currentProject = projects.find(p => p.id === currentProjectId);
-      if (currentProject) {
-        console.log("[Project Switch Effect] Loading state for project:", currentProject.name);
-        setState(currentProject.state);
-      } else {
-        console.warn("[Project Switch Effect] Project not found. Resetting.");
-        setState(initialAppState);
-        setCurrentProjectId(null);
-      }
-    } else {
-      setState(initialAppState);
-    }
-  }, [currentProjectId]); // Only watch currentProjectId to avoid circular dependencies
+    // FIX: Update the live state object directly and precisely.
+    setState(s => {
+      const newSelections = { ...(s.namedSelections || {}) };
+      delete newSelections[name];
+      return { ...s, namedSelections: newSelections };
+    });
+  }, [currentProjectId]); // Dependencies: currentProjectId, setProjects (stable)
+
+
 
 
  
@@ -915,7 +927,7 @@ export default function ClientPageRoot() {
       )
     );
 
-    // FIX: Explicitly set the state instead of relying on useEffect
+    // FIX: Explicitly set the state and project ID (no useEffect dependency)
     setState(projectToLoad.state);
     setCurrentProjectId(projectIdToLoad);
 
