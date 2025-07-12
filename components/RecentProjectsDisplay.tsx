@@ -4,12 +4,15 @@ import React, { useState } from 'react';
 import { Project } from './types';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Computer, Github, History, ChevronDown, ChevronUp } from 'lucide-react';
-import { formatDistanceToNow } from 'date-fns';
+import { History, ChevronDown, ChevronUp } from 'lucide-react';
+import RecentProjectItem from './RecentProjectItem';
 
 interface RecentProjectsDisplayProps {
   projects: Project[];
   onLoadProject: (projectId: string) => void;
+  onPinProject: (projectId: string, isPinned: boolean) => void;
+  onRemoveProject: (projectId: string) => void;
+  onRenameProject: (projectId: string, newName: string) => void;
   maxInitialDisplay?: number; // Optional: Max projects to show before "Show More"
 }
 
@@ -18,13 +21,20 @@ const MAX_RECENT_PROJECTS_VISIBLE_DEFAULT = 3;
 const RecentProjectsDisplay: React.FC<RecentProjectsDisplayProps> = ({
   projects,
   onLoadProject,
+  onPinProject,
+  onRemoveProject,
+  onRenameProject,
   maxInitialDisplay = MAX_RECENT_PROJECTS_VISIBLE_DEFAULT,
 }) => {
   const [showAll, setShowAll] = useState(false);
 
-  // Sort projects by lastAccessed in descending order.
-  // Projects without lastAccessed or with 0 are considered oldest.
+  // Sort projects with pinned projects first, then by lastAccessed
   const sortedProjects = [...projects].sort((a, b) => {
+    // Pinned projects always come first
+    if (a.isPinned && !b.isPinned) return -1;
+    if (!a.isPinned && b.isPinned) return 1;
+    
+    // Then, sort by last accessed time
     const timeA = a.lastAccessed || 0;
     const timeB = b.lastAccessed || 0;
     return timeB - timeA;
@@ -50,30 +60,19 @@ const RecentProjectsDisplay: React.FC<RecentProjectsDisplayProps> = ({
         <History className="h-4 w-4 mr-2" />
         Recent Projects
       </h3>
-      <ScrollArea className={`w-full ${showAll ? 'h-auto max-h-64' : `h-auto max-h-[calc(${maxInitialDisplay}*2.75rem)]`} pr-3`}> {/* Adjust height based on items */}
-        {projectsToDisplay.map((proj) => (
-          <Button
-            key={proj.id}
-            variant="ghost"
-            className="w-full justify-start text-xs h-auto py-1.5 px-2 mb-1 flex flex-col items-start hover:bg-muted/50"
-            onClick={() => onLoadProject(proj.id)}
-            title={`Load ${proj.name}\nLast accessed: ${proj.lastAccessed ? formatDistanceToNow(new Date(proj.lastAccessed), { addSuffix: true }) : 'Unknown'}`}
-          >
-            <div className="flex items-center w-full">
-              {proj.sourceType === 'local' ? (
-                <Computer className="h-3.5 w-3.5 mr-1.5 shrink-0 text-blue-500" />
-              ) : (
-                <Github className="h-3.5 w-3.5 mr-1.5 shrink-0 text-purple-500" />
-              )}
-              <span className="truncate font-medium flex-grow">{proj.name}</span>
-            </div>
-            {proj.lastAccessed && proj.lastAccessed > 0 && (
-              <span className="text-xs text-muted-foreground/90 ml-[calc(0.375rem+0.875rem+0.375rem)] pl-px opacity-90"> {/* Approx icon width + margin + tiny bit more */}
-                {formatDistanceToNow(new Date(proj.lastAccessed), { addSuffix: true })}
-              </span>
-            )}
-          </Button>
-        ))}
+      <ScrollArea className={`w-full ${showAll ? 'h-auto max-h-64' : `h-auto`} pr-3`}>
+        <div className="space-y-2">
+          {projectsToDisplay.map((proj) => (
+            <RecentProjectItem
+              key={proj.id}
+              project={proj}
+              onLoad={onLoadProject}
+              onPin={onPinProject}
+              onRemove={onRemoveProject}
+              onRename={onRenameProject}
+            />
+          ))}
+        </div>
       </ScrollArea>
       {sortedProjects.length > maxInitialDisplay && (
         <Button

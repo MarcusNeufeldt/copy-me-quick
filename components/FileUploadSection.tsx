@@ -16,12 +16,30 @@ declare global {
 // --- Helper to recursively get files from a directory handle ---
 async function getFilesFromHandle(
   dirHandle: FileSystemDirectoryHandle,
-  path: string = ''
+  path: string = '',
+  includeRootName: boolean = true
 ): Promise<File[]> {
   const files: File[] = [];
+  
+  // If this is the root call (path is empty) and we should include root name,
+  // use the directory handle's name as the root folder name
+  const rootPrefix = path === '' && includeRootName ? dirHandle.name : '';
+  
   // @ts-ignore: .values() is not yet in TypeScript's lib.dom.d.ts
   for await (const entry of (dirHandle as any).values()) {
-    const newPath = path ? `${path}/${entry.name}` : entry.name;
+    let newPath: string;
+    
+    if (path === '' && includeRootName) {
+      // Root level: include the directory name
+      newPath = `${rootPrefix}/${entry.name}`;
+    } else if (path === '') {
+      // Root level without including root name
+      newPath = entry.name;
+    } else {
+      // Nested path
+      newPath = `${path}/${entry.name}`;
+    }
+    
     if (entry.kind === 'file') {
       const file = await entry.getFile();
       Object.defineProperty(file, 'webkitRelativePath', {
@@ -31,7 +49,7 @@ async function getFilesFromHandle(
       });
       files.push(file);
     } else if (entry.kind === 'directory') {
-      files.push(...(await getFilesFromHandle(entry, newPath)));
+      files.push(...(await getFilesFromHandle(entry, newPath, false))); // Don't include root name for recursive calls
     }
   }
   return files;

@@ -34,7 +34,8 @@ export interface Project {
   githubBranch?: string;
   state: AppState;
   lastAccessed?: number; // Unix timestamp
-  hasDirectoryHandle?: boolean; // <-- ADD THIS LINE
+  hasDirectoryHandle?: boolean;
+  isPinned?: boolean;
 }
 
 export interface GitHubTreeItem {

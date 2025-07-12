@@ -139,12 +139,30 @@ function formatFileSize(bytes: number, decimals = 2): string {
 // --- Helper to recursively get files from a directory handle (move from FileUploadSection) ---
 async function getFilesFromHandle(
   dirHandle: FileSystemDirectoryHandle,
-  path: string = ''
+  path: string = '',
+  includeRootName: boolean = true
 ): Promise<File[]> {
   const files: File[] = [];
+  
+  // If this is the root call (path is empty) and we should include root name,
+  // use the directory handle's name as the root folder name
+  const rootPrefix = path === '' && includeRootName ? dirHandle.name : '';
+  
   // @ts-ignore: .values() is not yet in TypeScript's lib.dom.d.ts
   for await (const entry of (dirHandle as any).values()) {
-    const newPath = path ? `${path}/${entry.name}` : entry.name;
+    let newPath: string;
+    
+    if (path === '' && includeRootName) {
+      // Root level: include the directory name
+      newPath = `${rootPrefix}/${entry.name}`;
+    } else if (path === '') {
+      // Root level without including root name
+      newPath = entry.name;
+    } else {
+      // Nested path
+      newPath = `${path}/${entry.name}`;
+    }
+    
     if (entry.kind === 'file') {
       const file = await entry.getFile();
       Object.defineProperty(file, 'webkitRelativePath', {
@@ -154,7 +172,7 @@ async function getFilesFromHandle(
       });
       files.push(file);
     } else if (entry.kind === 'directory') {
-      files.push(...(await getFilesFromHandle(entry, newPath)));
+      files.push(...(await getFilesFromHandle(entry, newPath, false))); // Don't include root name for recursive calls
     }
   }
   return files;
@@ -175,6 +193,7 @@ export default function ClientPageRoot() {
   // State for Load Recent Project confirmation
   const [showLoadRecentConfirmDialog, setShowLoadRecentConfirmDialog] = useState(false);
   const [projectToLoadId, setProjectToLoadId] = useState<string | null>(null);
+  const [loadConfirmationMessage, setLoadConfirmationMessage] = useState<string>('');
 
   // Unified Loading State
   const [loadingStatus, setLoadingStatus] = useState<LoadingStatus>({ isLoading: false, message: null });
@@ -622,16 +641,45 @@ export default function ClientPageRoot() {
   // Helper function to get root folder name from file list
   const getRootFolderName = (files: FileData[]): string => {
     if (!files || files.length === 0) return 'Untitled Project';
-    // Find the shortest path
-    let shortestPath = files[0].path;
-    for (let i = 1; i < files.length; i++) {
-      if (files[i].path.length < shortestPath.length) {
-        shortestPath = files[i].path;
+    
+    // Find the common root folder name by looking at all file paths
+    const allPaths = files.map(f => f.path);
+    
+    // If there's only one file in the root, use its parent folder or default
+    if (allPaths.length === 1) {
+      const parts = allPaths[0].split('/');
+      return parts.length > 1 ? parts[0] : 'Untitled Project';
+    }
+    
+    // Find the common prefix among all paths
+    let commonPrefix = allPaths[0];
+    for (let i = 1; i < allPaths.length; i++) {
+      let j = 0;
+      while (j < Math.min(commonPrefix.length, allPaths[i].length) && 
+             commonPrefix[j] === allPaths[i][j]) {
+        j++;
+      }
+      commonPrefix = commonPrefix.substring(0, j);
+    }
+    
+    // Extract the root folder name
+    const parts = commonPrefix.split('/');
+    const rootFolder = parts[0];
+    
+    // If we have a meaningful root folder name, use it
+    if (rootFolder && rootFolder.length > 0 && !rootFolder.includes('.')) {
+      return rootFolder;
+    }
+    
+    // Fallback: use the first folder from any path that has folders
+    for (const path of allPaths) {
+      const pathParts = path.split('/');
+      if (pathParts.length > 1 && pathParts[0] && !pathParts[0].includes('.')) {
+        return pathParts[0];
       }
     }
-    // The folder name is the first part of the shortest path
-    const parts = shortestPath.split('/');
-    return parts[0] || 'Untitled Project';
+    
+    return 'Untitled Project';
   };
 
   // MODIFIED handleUploadComplete
@@ -655,7 +703,7 @@ export default function ClientPageRoot() {
         finalState = updatedState;
       } else {
         newCurrentProjectId = Date.now().toString();
-        const newProjectState: AppState = { ...initialAppState, analysisResult: newAnalysisResult, selectedFiles: [] };
+        const newProjectState: AppState = { ...state, analysisResult: newAnalysisResult, selectedFiles: [] };
         const newProject: Project = {
           id: newCurrentProjectId,
           name: folderName,
@@ -680,7 +728,7 @@ export default function ClientPageRoot() {
       setState(finalState);
     }
     setCurrentProjectId(newCurrentProjectId);
-  }, [setProjects, setCurrentProjectId, setState]);
+  }, [setProjects, setCurrentProjectId, setState, state]);
 
   // NEW: Function to reload a local project from its handle
   const handleReloadLocalProject = useCallback(async (projectToLoad: Project) => {
@@ -736,9 +784,10 @@ export default function ClientPageRoot() {
       setCurrentProjectId(projectToLoad.id);
       setProjects(prev => prev.map(p => p.id === projectToLoad.id ? { ...p, lastAccessed: Date.now(), state: newState } : p));
     } catch (err: any) {
-      console.error("Failed to reload local project:", err);
-      setError(err.message || "Failed to re-open project. You may need to select it again.");
-      setState(projectToLoad.state);
+      console.error("Failed to auto-reload local project:", err);
+      setError(`Could not automatically open '${projectToLoad.name}'. The folder may have been moved or permissions were denied. Please select it manually.`);
+      // Reset to a state where the user can manually select the folder
+      setState(projectToLoad.state); 
       setCurrentProjectId(projectToLoad.id);
     } finally {
       setLoadingStatus({ isLoading: false, message: null });
@@ -910,14 +959,18 @@ export default function ClientPageRoot() {
       console.log(`Switched to GitHub tab for project ${projectToLoad.name}. Repo: ${projectToLoad.githubRepoFullName}, Branch: ${projectToLoad.githubBranch}`);
 
     } else if (projectToLoad.sourceType === 'local' && projectToLoad.hasDirectoryHandle) {
+      // This is the "happy path" - we have a handle, let's use it.
+      console.log(`Attempting to auto-reload local project: ${projectToLoad.name}`);
       setActiveSourceTab('local');
-      handleReloadLocalProject(projectToLoad); // Use the new function!
+      handleReloadLocalProject(projectToLoad);
     } else if (projectToLoad.sourceType === 'local') {
-      // Fallback for older projects or if handle was lost
+      // This is the "sad path" - no handle exists, or it failed.
+      // This becomes the fallback, not the default.
+      console.warn(`Local project ${projectToLoad.name} has no directory handle. Prompting user to re-select.`);
       setActiveSourceTab('local');
       setState(projectToLoad.state);
       setCurrentProjectId(projectToLoad.id);
-      setError("Please re-select your project folder to analyze files.");
+      setError("Please re-select your project folder to continue. Folder access was not saved.");
       setTimeout(() => setError(null), 5000);
     }
 
@@ -928,10 +981,15 @@ export default function ClientPageRoot() {
   const handleLoadRecentProject = useCallback((projectIdToLoad: string) => {
     console.log(`Attempting to load recent project ID: ${projectIdToLoad}`);
     const activeProject = projects.find(p => p.id === currentProjectId);
+    const projectToLoad = projects.find(p => p.id === projectIdToLoad);
 
     // Check if there's a loaded project with actual analysis data (not just initial state)
     if (activeProject && activeProject.state.analysisResult && activeProject.state.analysisResult.files.length > 0) {
       console.log(`Active project ${activeProject.name} has data. Showing confirmation dialog.`);
+      const message = projectToLoad 
+        ? `Loading '${projectToLoad.name}' will replace your current session. Continue?`
+        : 'Loading this project will replace your current session. Continue?';
+      setLoadConfirmationMessage(message);
       setProjectToLoadId(projectIdToLoad);
       setShowLoadRecentConfirmDialog(true);
     } else {
@@ -953,6 +1011,63 @@ export default function ClientPageRoot() {
     setShowLoadRecentConfirmDialog(false);
     setProjectToLoadId(null);
   };
+
+  // Workspace reset function
+  const handleResetWorkspace = useCallback(() => {
+    console.log("Resetting workspace (preserving projects in localStorage)...");
+
+    // 1. Reset the main application state to initial defaults
+    setState(initialAppState);
+
+    // 2. Clear the current project context
+    setCurrentProjectId(null);
+    // The sync effect will handle saving the cleared currentProjectId to localStorage
+
+    // 3. Reset UI/temporary state elements
+    setTokenCount(0);
+    setError(null);
+    setFileLoadingProgress({ current: 0, total: 0 });
+    setFileLoadingMessage(null);
+    setProjectTypeSelected(false);
+    // Reset GitHub specific UI state
+    setSelectedRepoFullName(null);
+    setSelectedBranchName(null);
+    setGithubTree(null);
+    setIsGithubTreeTruncated(false);
+    setGithubSelectionError(null);
+    setLoadingStatus({ isLoading: false, message: null });
+    // Active tab will be reset if needed by tab switching logic, or default to 'local' via initialAppState
+
+    console.log("Workspace reset complete. Active session cleared.");
+  }, [setState, setCurrentProjectId, setTokenCount, setError, setFileLoadingProgress, setFileLoadingMessage, setProjectTypeSelected, setSelectedRepoFullName, setSelectedBranchName, setGithubTree, setIsGithubTreeTruncated, setGithubSelectionError, setLoadingStatus]);
+
+  // --- Project Management Handlers ---
+  const handlePinProject = useCallback((projectId: string, isPinned: boolean) => {
+    setProjects(prev => prev.map(p => p.id === projectId ? { ...p, isPinned } : p));
+    setError(isPinned ? `Project pinned to top.` : `Project unpinned.`);
+    setTimeout(() => setError(null), 3000);
+  }, [setProjects, setError]);
+
+  const handleRemoveProject = useCallback((projectId: string) => {
+    setProjects(prev => prev.filter(p => p.id !== projectId));
+    // If we remove the currently active project, clear the workspace
+    if (currentProjectId === projectId) {
+      handleResetWorkspace();
+    }
+    setError(`Project removed from list.`);
+    setTimeout(() => setError(null), 3000);
+  }, [setProjects, currentProjectId, handleResetWorkspace, setError]);
+
+  const handleRenameProject = useCallback((projectId: string, newName: string) => {
+    if (!newName.trim()) {
+      setError("Project name cannot be empty.");
+      setTimeout(() => setError(null), 3000);
+      return;
+    }
+    setProjects(prev => prev.map(p => p.id === projectId ? { ...p, name: newName.trim() } : p));
+    setError(`Project renamed successfully.`);
+    setTimeout(() => setError(null), 3000);
+  }, [setProjects, setError]);
   // --- END: Logic for Loading Recent Project ---
 
 
@@ -1029,34 +1144,6 @@ export default function ClientPageRoot() {
     } finally {
       setLoadingStatus({ isLoading: false, message: null });
     }
-  };
-
-  const handleResetWorkspace = () => {
-    console.log("Resetting workspace (preserving projects in localStorage)...");
-
-    // 1. Reset the main application state to initial defaults
-    setState(initialAppState);
-
-    // 2. Clear the current project context
-    setCurrentProjectId(null);
-    // The sync effect will handle saving the cleared currentProjectId to localStorage
-
-    // 3. Reset UI/temporary state elements
-    setTokenCount(0);
-    setError(null);
-    setFileLoadingProgress({ current: 0, total: 0 });
-    setFileLoadingMessage(null);
-    setProjectTypeSelected(false);
-    // Reset GitHub specific UI state
-    setSelectedRepoFullName(null);
-    setSelectedBranchName(null);
-    setGithubTree(null);
-    setIsGithubTreeTruncated(false);
-    setGithubSelectionError(null);
-    setLoadingStatus({ isLoading: false, message: null });
-    // Active tab will be reset if needed by tab switching logic, or default to 'local' via initialAppState
-
-    console.log("Workspace reset complete. Active session cleared.");
   };
 
   // ----- Tab Switching Logic with Confirmation -----
@@ -1176,8 +1263,6 @@ export default function ClientPageRoot() {
           <aside className="flex flex-col gap-4">
             <Card className="glass-card animate-slide-up sticky top-[calc(theme(spacing.16)+1rem)]">
               <CardContent className="p-4 sm:p-5 space-y-4 sm:space-y-5">
-                <RecentProjectsDisplay projects={projects} onLoadProject={handleLoadRecentProject} />
-                <hr className="my-3 border-border/60" /> {/* Divider */}
                 <div className="flex items-center gap-2 mb-2 sm:mb-4">
                   <GitBranchPlus className="h-4 w-4 sm:h-5 sm:w-5 text-primary" />
                   <h2 className="font-heading font-semibold text-sm sm:text-base">Project Configuration</h2>
@@ -1220,6 +1305,15 @@ export default function ClientPageRoot() {
                          <strong>Privacy Assured:</strong> Your local files are processed <i>only</i> in your browser and are <strong>never</strong> uploaded to any server.
                        </AlertDescription>
                      </Alert>
+                     
+                     {/* Recent Projects Section - moved here */}
+                     <RecentProjectsDisplay 
+                       projects={projects} 
+                       onLoadProject={handleLoadRecentProject}
+                       onPinProject={handlePinProject}
+                       onRemoveProject={handleRemoveProject}
+                       onRenameProject={handleRenameProject}
+                     />
                   </TabsContent>
 
                   {/* GITHUB TAB */}
@@ -1445,9 +1539,9 @@ export default function ClientPageRoot() {
       <AlertDialog open={showLoadRecentConfirmDialog} onOpenChange={setShowLoadRecentConfirmDialog}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Load Recent Project?</AlertDialogTitle>
+            <AlertDialogTitle>Load Project?</AlertDialogTitle>
             <AlertDialogDescription>
-              Loading a recent project will clear your current session (file selections, analysis results). Saved configurations for the current project will remain. Continue?
+              {loadConfirmationMessage || 'Loading this project will replace your current session. Continue?'}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
