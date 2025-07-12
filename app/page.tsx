@@ -165,11 +165,11 @@ export default function ClientPageRoot() {
   const [state, setState] = useState<AppState>(initialAppState);
   const [projectTypes, setProjectTypes] = useState(() => defaultProjectTypes); // Keep default types initially
   const [isMounted, setIsMounted] = useState(false); // Track client-side mount
-  const [activeSourceTab, setActiveSourceTab] = useState('local'); // 'local' or 'github'
+  const [activeSourceTab, setActiveSourceTab] = useState<'local' | 'github'>('local'); // 'local' or 'github'
 
   // State for confirmation dialog
   const [showSwitchConfirmDialog, setShowSwitchConfirmDialog] = useState(false);
-  const [nextTabValue, setNextTabValue] = useState<string | null>(null);
+  const [nextTabValue, setNextTabValue] = useState<'local' | 'github' | null>(null);
   // State for Load Recent Project confirmation
   const [showLoadRecentConfirmDialog, setShowLoadRecentConfirmDialog] = useState(false);
   const [projectToLoadId, setProjectToLoadId] = useState<string | null>(null);
@@ -966,28 +966,17 @@ export default function ClientPageRoot() {
 
   }, [projects, currentProjectId, projectTypes, isMounted]); // Dependencies: projects, currentProjectId, projectTypes, isMounted
 
-  // Determine current dataSource based on active tab and state
-  const currentDataSource: DataSource | undefined = useMemo(() => {
-    console.log("Recalculating currentDataSource..."); // Debug log
-    if (activeSourceTab === 'github' && githubTree) {
-      return { // GitHub source
-        type: 'github',
-        tree: githubTree,
-        repoInfo: selectedRepoFullName && selectedBranchName ? {
-          owner: selectedRepoFullName.split('/')[0],
-          repo: selectedRepoFullName.split('/')[1],
-          branch: selectedBranchName
-        } : undefined
+  // Create stable GitHub repo info to avoid object recreation
+  const githubRepoInfo = useMemo(() => {
+    if (selectedRepoFullName && selectedBranchName) {
+      return {
+        owner: selectedRepoFullName.split('/')[0],
+        repo: selectedRepoFullName.split('/')[1],
+        branch: selectedBranchName
       };
-    } else if (activeSourceTab === 'local' && state.analysisResult?.files?.length) {
-      return { // Local source
-        type: 'local',
-        files: state.analysisResult.files
-      };
-    } else {
-      return undefined;
     }
-  }, [activeSourceTab, githubTree, state.analysisResult?.files, selectedBranchName, selectedRepoFullName]); // Dependencies for memoization
+    return undefined;
+  }, [selectedRepoFullName, selectedBranchName]);
 
   // --- START: Add back missing handlers ---
   const handleGitHubLogin = () => {
@@ -1051,7 +1040,7 @@ export default function ClientPageRoot() {
   };
 
   // ----- Tab Switching Logic with Confirmation -----
-  const handleTabChangeAttempt = (newTabValue: string) => {
+  const handleTabChangeAttempt = (newTabValue: 'local' | 'github') => {
     if (newTabValue !== activeSourceTab) { // Only act if tab is actually changing
       // Check if a project is currently loaded (use a reliable indicator)
       const isProjectLoaded = !!currentProjectId && !!state.analysisResult; // Check both ID and analysis data
@@ -1149,7 +1138,7 @@ export default function ClientPageRoot() {
                 </div>
 
                 {/* --- Source Selection Tabs --- */}
-                <Tabs value={activeSourceTab} onValueChange={handleTabChangeAttempt} className="w-full">
+                <Tabs value={activeSourceTab} onValueChange={(value) => handleTabChangeAttempt(value as 'local' | 'github')} className="w-full">
                   <TabsList className="grid w-full grid-cols-2 mb-4">
                     <TabsTrigger value="local" className="text-xs px-2 py-1.5">
                       <Computer className="h-4 w-4 mr-1.5" /> Local
@@ -1329,7 +1318,7 @@ export default function ClientPageRoot() {
                   variant="outline"
                   onClick={handleResetWorkspace}
                   className="w-full transition-all hover:bg-destructive hover:text-destructive-foreground border-destructive/50 text-destructive/90"
-                  disabled={!currentDataSource}
+                  disabled={!state.analysisResult}
                 >
                   <RotateCcw className="mr-2 h-4 w-4" />
                   Clear Current Session
@@ -1348,8 +1337,8 @@ export default function ClientPageRoot() {
               </Alert>
             )}
 
-            {/* Conditionally render AnalysisResult based on having a valid dataSource */}
-            {currentDataSource && state.analysisResult ? (
+            {/* Conditionally render AnalysisResult based on having valid data */}
+            {state.analysisResult ? (
               <>
                 <AnalysisResult
                   analysisResult={state.analysisResult}
@@ -1358,7 +1347,9 @@ export default function ClientPageRoot() {
                   tokenCount={tokenCount}
                   setTokenCount={setTokenCount}
                   maxTokens={MAX_TOKENS}
-                  dataSource={currentDataSource}
+                  activeSourceTab={activeSourceTab}
+                  githubTree={githubTree}
+                  githubRepoInfo={githubRepoInfo}
                   setLoadingStatus={setLoadingStatus}
                   loadingStatus={loadingStatus}
                   currentProjectId={currentProjectId}

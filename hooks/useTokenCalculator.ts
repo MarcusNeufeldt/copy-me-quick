@@ -11,7 +11,6 @@ interface UseTokenCalculatorProps {
   getAllFilesFromDataSource: () => FileData[];
   onTokenCountChange: (count: number) => void;
   getEncodingFunc: GetEncodingFunc | null;
-  setLoadingStatus: React.Dispatch<React.SetStateAction<LoadingStatus>>;
 }
 
 interface UseTokenCalculatorReturn {
@@ -23,7 +22,6 @@ export function useTokenCalculator({
   getAllFilesFromDataSource,
   onTokenCountChange,
   getEncodingFunc,
-  setLoadingStatus,
 }: UseTokenCalculatorProps): UseTokenCalculatorReturn {
 
   useEffect(() => {
@@ -33,7 +31,6 @@ export function useTokenCalculator({
     }
 
     console.log('Starting token calculation...');
-    setLoadingStatus({ isLoading: true, message: 'Calculating tokens...' });
 
     let encoding;
     if (getEncodingFunc) {
@@ -62,9 +59,8 @@ export function useTokenCalculator({
     
     console.log('Finished token calculation');
     onTokenCountChange(currentTokenCount);
-    setLoadingStatus({ isLoading: false, message: null });
 
-  }, [selectedFiles, getAllFilesFromDataSource, onTokenCountChange, getEncodingFunc, setLoadingStatus]);
+  }, [selectedFiles, getAllFilesFromDataSource, onTokenCountChange, getEncodingFunc]);
 
   return {};
 } 

@@ -68,7 +68,9 @@ interface LoadingStatus {
 }
 
 export interface FileSelectorProps {
-  dataSource: DataSource;
+  activeSourceTab: 'local' | 'github';
+  githubTree: GitHubTreeItem[] | null;
+  githubRepoInfo?: GitHubRepoInfo;
   selectedFiles: string[];
   setSelectedFiles: (filesOrUpdater: string[] | ((prev: string[]) => string[])) => void;
   maxTokens: number;
@@ -87,7 +89,9 @@ export interface AnalysisResultProps {
   tokenCount: number;
   setTokenCount: React.Dispatch<React.SetStateAction<number>>;
   maxTokens: number;
-  dataSource: DataSource;
+  activeSourceTab: 'local' | 'github';
+  githubTree: GitHubTreeItem[] | null;
+  githubRepoInfo?: GitHubRepoInfo;
   setLoadingStatus: React.Dispatch<React.SetStateAction<LoadingStatus>>;
   loadingStatus: LoadingStatus;
   currentProjectId?: string | null;

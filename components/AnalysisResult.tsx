@@ -147,11 +147,20 @@ const AnalysisResult: React.FC<AnalysisResultProps> = React.memo(({
   tokenCount,
   setTokenCount,
   maxTokens,
-  dataSource,
+  activeSourceTab,
+  githubTree,
+  githubRepoInfo,
   setLoadingStatus,
   loadingStatus,
   currentProjectId,
 }) => {
+  // Create stable dataSource object locally to contain the instability
+  const dataSource = useMemo((): DataSource => {
+    if (activeSourceTab === 'github' && githubTree) {
+      return { type: 'github', tree: githubTree, repoInfo: githubRepoInfo };
+    }
+    return { type: 'local', files: analysisResult?.files || [] };
+  }, [activeSourceTab, githubTree, githubRepoInfo, analysisResult?.files]);
   const [copySuccess, setCopySuccess] = useState(false);
   const [activeFileTab, setActiveFileTab] = useState('selector');
   const [activeOutputTab, setActiveOutputTab] = useState('output');
@@ -591,7 +600,9 @@ const AnalysisResult: React.FC<AnalysisResultProps> = React.memo(({
             </CardHeader>
             <CardContent>
               <FileSelector
-                dataSource={dataSource}
+                activeSourceTab={activeSourceTab}
+                githubTree={githubTree}
+                githubRepoInfo={githubRepoInfo}
                 selectedFiles={selectedFiles}
                 setSelectedFiles={handleSetSelectedFiles}
                 maxTokens={maxTokens}

@@ -64,7 +64,9 @@ interface LoadingStatus {
 const GITHUB_CONTENT_API = '/api/github/content'; // Define once
 
 const FileSelector = ({
-  dataSource,
+  activeSourceTab,
+  githubTree,
+  githubRepoInfo,
   selectedFiles,
   setSelectedFiles: onSelectedFilesChange,
   maxTokens,
@@ -75,6 +77,13 @@ const FileSelector = ({
   loadingStatus,
   currentProjectId,
 }: FileSelectorProps & { tokenCount: number }) => {
+  // Create stable dataSource object locally
+  const dataSource = useMemo((): DataSource => {
+    if (activeSourceTab === 'github' && githubTree) {
+      return { type: 'github', tree: githubTree, repoInfo: githubRepoInfo };
+    }
+    return { type: 'local', files: allFiles || [] };
+  }, [activeSourceTab, githubTree, githubRepoInfo, allFiles]);
   const [fileTree, setFileTree] = useState<{ [key: string]: InternalTreeNode } | null>(null);
   const [expandedNodes, setExpandedNodes] = useState<Set<string>>(new Set());
   const [searchTerm, setSearchTerm] = useState('');
@@ -125,8 +134,7 @@ const FileSelector = ({
     selectedFiles,
     getAllFilesFromDataSource,
     onTokenCountChange,
-    getEncodingFunc,
-    setLoadingStatus
+    getEncodingFunc
   });
 
   // Use the custom hook for clipboard copy logic
@@ -296,28 +304,31 @@ const FileSelector = ({
     
     // Auto-expand nodes that match search or have matching children
     if (searchTerm && matchingNodes.size > 0) {
-      // Create a new set to avoid modifying the current one during iteration
-      const newExpandedNodes = new Set(expandedNodes);
-      
-      // Add all parent directories of matching nodes
-      matchingNodes.forEach(path => {
-        // Split the path to get all parent directories
-        const parts = path.split('/');
+      // Use functional update to avoid dependency on expandedNodes
+      setExpandedNodes(prevExpandedNodes => {
+        const newExpandedNodes = new Set(prevExpandedNodes);
         
-        // Build up parent paths
-        let currentPath = '';
-        for (let i = 0; i < parts.length - 1; i++) {
-          currentPath = currentPath ? `${currentPath}/${parts[i]}` : parts[i];
-          newExpandedNodes.add(currentPath);
-        }
+        // Add all parent directories of matching nodes
+        matchingNodes.forEach(path => {
+          // Split the path to get all parent directories
+          const parts = path.split('/');
+          
+          // Build up parent paths
+          let currentPath = '';
+          for (let i = 0; i < parts.length - 1; i++) {
+            currentPath = currentPath ? `${currentPath}/${parts[i]}` : parts[i];
+            newExpandedNodes.add(currentPath);
+          }
+        });
+        
+        return newExpandedNodes;
       });
       
-      setExpandedNodes(newExpandedNodes);
       // Briefly highlight the search results
       setHighlightSearch(true);
       setTimeout(() => setHighlightSearch(false), 1500);
     }
-  }, [searchTerm, fileTree, expandedNodes]); // Added expandedNodes dependency
+  }, [searchTerm, fileTree]); // Removed expandedNodes from dependencies
 
   // Handle toggling selection using the new callback prop
   const handleSelectionToggle = useCallback((path: string, isSelected: boolean) => {
