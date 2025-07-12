@@ -575,7 +575,7 @@ export default function ClientPageRoot() {
           };
           const newProject: Project = {
             id: targetProjectId,
-            name: `${selectedRepoFullName} (${branchName})`, // Default name
+            name: `${selectedRepoFullName} / ${branchName}`, // More readable format
             sourceType: 'github',
             githubRepoFullName: selectedRepoFullName,
             githubBranch: branchName,
