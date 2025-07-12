@@ -1284,6 +1284,7 @@ export default function ClientPageRoot() {
                   dataSource={currentDataSource}
                   setLoadingStatus={setLoadingStatus}
                   loadingStatus={loadingStatus}
+                  currentProjectId={currentProjectId}
                 />
               </>
             ) : (

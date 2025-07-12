@@ -1,17 +1,8 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef, Dispatch, SetStateAction } from 'react';
 import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from "@/components/ui/dialog";
-import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
-
 import { Toaster, toast } from 'sonner';
+import PresetManager from './PresetManager';
 
 // Removed synchronous loading attempts
 
@@ -82,6 +73,7 @@ const FileSelector = ({
   tokenCount,
   setLoadingStatus,
   loadingStatus,
+  currentProjectId,
 }: FileSelectorProps & { tokenCount: number }) => {
   const [fileTree, setFileTree] = useState<{ [key: string]: InternalTreeNode } | null>(null);
   const [expandedNodes, setExpandedNodes] = useState<Set<string>>(new Set());
@@ -91,8 +83,7 @@ const FileSelector = ({
   const [aiError, setAiError] = useState<string | null>(null);
   const [highlightSearch, setHighlightSearch] = useState(false);
 
-  // New preset state
-  const [savedSelections, setSavedSelections] = useState<{ [name: string]: string[] }>({});
+  // Preset management state
   const [isPresetsOpen, setIsPresetsOpen] = useState(false);
 
   // State to hold the get_encoding function once loaded
@@ -101,34 +92,7 @@ const FileSelector = ({
   // Ref to track the previous data source identity
   const prevDataSourceRef = useRef<DataSource>();
 
-  // Async localStorage helpers for presets
-  const getSelectionsFromStorage = async (): Promise<{ [name: string]: string[] }> => {
-    return new Promise(resolve => {
-      setTimeout(() => {
-        try {
-          const stored = localStorage.getItem('codebaseReaderSelections');
-          resolve(stored ? JSON.parse(stored) : {});
-        } catch (e) {
-          console.error("Failed to read selections from storage", e);
-          resolve({});
-        }
-      }, 0);
-    });
-  };
 
-  const saveSelectionsToStorage = async (selections: { [name: string]: string[] }) => {
-    return new Promise<void>(resolve => {
-      setTimeout(() => {
-        try {
-          localStorage.setItem('codebaseReaderSelections', JSON.stringify(selections));
-          resolve();
-        } catch (e) {
-          console.error("Failed to save selections to storage", e);
-          resolve(); // Still resolve so the app doesn't hang
-        }
-      }, 0);
-    });
-  };
 
   // Helper function to get all FileData from current dataSource or allFiles prop
   const getAllFilesFromDataSource = useCallback((): FileData[] => {
@@ -536,46 +500,12 @@ const FileSelector = ({
   }, [getAllFilesFromDataSource]);
 
   // Preset handler functions
-  const handleLoadPresets = async () => {
-    const presets = await getSelectionsFromStorage();
-    setSavedSelections(presets);
+  const handleLoadPresets = () => {
     setIsPresetsOpen(true);
   };
 
   const handleApplyPreset = (files: string[]) => {
     onSelectedFilesChange(files);
-    setIsPresetsOpen(false);
-    toast.success("Preset loaded.");
-  };
-
-  const handleSaveCurrentSelection = async (name: string) => {
-    if (!name.trim()) {
-      toast.error("Please enter a name for the preset.");
-      return;
-    }
-    const newPreset = { [name.trim()]: selectedFiles };
-    
-    // Get the latest from storage to avoid race conditions
-    const currentSelections = await getSelectionsFromStorage();
-    const updatedSelections = { ...currentSelections, ...newPreset };
-
-    await saveSelectionsToStorage(updatedSelections);
-
-    // Update the local state for the UI
-    setSavedSelections(updatedSelections);
-
-    toast.success(`Preset "${name.trim()}" saved.`);
-  };
-
-  const handleDeletePreset = async (name: string) => {
-    const currentSelections = await getSelectionsFromStorage();
-    const updatedSelections = { ...currentSelections };
-    delete updatedSelections[name];
-
-    await saveSelectionsToStorage(updatedSelections);
-    setSavedSelections(updatedSelections);
-
-    toast.success(`Preset "${name}" deleted.`);
   };
 
 
@@ -811,94 +741,14 @@ const FileSelector = ({
         </div>
       </div>
 
-      {/* Preset Management Dialog */}
-      <Dialog open={isPresetsOpen} onOpenChange={setIsPresetsOpen}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>Manage Presets</DialogTitle>
-            <DialogDescription>
-              Save and load file selection presets
-            </DialogDescription>
-          </DialogHeader>
-          
-          <div className="space-y-4">
-            {/* Save Current Selection */}
-            <div className="space-y-2">
-              <Label htmlFor="preset-name">Save Current Selection</Label>
-              <div className="flex gap-2">
-                <Input
-                  id="preset-name"
-                  placeholder="Enter preset name..."
-                  onKeyDown={(e: React.KeyboardEvent<HTMLInputElement>) => {
-                    if (e.key === 'Enter') {
-                      const target = e.target as HTMLInputElement;
-                      handleSaveCurrentSelection(target.value);
-                      target.value = '';
-                    }
-                  }}
-                />
-                <Button
-                  onClick={(e: React.MouseEvent<HTMLButtonElement>) => {
-                    const input = e.currentTarget.previousElementSibling as HTMLInputElement;
-                    handleSaveCurrentSelection(input.value);
-                    input.value = '';
-                  }}
-                  disabled={selectedFiles.length === 0}
-                >
-                  Save
-                </Button>
-              </div>
-            </div>
-
-            {/* Load Presets */}
-            {Object.keys(savedSelections).length > 0 && (
-              <div className="space-y-2">
-                <Label>Load Preset</Label>
-                <div className="space-y-1 max-h-40 overflow-y-auto">
-                  {Object.entries(savedSelections).map(([name, files]) => (
-                    <div key={name} className="flex items-center justify-between p-2 border rounded">
-                      <div className="flex-1">
-                        <div className="font-medium">{name}</div>
-                        <div className="text-xs text-muted-foreground">{files.length} files</div>
-                      </div>
-                      <div className="flex gap-1">
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => handleApplyPreset(files)}
-                        >
-                          Load
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => handleDeletePreset(name)}
-                        >
-                          <Trash2 className="h-3 w-3" />
-                        </Button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {Object.keys(savedSelections).length === 0 && (
-              <div className="text-center py-4 text-muted-foreground">
-                <BookMarked className="h-8 w-8 mx-auto mb-2 opacity-40" />
-                <p>No saved presets</p>
-                <p className="text-xs">Save your first preset above</p>
-              </div>
-            )}
-          </div>
-
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setIsPresetsOpen(false)}>
-              Close
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {/* Preset Manager */}
+      <PresetManager
+        isOpen={isPresetsOpen}
+        onOpenChange={setIsPresetsOpen}
+        selectedFiles={selectedFiles}
+        onApplyPreset={handleApplyPreset}
+        currentProjectId={currentProjectId}
+      />
 
     </div>
   );

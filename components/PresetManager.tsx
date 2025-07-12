@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Dialog,
   DialogContent,
@@ -63,14 +63,7 @@ const PresetManager: React.FC<PresetManagerProps> = ({
   const [newPresetName, setNewPresetName] = useState('');
   const [isLoading, setIsLoading] = useState(false);
 
-  // Load presets when dialog opens or project changes
-  useEffect(() => {
-    if (isOpen) {
-      loadPresets();
-    }
-  }, [isOpen, currentProjectId]);
-
-  const loadPresets = async () => {
+  const loadPresets = useCallback(async () => {
     setIsLoading(true);
     try {
       const presets = await getSelectionsForProject(currentProjectId || null);
@@ -81,7 +74,14 @@ const PresetManager: React.FC<PresetManagerProps> = ({
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [currentProjectId]);
+
+  // Load presets when dialog opens or project changes
+  useEffect(() => {
+    if (isOpen) {
+      loadPresets();
+    }
+  }, [isOpen, loadPresets]);
 
   const handleSaveCurrentSelection = async () => {
     if (!newPresetName.trim()) {
@@ -108,7 +108,7 @@ const PresetManager: React.FC<PresetManagerProps> = ({
       const newPreset = { [trimmedName]: selectedFiles };
       const updatedSelections = { ...savedSelections, ...newPreset };
 
-      await saveSelectionsForProject(currentProjectId, updatedSelections);
+      await saveSelectionsForProject(currentProjectId || null, updatedSelections);
       setSavedSelections(updatedSelections);
       setNewPresetName('');
       toast.success(`Preset "${trimmedName}" saved.`);
@@ -130,7 +130,7 @@ const PresetManager: React.FC<PresetManagerProps> = ({
       const updatedSelections = { ...savedSelections };
       delete updatedSelections[name];
 
-      await saveSelectionsForProject(currentProjectId, updatedSelections);
+      await saveSelectionsForProject(currentProjectId || null, updatedSelections);
       setSavedSelections(updatedSelections);
       toast.success(`Preset "${name}" deleted.`);
     } catch (error) {
@@ -147,7 +147,7 @@ const PresetManager: React.FC<PresetManagerProps> = ({
     toast.success("Preset loaded.");
   };
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter') {
       handleSaveCurrentSelection();
     }

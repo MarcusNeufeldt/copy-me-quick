@@ -150,6 +150,7 @@ const AnalysisResult: React.FC<AnalysisResultProps> = React.memo(({
   dataSource,
   setLoadingStatus,
   loadingStatus,
+  currentProjectId,
 }) => {
   const [copySuccess, setCopySuccess] = useState(false);
   const [activeFileTab, setActiveFileTab] = useState('selector');
@@ -599,6 +600,7 @@ const AnalysisResult: React.FC<AnalysisResultProps> = React.memo(({
                 tokenCount={tokenCount}
                 setLoadingStatus={setLoadingStatus}
                 loadingStatus={loadingStatus}
+                currentProjectId={currentProjectId}
               />
             </CardContent>
           </Card>

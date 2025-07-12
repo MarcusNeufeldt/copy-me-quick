@@ -76,6 +76,7 @@ export interface FileSelectorProps {
   setLoadingStatus: React.Dispatch<React.SetStateAction<LoadingStatus>>;
   loadingStatus: LoadingStatus;
   tokenCount: number;
+  currentProjectId?: string | null;
 }
 
 export interface AnalysisResultProps {
@@ -88,4 +89,5 @@ export interface AnalysisResultProps {
   dataSource: DataSource;
   setLoadingStatus: React.Dispatch<React.SetStateAction<LoadingStatus>>;
   loadingStatus: LoadingStatus;
+  currentProjectId?: string | null;
 }
