@@ -206,6 +206,7 @@ export default function ClientPageRoot() {
   const [projectTypeSelected, setProjectTypeSelected] = useState(false);
   const [githubUser, setGithubUser] = useState<GitHubUser | null>(null);
   const [githubError, setGithubError] = useState<string | null>(null);
+  const [githubAuthChecked, setGithubAuthChecked] = useState(false);
 
   // State for GitHub repo/branch selection
   const [repos, setRepos] = useState<GitHubRepo[]>([]);
@@ -251,6 +252,7 @@ export default function ClientPageRoot() {
         setGithubUser(null);
       } finally {
         setLoadingStatus({ isLoading: false, message: null });
+        setGithubAuthChecked(true);
       }
     };
 
@@ -306,6 +308,10 @@ export default function ClientPageRoot() {
 
   // Fetch Repos when GitHub user is loaded
   useEffect(() => {
+    if (!githubAuthChecked) {
+      return;
+    }
+
     if (!githubUser) {
       setRepos([]);
       setSelectedRepoFullName(null);
@@ -336,7 +342,18 @@ export default function ClientPageRoot() {
     };
 
     fetchRepos();
-  }, [githubUser]);
+  }, [githubUser, githubAuthChecked]);
+
+  // Add useEffect to sync active state with projects array (Fix #1: State Persistence)
+  useEffect(() => {
+    if (currentProjectId && isMounted) {
+      setProjects(prevProjects =>
+        prevProjects.map(p =>
+          p.id === currentProjectId ? { ...p, state } : p
+        )
+      );
+    }
+  }, [state, currentProjectId, isMounted]);
 
   // Keep ref updated with current filter state
   useEffect(() => {
@@ -487,9 +504,31 @@ export default function ClientPageRoot() {
           commitDate: loadedCommitDate // Store date in analysisResult too
         };
 
-        // 2. Create metadata-only files (no content fetching)
+        // 2. Get project state for filtering (Fix #2: Apply Filters to GitHub Tree)
+        const projectStateForFiltering = projects.find(p => p.githubRepoFullName === selectedRepoFullName && p.githubBranch === branchName)?.state || state;
+        const excludedFolders = projectStateForFiltering.excludeFolders.split(',').map(f => f.trim()).filter(f => f);
+        const allowedFileTypes = projectStateForFiltering.fileTypes.split(',').map(t => t.trim()).filter(t => t);
+
+        // Create metadata-only files with filtering applied
         const filesMetadata: FileData[] = (loadedTree || [])
-          .filter(item => item.type === 'blob')
+          .filter(item => {
+            if (item.type !== 'blob') return false;
+
+            // Apply folder exclusion filters
+            const pathComponents = item.path.split('/');
+            const isExcluded = pathComponents.slice(0, -1).some(component => excludedFolders.includes(component));
+            if (isExcluded) return false;
+
+            // Apply file type filters
+            const fileExtension = item.path.includes('.') ? '.' + item.path.split('.').pop() : '';
+            const fileMatchesType = allowedFileTypes.length === 0 || allowedFileTypes.includes('*') ||
+              allowedFileTypes.some(type => {
+                return item.path === type || (type.startsWith('.') && fileExtension === type);
+              });
+            if (!fileMatchesType) return false;
+
+            return true; // Keep the file
+          })
           .map(item => ({
             path: item.path,
             lines: 0, // Set lines to 0 since we don't have content to count
