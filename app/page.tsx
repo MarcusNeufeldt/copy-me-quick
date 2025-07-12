@@ -1078,12 +1078,38 @@ export default function ClientPageRoot() {
     }
   };
 
+  const clearActiveAnalysis = () => {
+    console.log("Clearing active analysis session.");
+    // Reset the core analysis state, but keep filters like excludeFolders and fileTypes
+    setState(prevState => ({
+      ...prevState,
+      analysisResult: null,
+      selectedFiles: [],
+    }));
+    // Clear the active project ID and related data
+    setCurrentProjectId(null);
+    setTokenCount(0);
+    setTokenDetails(null);
+    setError(null);
+
+    // Clear GitHub-specific UI state to ensure a clean slate on the GitHub tab
+    // Note: We leave selectedRepoFullName and selectedBranchName as is, so if the user
+    // switches back, they can reload the same repo/branch easily. The tree itself is cleared.
+    setGithubTree(null);
+    setIsGithubTreeTruncated(false);
+    setGithubSelectionError(null);
+    setFileLoadingMessage(null);
+  };
+
   const confirmTabSwitch = () => {
-    console.log("User confirmed tab switch. Clearing workspace and switching.");
-    handleResetWorkspace(); // Clear the current session state
+    console.log("User confirmed tab switch. Switching context.");
+    // This is a much lighter reset, only clearing the active view.
+    clearActiveAnalysis(); 
+    
     if (nextTabValue) {
-      setActiveSourceTab(nextTabValue); // Set the new active tab
+      setActiveSourceTab(nextTabValue);
     }
+    
     setShowSwitchConfirmDialog(false);
     setNextTabValue(null);
   };
@@ -1405,7 +1431,7 @@ export default function ClientPageRoot() {
           <AlertDialogHeader>
             <AlertDialogTitle>Confirm Source Switch</AlertDialogTitle>
             <AlertDialogDescription>
-              Switching the source type will clear the current analysis session (file selections, token counts). Your saved project data and presets will remain. Continue?
+              Switching sources will change your current view. Continue?
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
