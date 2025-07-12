@@ -82,7 +82,7 @@ const defaultProjectTypes = [
 const initialAppState: AppState = {
   analysisResult: null,
   selectedFiles: [],
-  excludeFolders: 'node_modules,.git,dist,.next',
+  excludeFolders: 'node_modules,.git,dist,.next,package-lock.json,yarn.lock,pnpm-lock.yaml',
   fileTypes: '.js,.jsx,.ts,.tsx,.py',
 };
 
@@ -219,6 +219,10 @@ export default function ClientPageRoot() {
   const [isGithubTreeTruncated, setIsGithubTreeTruncated] = useState(false);
   const [fileLoadingMessage, setFileLoadingMessage] = useState<string | null>(null); // Keep this for specific warnings
   const [isFilterSheetOpen, setIsFilterSheetOpen] = useState(false);
+  
+  // Refs for stable filter handling
+  const excludeFoldersRef = useRef(state.excludeFolders);
+  const isInitialMount = useRef(true);
 
   // Load state from localStorage only on the client after mount
   useEffect(() => {
@@ -253,6 +257,12 @@ export default function ClientPageRoot() {
     };
 
     checkGitHubAuth();
+
+    // Load global GitHub filter settings
+    const savedFilters = localStorage.getItem('githubGlobalExclusions');
+    if (savedFilters) {
+      setState(prevState => ({ ...prevState, excludeFolders: savedFilters }));
+    }
 
     const savedProjectsStr = localStorage.getItem('codebaseReaderProjects');
     const loadedProjects: Project[] = savedProjectsStr ? JSON.parse(savedProjectsStr) : [];
@@ -378,6 +388,11 @@ export default function ClientPageRoot() {
     fetchRepos();
   }, [githubUser]);
 
+  // Keep ref updated with current filter state
+  useEffect(() => {
+    excludeFoldersRef.current = state.excludeFolders;
+  }, [state.excludeFolders]);
+
   // Fetch Branches when a repo is selected
   const handleRepoChange = useCallback((repoFullName: string) => {
     setSelectedRepoFullName(repoFullName);
@@ -459,7 +474,7 @@ export default function ClientPageRoot() {
         if (!treeResponse.ok) throw new Error(treeData.error || 'Failed to fetch file tree');
 
         // Apply current filters to the tree
-        const excludedPatterns = state.excludeFolders.split(',').map(f => f.trim()).filter(Boolean);
+        const excludedPatterns = excludeFoldersRef.current.split(',').map(f => f.trim()).filter(Boolean);
         const fullTreeFromAPI: GitHubTreeItem[] = treeData.tree;
         
         const filteredApiTree = fullTreeFromAPI.filter(item => {
@@ -618,28 +633,25 @@ export default function ClientPageRoot() {
 
     fetchTreeAndSetProject();
 
-  }, [repos, selectedRepoFullName, projects, setProjects, setState, setCurrentProjectId, setLoadingStatus, state.excludeFolders]); // Added projects dependencies
+  }, [repos, selectedRepoFullName, projects, setProjects, setState, setCurrentProjectId, setLoadingStatus]); // Removed state.excludeFolders dependency
 
-  // Handler for saving filters
+  // Handler for saving filters - now saves globally for GitHub tab
   const handleSaveFilters = useCallback((newExclusions: string) => {
+    localStorage.setItem('githubGlobalExclusions', newExclusions);
     setState(prevState => ({ ...prevState, excludeFolders: newExclusions }));
-    
-    // Also update the current project in the projects array to persist the filter changes
-    if (currentProjectId) {
-      setProjects(prevProjects => 
-        prevProjects.map(p => 
-          p.id === currentProjectId 
-            ? { ...p, state: { ...p.state, excludeFolders: newExclusions }, lastAccessed: Date.now() }
-            : p
-        )
-      );
+  }, []);
+
+  // React to filter changes and refresh GitHub tree
+  useEffect(() => {
+    if (isInitialMount.current) {
+      isInitialMount.current = false;
+      return;
     }
-    
-    if (selectedBranchName) {
+    if (selectedBranchName && activeSourceTab === 'github') {
       toast("Filters updated. Refreshing file tree...");
-      // The handleBranchChange will be triggered by the dependency change
+      handleBranchChange(selectedBranchName);
     }
-  }, [selectedBranchName, currentProjectId]);
+  }, [state.excludeFolders, selectedBranchName, activeSourceTab, handleBranchChange]);
 
   // Persist state changes to localStorage
   useEffect(() => {
