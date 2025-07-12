@@ -439,7 +439,18 @@ export default function ClientPageRoot() {
         loadedTree = treeData.tree;
         loadedCommitDate = treeData.commitDate; // Capture the commit date
 
-        setGithubTree(loadedTree); // Update tree state for FileSelector
+        // Add formatted file sizes to tree items for display
+        const enhancedTree = loadedTree?.map(item => {
+          if (item.type === 'blob' && item.size !== undefined) {
+            return {
+              ...item,
+              formattedSize: formatFileSize(item.size)
+            };
+          }
+          return item;
+        }) || null;
+
+        setGithubTree(enhancedTree); // Update tree state for FileSelector with enhanced data
         setIsGithubTreeTruncated(treeData.truncated ?? false);
 
         const totalFileCount = loadedTree?.filter(item => item.type === 'blob').length || 0;

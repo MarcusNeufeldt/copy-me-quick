@@ -58,21 +58,47 @@ const FileTreeNode: React.FC<FileTreeNodeProps> = ({
   const handleCheckboxChange = (checked: boolean) => onToggle(node.path, checked);
 
   const getFileSizeLevel = React.useCallback((): 'normal' | 'moderate' | 'large' => {
-    if (isFolder || !node.lines || averageLines <= 0) return 'normal';
-    if (node.lines > averageLines * 2.5) return 'large';
-    if (node.lines > averageLines * 1.25) return 'moderate';
+    if (isFolder) return 'normal';
+    
+    // If we have line count, use that (for local files or fetched GitHub files)
+    if (node.lines && averageLines > 0) {
+      if (node.lines > averageLines * 2.5) return 'large';
+      if (node.lines > averageLines * 1.25) return 'moderate';
+      return 'normal';
+    }
+    
+    // Fallback to file size for GitHub files without content
+    if (node.size) {
+      if (node.size > 100000) return 'large';    // >100KB
+      if (node.size > 25000) return 'moderate';  // >25KB
+      return 'normal';
+    }
+    
     return 'normal';
-  }, [node.lines, averageLines, isFolder]);
+  }, [node.lines, node.size, averageLines, isFolder]);
 
   const fileSizeLevel = getFileSizeLevel();
   const isLargeFile = fileSizeLevel === 'large';
   const isModerateFile = fileSizeLevel === 'moderate';
 
   const getSizeRatio = React.useCallback((): number => {
-    if (isFolder || !node.lines || averageLines <= 0) return 0;
-    const ratio = Math.min(node.lines / (averageLines * 3), 1);
-    return ratio * 100;
-  }, [node.lines, averageLines, isFolder]);
+    if (isFolder) return 0;
+    
+    // Use line count if available
+    if (node.lines && averageLines > 0) {
+      const ratio = Math.min(node.lines / (averageLines * 3), 1);
+      return ratio * 100;
+    }
+    
+    // Fallback to file size for GitHub files without content
+    if (node.size) {
+      // Normalize file size to a 0-100 scale (100KB = 100%)
+      const ratio = Math.min(node.size / 100000, 1);
+      return ratio * 100;
+    }
+    
+    return 0;
+  }, [node.lines, node.size, averageLines, isFolder]);
 
   const sizeRatio = getSizeRatio();
 
