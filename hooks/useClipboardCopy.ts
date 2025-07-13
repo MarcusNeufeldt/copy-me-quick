@@ -100,10 +100,11 @@ export function useClipboardCopy({
         
         if (file.dataSourceType === 'github' && !file.content && file.path && dataSource.type === 'github' && dataSource.repoInfo) {
           githubFetchNeeded = true; // Mark that fetching is needed
-          const { owner, repo } = dataSource.repoInfo;
+          const { owner, repo, branch } = dataSource.repoInfo;
           const fetchPromise = (async () => {
             try {
-              const contentUrl = `${GITHUB_CONTENT_API}?owner=${owner}&repo=${repo}&path=${encodeURIComponent(file.path)}`;
+              // Include branch information in the API request
+              const contentUrl = `${GITHUB_CONTENT_API}?owner=${owner}&repo=${repo}&path=${encodeURIComponent(file.path)}&ref=${encodeURIComponent(branch)}`;
               const response = await fetch(contentUrl);
               if (!response.ok) {
                 const errorData = await response.json();

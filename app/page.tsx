@@ -164,35 +164,81 @@ function formatFileSize(bytes: number, decimals = 2): string {
 async function getFilesFromHandle(
   dirHandle: FileSystemDirectoryHandle,
   path: string = '',
-  includeRootName: boolean = true
+  includeRootName: boolean = true,
+  excludeFolders: string[] = [],
+  allowedFileTypes: string[] = []
 ): Promise<File[]> {
   const files: File[] = [];
   const rootPrefix = path === '' && includeRootName ? dirHandle.name : '';
   
-  // @ts-ignore: .values() is not yet in TypeScript's lib.dom.d.ts
-  for await (const entry of (dirHandle as any).values()) {
-    let newPath: string;
-    
-    if (path === '' && includeRootName) {
-      newPath = `${rootPrefix}/${entry.name}`;
-    } else if (path === '') {
-      newPath = entry.name;
-    } else {
-      newPath = `${path}/${entry.name}`;
+  try {
+    // @ts-ignore: .values() is not yet in TypeScript's lib.dom.d.ts
+    for await (const entry of (dirHandle as any).values()) {
+      try {
+        let newPath: string;
+        
+        if (path === '' && includeRootName) {
+          newPath = `${rootPrefix}/${entry.name}`;
+        } else if (path === '') {
+          newPath = entry.name;
+        } else {
+          newPath = `${path}/${entry.name}`;
+        }
+        
+        if (entry.kind === 'file') {
+          // Check if file type is allowed before reading
+          const fileExtension = entry.name.includes('.') ? '.' + entry.name.split('.').pop() : '';
+          const fileMatchesType = allowedFileTypes.length === 0 || 
+            allowedFileTypes.includes('*') || 
+            allowedFileTypes.some(type => 
+              entry.name === type || 
+              (type.startsWith('.') && fileExtension === type) ||
+              entry.name.endsWith(type)
+            );
+          
+          if (fileMatchesType) {
+            try {
+              const file = await entry.getFile();
+              Object.defineProperty(file, 'webkitRelativePath', {
+                value: newPath,
+                writable: true,
+                enumerable: true,
+              });
+              files.push(file);
+            } catch (fileErr) {
+              console.warn(`Could not read file ${newPath}:`, fileErr);
+              // Skip this file and continue
+            }
+          }
+        } else if (entry.kind === 'directory') {
+          // Check if directory is excluded before traversing
+          const isExcluded = excludeFolders.some(excludeFolder => 
+            entry.name === excludeFolder || 
+            entry.name.includes(excludeFolder)
+          );
+          
+          if (!isExcluded) {
+            try {
+              const subFiles = await getFilesFromHandle(entry, newPath, false, excludeFolders, allowedFileTypes);
+              files.push(...subFiles);
+            } catch (dirErr) {
+              console.warn(`Could not read directory ${newPath}:`, dirErr);
+              // Skip this directory and continue
+            }
+          } else {
+            console.log(`Skipping excluded directory: ${newPath}`);
+          }
+        }
+      } catch (entryErr) {
+        console.warn(`Could not process entry:`, entryErr);
+        // Skip this entry and continue
+      }
     }
-    
-    if (entry.kind === 'file') {
-      const file = await entry.getFile();
-      Object.defineProperty(file, 'webkitRelativePath', {
-        value: newPath,
-        writable: true,
-        enumerable: true,
-      });
-      files.push(file);
-    } else if (entry.kind === 'directory') {
-      files.push(...(await getFilesFromHandle(entry, newPath, false)));
-    }
+  } catch (iterationErr) {
+    console.error(`Could not iterate through directory ${path}:`, iterationErr);
+    throw new Error(`Failed to read directory contents: ${iterationErr instanceof Error ? iterationErr.message : String(iterationErr)}`);
   }
+  
   return files;
 }
 
@@ -294,16 +340,8 @@ export default function ClientPageRoot() {
       sourceType: dbProject.source_type,
       githubRepoFullName: dbProject.github_repo_full_name,
       githubBranch: dbProject.github_branch,
-      state: {
-        analysisResult: null, // We don't store this in DB
-        selectedFiles: [],
-        excludeFolders: dbProject.source_type === 'github' 
-          ? userContext.user.global_github_exclude_folders
-          : (dbProject.local_exclude_folders || userContext.user.local_exclude_folders),
-        fileTypes: dbProject.source_type === 'github'
-          ? '.js,.jsx,.ts,.tsx,.py'
-          : (dbProject.local_file_types || userContext.user.local_file_types),
-      },
+      localExcludeFolders: dbProject.local_exclude_folders,
+      localFileTypes: dbProject.local_file_types,
       lastAccessed: dbProject.last_accessed * 1000, // Convert to milliseconds
       isPinned: dbProject.is_pinned === 1,
       hasDirectoryHandle: false, // We'll check this separately if needed
@@ -475,14 +513,152 @@ export default function ClientPageRoot() {
     }
   }, [mutate]);
 
-  // Handle file upload completion
+  // Centralized file processing logic (files are now pre-filtered)
+  const processFiles = useCallback(async (
+    files: File[], 
+    excludeFoldersList: string[], 
+    allowedFileTypesList: string[]
+  ): Promise<AnalysisResultData> => {
+    let newFileContentsMap = new Map<string, FileData>();
+    let newTotalLines = 0;
+    setLoadingStatus({ isLoading: true, message: `Processing ${files.length} files...` });
+
+    // Files are now pre-filtered during directory traversal, so we just need to read content
+    for (const file of files) {
+      const relativePath = file.webkitRelativePath || file.name;
+      if (!relativePath) continue;
+
+      try {
+        const content = await file.text();
+        const lines = content.split('\n').length;
+        newFileContentsMap.set(relativePath, {
+          path: relativePath,
+          lines,
+          content,
+          size: file.size,
+          dataSourceType: 'local'
+        });
+        newTotalLines += lines;
+      } catch (error) {
+        console.error(`Error reading file ${relativePath}:`, error);
+      }
+    }
+
+    const finalFiles: FileData[] = Array.from(newFileContentsMap.values());
+    setLoadingStatus({ isLoading: false, message: null });
+    return {
+      totalFiles: finalFiles.length,
+      totalLines: newTotalLines,
+      totalTokens: 0,
+      summary: `Analyzed ${finalFiles.length} local files.`,
+      project_tree: '',
+      files: finalFiles,
+      uploadTimestamp: Date.now(),
+    };
+  }, []);
+
+  // Logic to reload a local project from IndexedDB
+  const handleReloadLocalProject = useCallback(async (project: Project) => {
+    setLoadingStatus({ isLoading: true, message: `Re-opening ${project.name}...` });
+    try {
+      const handle = await getDirectoryHandle(project.id);
+      if (!handle) {
+        console.log(`No stored handle found for project: ${project.name}`);
+        toast.info(`Please re-select the folder for '${project.name}'.`);
+        setLoadingStatus({ isLoading: false, message: null });
+        return;
+      }
+      
+      // Test if the handle is still valid by trying to get permission
+      let permissionState;
+      try {
+        if ('queryPermission' in handle) {
+          permissionState = await (handle as any).queryPermission({ mode: 'read' });
+        }
+      } catch (err) {
+        console.log("Permission query failed, handle may be stale");
+      }
+      
+      // If permission is denied or we can't query, request it
+      if (permissionState !== 'granted') {
+        try {
+          if ('requestPermission' in handle) {
+            permissionState = await (handle as any).requestPermission({ mode: 'read' });
+            if (permissionState !== 'granted') {
+              throw new Error('Permission denied');
+            }
+          }
+        } catch (err) {
+          throw new Error('Permission denied or handle is stale');
+        }
+      }
+      
+      // Try to read files from the handle
+      const excludeFolders = (project.localExcludeFolders || '').split(',').map(f => f.trim()).filter(Boolean);
+      const fileTypes = (project.localFileTypes || '').split(',').map(t => t.trim()).filter(Boolean);
+      const files = await getFilesFromHandle(handle, '', true, excludeFolders, fileTypes);
+      const analysisResult = await processFiles(files, [], []);
+      
+      setState(prev => ({
+        ...prev,
+        analysisResult,
+        selectedFiles: [],
+      }));
+      
+      toast.success(`Reopened '${project.name}' successfully!`);
+      
+    } catch (err: any) {
+      console.error("Failed to auto-reload local project:", err);
+      
+      // Provide specific error messages based on the error type
+      if (err.name === 'NotFoundError' || err.message.includes('not found')) {
+        toast.error(`The folder for '${project.name}' is no longer accessible. Please re-select it.`);
+      } else if (err.message.includes('Permission denied') || err.message.includes('stale')) {
+        toast.error(`Access to '${project.name}' folder was denied. Please re-select it.`);
+      } else {
+        toast.error(`Could not open '${project.name}'. Please re-select the folder.`);
+      }
+      
+      // Clear the stale handle from IndexedDB
+      try {
+        const { removeDirectoryHandle } = await import('@/lib/indexeddb');
+        await removeDirectoryHandle(project.id);
+      } catch (cleanupErr) {
+        console.error('Failed to clean up stale handle:', cleanupErr);
+      }
+    } finally {
+      setLoadingStatus({ isLoading: false, message: null });
+    }
+  }, [processFiles]);
+
+  // Handle file upload completion (files are now pre-filtered)
   const handleUploadComplete = useCallback(async (
-    newAnalysisResult: AnalysisResultData,
+    files: File[],
     rootHandle?: FileSystemDirectoryHandle
   ) => {
-    // Create or update project
+    const analysisResult = await processFiles(files, [], []); // No additional filtering needed
+    
+    if (analysisResult.files.length === 0) {
+      toast.error("No matching files found based on the current filters.");
+      return;
+    }
+    
     const newProjectId = Date.now().toString();
     const projectName = rootHandle ? rootHandle.name : `Local Project ${new Date().toLocaleDateString()}`;
+    
+    // Save directory handle if available
+    if (rootHandle) {
+      await saveDirectoryHandle(newProjectId, rootHandle);
+    }
+    
+    setState(prevState => ({
+      ...prevState,
+      analysisResult,
+      selectedFiles: [],
+    }));
+    
+    setCurrentProjectId(newProjectId);
+    localStorage.setItem('currentProjectId', newProjectId);
     
     try {
       await fetch('/api/projects', {
@@ -497,35 +673,21 @@ export default function ClientPageRoot() {
         }),
       });
       
-      // Update state
-      setState(prevState => ({
-        ...prevState,
-        analysisResult: newAnalysisResult,
-        selectedFiles: [],
-      }));
-      
-      setCurrentProjectId(newProjectId);
-      localStorage.setItem('currentProjectId', newProjectId);
-      
-      // Refresh user context to get the new project
       await mutate();
-      
+      toast.success('New local project created!');
     } catch (error) {
       console.error('Error creating project:', error);
-      // Still update the state even if project creation fails
-      setState(prevState => ({
-        ...prevState,
-        analysisResult: newAnalysisResult,
-        selectedFiles: [],
-      }));
+      toast.error('Failed to create project');
     }
-  }, [state.excludeFolders, state.fileTypes, mutate]);
+  }, [state.excludeFolders, state.fileTypes, mutate, processFiles]);
 
   // Update current project helper (for FileUploadSection)
   const updateCurrentProject = useCallback((newState: AppState, hasDirectoryHandle?: boolean) => {
     setState(newState);
     // Could also update project in database here if needed
   }, []);
+
+
 
   // Handle repo selection
   const handleRepoChange = useCallback((repoFullName: string) => {
@@ -755,6 +917,175 @@ export default function ClientPageRoot() {
     setGithubSelectionError(null);
   }, []);
 
+  const loadProjectById = useCallback(async (projectId: string) => {
+    const project = projects.find(p => p.id === projectId);
+    if (!project) return;
+
+    try {
+      setLoadingStatus({ isLoading: true, message: `Loading ${project.name}...` });
+      
+      // Update last accessed
+      await fetch(`/api/projects/${projectId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ last_accessed: Math.floor(Date.now() / 1000) }),
+      });
+
+      // Set current project
+      setCurrentProjectId(projectId);
+      localStorage.setItem('currentProjectId', projectId);
+      setActiveSourceTab(project.sourceType);
+
+      if (project.sourceType === 'github') {
+        // Load GitHub project
+        setSelectedRepoFullName(project.githubRepoFullName || null);
+        setSelectedBranchName(project.githubBranch || null);
+        setState(prevState => ({
+          ...prevState,
+          excludeFolders: userContext?.user.global_github_exclude_folders || '',
+          selectedFiles: [],
+          analysisResult: null,
+        }));
+        
+        // Trigger branch loading if we have branch info
+        if (project.githubBranch) {
+          setTimeout(() => handleBranchChange(project.githubBranch!), 100);
+        }
+      } else {
+        // Load local project
+        setState(prevState => ({
+          ...prevState,
+          excludeFolders: project.localExcludeFolders || userContext?.user.local_exclude_folders || '',
+          fileTypes: project.localFileTypes || userContext?.user.local_file_types || '',
+          selectedFiles: [],
+          analysisResult: null,
+        }));
+        
+        // Try to reload the local project from stored handle
+        setTimeout(() => handleReloadLocalProject(project), 100);
+      }
+
+      // Refresh user context
+      await mutate();
+      toast.success(`Project "${project.name}" loaded.`);
+
+    } catch (error) {
+      console.error('Error loading project:', error);
+      toast.error('Failed to load project');
+    } finally {
+      setLoadingStatus({ isLoading: false, message: null });
+    }
+  }, [projects, userContext, mutate]);
+
+  // Project management handlers
+  const handleLoadProject = useCallback(async (projectId: string) => {
+    const project = projects.find(p => p.id === projectId);
+    if (!project) {
+      toast.error("Project not found.");
+      return;
+    }
+
+    // Check if there's current work that would be lost
+    const hasCurrentWork = !!state.analysisResult && state.analysisResult.files.length > 0;
+    
+    if (hasCurrentWork) {
+      // Show confirmation dialog
+      setProjectToLoadId(projectId);
+      setLoadConfirmationMessage(`Loading "${project.name}" will replace your current session. Continue?`);
+      setShowLoadRecentConfirmDialog(true);
+      return;
+    }
+
+    // Proceed with loading
+    await loadProjectById(projectId);
+  }, [projects, state.analysisResult, loadProjectById]);
+
+  const handlePinProject = useCallback(async (projectId: string, isPinned: boolean) => {
+    setLoadingStatus({ isLoading: true, message: 'Updating project...' });
+    try {
+      const response = await fetch(`/api/projects/${projectId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ is_pinned: isPinned }),
+      });
+      
+      if (!response.ok) {
+        throw new Error('Failed to update project');
+      }
+      
+      await mutate();
+      toast.success(isPinned ? 'Project pinned!' : 'Project unpinned.');
+    } catch (error) {
+      console.error('Error updating project:', error);
+      toast.error('Failed to update project');
+    } finally {
+      setLoadingStatus({ isLoading: false, message: null });
+    }
+  }, [mutate]);
+
+  const handleRemoveProject = useCallback(async (projectId: string) => {
+    setLoadingStatus({ isLoading: true, message: 'Removing project...' });
+    try {
+      const response = await fetch(`/api/projects/${projectId}`, {
+        method: 'DELETE',
+      });
+      
+      if (!response.ok) {
+        throw new Error('Failed to remove project');
+      }
+      
+      // If this was the current project, reset workspace
+      if (currentProjectId === projectId) {
+        handleResetWorkspace();
+      }
+      
+      await mutate();
+      toast.success('Project removed.');
+    } catch (error) {
+      console.error('Error removing project:', error);
+      toast.error('Failed to remove project');
+    } finally {
+      setLoadingStatus({ isLoading: false, message: null });
+    }
+  }, [currentProjectId, mutate, handleResetWorkspace]);
+
+  const handleRenameProject = useCallback(async (projectId: string, newName: string) => {
+    setLoadingStatus({ isLoading: true, message: 'Renaming project...' });
+    try {
+      const response = await fetch(`/api/projects/${projectId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: newName }),
+      });
+      
+      if (!response.ok) {
+        throw new Error('Failed to rename project');
+      }
+      
+      await mutate();
+      toast.success('Project renamed!');
+    } catch (error) {
+      console.error('Error renaming project:', error);
+      toast.error('Failed to rename project');
+    } finally {
+      setLoadingStatus({ isLoading: false, message: null });
+    }
+  }, [mutate]);
+
+  // Handle confirmation dialogs
+  const confirmLoadRecent = useCallback(async () => {
+    if (projectToLoadId) {
+      await loadProjectById(projectToLoadId);
+    }
+    setShowLoadRecentConfirmDialog(false);
+    setProjectToLoadId(null);
+  }, [projectToLoadId, loadProjectById]);
+
+  const cancelLoadRecent = useCallback(() => {
+    setShowLoadRecentConfirmDialog(false);
+    setProjectToLoadId(null);
+  }, []);
+
   // Handle tab switching
   const handleTabChangeAttempt = (newTabValue: 'local' | 'github') => {
     if (newTabValue !== activeSourceTab) {
@@ -955,15 +1286,11 @@ export default function ClientPageRoot() {
                     </Button>
 
                     <FileUploadSection
-                      state={state}
-                      setState={setState}
-                      updateCurrentProject={updateCurrentProject}
-                      setError={setError}
                       onUploadComplete={handleUploadComplete}
-                      projectTypeSelected={true}
-                      buttonTooltip="Select your project's root folder to analyze"
                       setLoadingStatus={setLoadingStatus}
                       loadingStatus={loadingStatus}
+                      excludeFolders={state.excludeFolders.split(',').map(f => f.trim()).filter(Boolean)}
+                      allowedFileTypes={state.fileTypes.split(',').map(t => t.trim()).filter(Boolean)}
                     />
                     <Alert variant="default" className="mt-2 bg-primary/5 border-primary/20">
                       <ShieldCheck className="h-4 w-4 text-primary/80" />
@@ -973,11 +1300,11 @@ export default function ClientPageRoot() {
                     </Alert>
                     
                     <RecentProjectsDisplay 
-                      projects={projects} 
-                      onLoadProject={(id) => console.log('Load project:', id)}
-                      onPinProject={(id, pinned) => console.log('Pin project:', id, pinned)}
-                      onRemoveProject={(id) => console.log('Remove project:', id)}
-                      onRenameProject={(id, name) => console.log('Rename project:', id, name)}
+                      projects={projects.filter(p => p.sourceType === 'local')} 
+                      onLoadProject={handleLoadProject}
+                      onPinProject={handlePinProject}
+                      onRemoveProject={handleRemoveProject}
+                      onRenameProject={handleRenameProject}
                     />
                   </TabsContent>
 
@@ -1105,6 +1432,14 @@ export default function ClientPageRoot() {
                         </Alert>
                       )}
                     </div>
+                    
+                    <RecentProjectsDisplay 
+                      projects={projects.filter(p => p.sourceType === 'github')} 
+                      onLoadProject={handleLoadProject}
+                      onPinProject={handlePinProject}
+                      onRemoveProject={handleRemoveProject}
+                      onRenameProject={handleRenameProject}
+                    />
                   </TabsContent>
                 </Tabs>
 
@@ -1172,6 +1507,21 @@ export default function ClientPageRoot() {
           <AlertDialogFooter>
             <AlertDialogCancel onClick={cancelTabSwitch}>Cancel</AlertDialogCancel>
             <AlertDialogAction onClick={confirmTabSwitch}>Continue</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={showLoadRecentConfirmDialog} onOpenChange={setShowLoadRecentConfirmDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Load Project?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {loadConfirmationMessage}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={cancelLoadRecent}>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmLoadRecent}>Load Project</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

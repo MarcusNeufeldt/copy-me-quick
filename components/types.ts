@@ -29,13 +29,13 @@ export interface Project {
   id: string;
   name: string;
   sourceType: 'local' | 'github';
-  sourceFolderName?: string;
-  githubRepoFullName?: string;
-  githubBranch?: string;
-  state: AppState;
-  lastAccessed?: number; // Unix timestamp
-  hasDirectoryHandle?: boolean;
-  isPinned?: boolean;
+  githubRepoFullName?: string | null;
+  githubBranch?: string | null;
+  localExcludeFolders?: string | null;
+  localFileTypes?: string | null;
+  lastAccessed: number;
+  isPinned: boolean;
+  hasDirectoryHandle?: boolean; // Client-side flag for local projects with stored handles
 }
 
 export interface GitHubTreeItem {

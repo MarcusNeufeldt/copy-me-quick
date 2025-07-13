@@ -30,4 +30,12 @@ export async function getDirectoryHandle(projectId: string): Promise<FileSystemD
   const db = await getDb();
   console.log(`Attempting to retrieve handle for project: ${projectId}`);
   return db.get('directoryHandles', projectId);
-} 
+}
+
+export async function removeDirectoryHandle(projectId: string): Promise<void> {
+  const db = await getDb();
+  await db.delete('directoryHandles', projectId);
+  console.log(`Removed handle for project: ${projectId}`);
+}
+
+export { getDb }; 

@@ -34,6 +34,7 @@ export async function GET(request: NextRequest) {
     const repo = searchParams.get('repo');
     const path = searchParams.get('path');
     const sha = searchParams.get('sha');
+    const ref = searchParams.get('ref');
 
     if (!token) {
         return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
@@ -54,9 +55,10 @@ export async function GET(request: NextRequest) {
             // Use contents API (easier, handles encoding)
             contentUrl = `${GITHUB_API_BASE}/repos/${owner}/${repo}/contents/${encodeURIComponent(path)}`;
             
-            // Add ref parameter if we have a branch or sha reference
-            if (sha) {
-                contentUrl += `?ref=${sha}`;
+            // Add ref parameter if we have a branch, sha, or ref reference
+            const refParam = ref || sha;
+            if (refParam) {
+                contentUrl += `?ref=${encodeURIComponent(refParam)}`;
             }
         } else {
             // Use git blob API with the provided SHA
