@@ -1,13 +1,13 @@
 import { useState, useEffect, useCallback } from 'react';
-import { GitHubRepo, GitHubBranch, GitHubTreeItem, LoadingStatus } from '../_types';
+import { GitHubRepo, GitHubBranch, GitHubTreeItem, LoadingStatus, UserContext } from '../_types';
 
 interface UseGitHubSourceProps {
-  userContext?: any;
-  setLoadingStatus: (status: LoadingStatus) => void;
+  userContext?: UserContext;
+  onLoadingChange: (status: LoadingStatus) => void;
 }
 
-export function useGitHubSource({ userContext, setLoadingStatus }: UseGitHubSourceProps) {
-  // GitHub state
+export function useGitHubSource({ userContext, onLoadingChange }: UseGitHubSourceProps) {
+  // GitHub state - NOW OWNED BY THIS HOOK
   const [repos, setRepos] = useState<GitHubRepo[]>([]);
   const [selectedRepoFullName, setSelectedRepoFullName] = useState<string | null>(null);
   const [branches, setBranches] = useState<GitHubBranch[]>([]);
@@ -24,7 +24,7 @@ export function useGitHubSource({ userContext, setLoadingStatus }: UseGitHubSour
     }
 
     const fetchRepos = async () => {
-      setLoadingStatus({ isLoading: true, message: 'Fetching repositories...' });
+      onLoadingChange({ isLoading: true, message: 'Fetching repositories...' });
       setGithubSelectionError(null);
       try {
         const response = await fetch('/api/github/repos');
@@ -38,12 +38,12 @@ export function useGitHubSource({ userContext, setLoadingStatus }: UseGitHubSour
         console.error('Error fetching repos:', error);
         setGithubSelectionError(error.message);
       } finally {
-        setLoadingStatus({ isLoading: false, message: null });
+        onLoadingChange({ isLoading: false, message: null });
       }
     };
 
     fetchRepos();
-  }, [userContext?.user, setLoadingStatus]);
+  }, [userContext?.user, onLoadingChange]);
 
   // Handle repo selection
   const handleRepoChange = useCallback((repoFullName: string) => {
@@ -58,7 +58,7 @@ export function useGitHubSource({ userContext, setLoadingStatus }: UseGitHubSour
     if (!selectedRepo) return;
 
     const fetchBranches = async () => {
-      setLoadingStatus({ isLoading: true, message: 'Fetching branches...' });
+      onLoadingChange({ isLoading: true, message: 'Fetching branches...' });
       try {
         const response = await fetch(`/api/github/branches?owner=${selectedRepo.owner.login}&repo=${selectedRepo.name}`);
         if (!response.ok) {
@@ -76,12 +76,12 @@ export function useGitHubSource({ userContext, setLoadingStatus }: UseGitHubSour
         console.error('Error fetching branches:', error);
         setGithubSelectionError(error.message);
       } finally {
-        setLoadingStatus({ isLoading: false, message: null });
+        onLoadingChange({ isLoading: false, message: null });
       }
     };
 
     fetchBranches();
-  }, [repos, setLoadingStatus]);
+  }, [repos, onLoadingChange]);
 
   // Handle branch selection and fetch tree
   const handleBranchChange = useCallback((branchName: string, excludeFolders: string, fileTypes: string) => {
@@ -100,7 +100,7 @@ export function useGitHubSource({ userContext, setLoadingStatus }: UseGitHubSour
     if (!selectedRepo) return null;
 
     const fetchTree = async () => {
-      setLoadingStatus({ isLoading: true, message: 'Loading file tree...' });
+      onLoadingChange({ isLoading: true, message: 'Loading file tree...' });
       try {
         // Fetch tree structure
         const apiUrl = `/api/github/tree?owner=${selectedRepo.owner.login}&repo=${selectedRepo.name}&branch=${branchName}`;
@@ -176,12 +176,12 @@ export function useGitHubSource({ userContext, setLoadingStatus }: UseGitHubSour
         setGithubTree(null);
         throw error;
       } finally {
-        setLoadingStatus({ isLoading: false, message: null });
+        onLoadingChange({ isLoading: false, message: null });
       }
     };
 
     return fetchTree();
-  }, [repos, selectedRepoFullName, setLoadingStatus]);
+  }, [repos, selectedRepoFullName, onLoadingChange]);
 
   // Reset GitHub state
   const resetGitHubState = useCallback(() => {

@@ -14,9 +14,7 @@ import { useAppContext } from '../_context/AppContext';
 
 export function ConfirmationDialogs() {
   const { 
-    showSwitchConfirmDialog,
-    showLoadRecentConfirmDialog,
-    loadConfirmationMessage,
+    ui,
     actions: { 
       confirmTabSwitch, 
       cancelTabSwitch, 
@@ -28,7 +26,7 @@ export function ConfirmationDialogs() {
   return (
     <>
       {/* Tab Switch Confirmation Dialog */}
-      <AlertDialog open={showSwitchConfirmDialog} onOpenChange={() => cancelTabSwitch()}>
+      <AlertDialog open={ui.showSwitchConfirmDialog} onOpenChange={() => cancelTabSwitch()}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Confirm Source Switch</AlertDialogTitle>
@@ -44,12 +42,12 @@ export function ConfirmationDialogs() {
       </AlertDialog>
 
       {/* Load Project Confirmation Dialog */}
-      <AlertDialog open={showLoadRecentConfirmDialog} onOpenChange={() => cancelLoadRecent()}>
+      <AlertDialog open={ui.showLoadRecentConfirmDialog} onOpenChange={() => cancelLoadRecent()}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Load Project?</AlertDialogTitle>
             <AlertDialogDescription>
-              {loadConfirmationMessage}
+              {ui.loadConfirmationMessage}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

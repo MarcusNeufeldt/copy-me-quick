@@ -10,8 +10,8 @@ import { GitHubSourcePanel } from './GitHubSourcePanel';
 
 export function ProjectSidebar() {
   const { 
-    activeSourceTab,
-    state,
+    ui,
+    workspace,
     actions: { handleTabChangeAttempt, handleResetWorkspace }
   } = useAppContext();
 
@@ -25,7 +25,7 @@ export function ProjectSidebar() {
           </div>
 
           {/* Source Selection Tabs */}
-          <Tabs value={activeSourceTab} onValueChange={(value) => handleTabChangeAttempt(value as 'local' | 'github')} className="w-full">
+          <Tabs value={ui.activeSourceTab} onValueChange={(value) => handleTabChangeAttempt(value as 'local' | 'github')} className="w-full">
             <TabsList className="grid w-full grid-cols-2 mb-4">
               <TabsTrigger value="local" className="text-xs px-2 py-1.5">
                 <Computer className="h-4 w-4 mr-1.5" /> Local
@@ -48,7 +48,7 @@ export function ProjectSidebar() {
             variant="outline"
             onClick={handleResetWorkspace}
             className="w-full transition-all hover:bg-destructive hover:text-destructive-foreground border-destructive/50 text-destructive/90"
-            disabled={!state.analysisResult}
+            disabled={!workspace.analysisResult}
           >
             <RotateCcw className="mr-2 h-4 w-4" />
             Clear Current Session

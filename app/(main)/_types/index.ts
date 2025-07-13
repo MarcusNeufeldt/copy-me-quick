@@ -200,44 +200,101 @@ export interface AppActions {
   setIsLocalFilterSheetOpen: (open: boolean) => void;
 }
 
-// Combined state and actions for the context
+// New structured context type with proper namespacing
 export interface AppContextType {
-  // State
-  state: AppState;
-  currentProjectId: string | null;
-  activeSourceTab: 'local' | 'github';
-  loadingStatus: LoadingStatus;
-  error: string | null;
-  tokenCount: number;
-  tokenDetails: import('../../../hooks/useTokenCalculator').TokenCountDetails | null;
+  // Core app state
   isMounted: boolean;
-  
-  // GitHub state
-  repos: GitHubRepo[];
-  selectedRepoFullName: string | null;
-  branches: GitHubBranch[];
-  selectedBranchName: string | null;
-  githubTree: GitHubTreeItem[] | null;
-  isGithubTreeTruncated: boolean;
-  githubSelectionError: string | null;
-  
-  // Dialog state
-  showSwitchConfirmDialog: boolean;
-  nextTabValue: 'local' | 'github' | null;
-  showLoadRecentConfirmDialog: boolean;
-  projectToLoadId: string | null;
-  loadConfirmationMessage: string;
-  
-  // Filter sheet state
-  isFilterSheetOpen: boolean;
-  isLocalFilterSheetOpen: boolean;
-  
-  // Derived state
-  projects: Project[];
-  githubRepoInfo?: GitHubRepoInfo;
   userContext?: UserContext;
   userContextError?: Error;
   
-  // Actions
-  actions: AppActions;
+  // UI state
+  ui: {
+    activeSourceTab: 'local' | 'github';
+    loadingStatus: LoadingStatus;
+    error: string | null;
+    isFilterSheetOpen: boolean;
+    isLocalFilterSheetOpen: boolean;
+    showSwitchConfirmDialog: boolean;
+    showLoadRecentConfirmDialog: boolean;
+    nextTabValue: 'local' | 'github' | null;
+    projectToLoadId: string | null;
+    loadConfirmationMessage: string;
+  };
+
+  // Current workspace/session
+  workspace: {
+    analysisResult: AnalysisResultData | null;
+    selectedFiles: string[];
+    excludeFolders: string;
+    fileTypes: string;
+    currentProjectId: string | null;
+    tokenCount: number;
+    tokenDetails: import('../../../hooks/useTokenCalculator').TokenCountDetails | null;
+    githubRepoInfo?: GitHubRepoInfo;
+  };
+
+  // Domain-specific modules
+  github: {
+    repos: GitHubRepo[];
+    selectedRepoFullName: string | null;
+    branches: GitHubBranch[];
+    selectedBranchName: string | null;
+    githubTree: GitHubTreeItem[] | null;
+    isGithubTreeTruncated: boolean;
+    githubSelectionError: string | null;
+    handleRepoChange: (repoFullName: string) => void;
+    handleBranchChange: (branchName: string, excludeFolders: string, fileTypes: string) => Promise<any> | null;
+    resetGitHubState: () => void;
+    setSelectedRepoFullName: (name: string | null) => void;
+    setSelectedBranchName: (name: string | null) => void;
+  };
+
+  local: {
+    handleDirectorySelection: (files: File[], rootHandle?: FileSystemDirectoryHandle, excludeFolders?: string, fileTypes?: string) => Promise<any>;
+    handleReloadLocalProject: (project: Project) => Promise<AnalysisResultData | null>;
+    processFiles: (files: File[], excludeFoldersList: string[], allowedFileTypesList: string[]) => Promise<AnalysisResultData>;
+  };
+
+  projects: {
+    items: Project[];
+    createProject: (projectData: any) => Promise<string>;
+    updateProjectAccess: (projectId: string) => Promise<void>;
+    handlePinProject: (projectId: string, isPinned: boolean) => Promise<void>;
+    handleRemoveProject: (projectId: string) => Promise<boolean>;
+    handleRenameProject: (projectId: string, newName: string) => Promise<void>;
+    findOrCreateGitHubProject: (repoFullName: string, branchName: string) => Promise<string>;
+    getProjectById: (projectId: string) => Project | undefined;
+  };
+
+  // Top-level actions
+  actions: {
+    // Auth actions
+    handleGitHubLogin: () => void;
+    handleGitHubLogout: () => Promise<void>;
+    
+    // Workspace actions
+    handleResetWorkspace: () => void;
+    handleTabChangeAttempt: (newTabValue: 'local' | 'github') => void;
+    handleUploadComplete: (files: File[], rootHandle?: FileSystemDirectoryHandle) => Promise<void>;
+    handleLoadProject: (projectId: string) => Promise<void>;
+    handleBranchChange: (branchName: string) => Promise<void>;
+    
+    // Filter actions
+    handleSaveFilters: (newExclusions: string) => Promise<void>;
+    handleSaveLocalFilters: (newExclusions: string, newFileTypes: string) => Promise<void>;
+    
+    // File selection and token actions
+    handleSelectedFilesChange: (filesOrUpdater: string[] | ((prev: string[]) => string[])) => void;
+    handleTokenCountChange: (count: number, details?: import('../../../hooks/useTokenCalculator').TokenCountDetails) => void;
+    
+    // Dialog actions
+    confirmTabSwitch: () => void;
+    cancelTabSwitch: () => void;
+    confirmLoadRecent: () => Promise<void>;
+    cancelLoadRecent: () => void;
+    
+    // UI actions
+    setIsFilterSheetOpen: (open: boolean) => void;
+    setIsLocalFilterSheetOpen: (open: boolean) => void;
+  };
 }

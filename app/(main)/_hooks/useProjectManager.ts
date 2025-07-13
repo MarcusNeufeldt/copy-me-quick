@@ -5,10 +5,10 @@ import { Project, LoadingStatus, UserContext } from '../_types';
 interface UseProjectManagerProps {
   userContext?: UserContext;
   mutate: () => Promise<any>;
-  setLoadingStatus: (status: LoadingStatus) => void;
+  onLoadingChange: (status: LoadingStatus) => void;
 }
 
-export function useProjectManager({ userContext, mutate, setLoadingStatus }: UseProjectManagerProps) {
+export function useProjectManager({ userContext, mutate, onLoadingChange }: UseProjectManagerProps) {
   
   // Convert database projects to frontend Project format
   const projects = useMemo(() => {
@@ -38,7 +38,7 @@ export function useProjectManager({ userContext, mutate, setLoadingStatus }: Use
     localExcludeFolders?: string;
     localFileTypes?: string;
   }) => {
-    setLoadingStatus({ isLoading: true, message: 'Creating project...' });
+    onLoadingChange({ isLoading: true, message: 'Creating project...' });
     try {
       const response = await fetch('/api/projects', {
         method: 'POST',
@@ -58,9 +58,9 @@ export function useProjectManager({ userContext, mutate, setLoadingStatus }: Use
       toast.error('Failed to create project');
       throw error;
     } finally {
-      setLoadingStatus({ isLoading: false, message: null });
+      onLoadingChange({ isLoading: false, message: null });
     }
-  }, [mutate, setLoadingStatus]);
+  }, [mutate, onLoadingChange]);
 
   // Update project's last accessed time
   const updateProjectAccess = useCallback(async (projectId: string) => {
@@ -79,7 +79,7 @@ export function useProjectManager({ userContext, mutate, setLoadingStatus }: Use
 
   // Pin/unpin a project
   const handlePinProject = useCallback(async (projectId: string, isPinned: boolean) => {
-    setLoadingStatus({ isLoading: true, message: 'Updating project...' });
+    onLoadingChange({ isLoading: true, message: 'Updating project...' });
     try {
       const response = await fetch(`/api/projects/${projectId}`, {
         method: 'PUT',
@@ -97,13 +97,13 @@ export function useProjectManager({ userContext, mutate, setLoadingStatus }: Use
       console.error('Error updating project:', error);
       toast.error('Failed to update project');
     } finally {
-      setLoadingStatus({ isLoading: false, message: null });
+      onLoadingChange({ isLoading: false, message: null });
     }
-  }, [mutate, setLoadingStatus]);
+  }, [mutate, onLoadingChange]);
 
   // Remove a project
   const handleRemoveProject = useCallback(async (projectId: string) => {
-    setLoadingStatus({ isLoading: true, message: 'Removing project...' });
+    onLoadingChange({ isLoading: true, message: 'Removing project...' });
     try {
       const response = await fetch(`/api/projects/${projectId}`, {
         method: 'DELETE',
@@ -121,13 +121,13 @@ export function useProjectManager({ userContext, mutate, setLoadingStatus }: Use
       toast.error('Failed to remove project');
       return false;
     } finally {
-      setLoadingStatus({ isLoading: false, message: null });
+      onLoadingChange({ isLoading: false, message: null });
     }
-  }, [mutate, setLoadingStatus]);
+  }, [mutate, onLoadingChange]);
 
   // Rename a project
   const handleRenameProject = useCallback(async (projectId: string, newName: string) => {
-    setLoadingStatus({ isLoading: true, message: 'Renaming project...' });
+    onLoadingChange({ isLoading: true, message: 'Renaming project...' });
     try {
       const response = await fetch(`/api/projects/${projectId}`, {
         method: 'PUT',
@@ -145,9 +145,9 @@ export function useProjectManager({ userContext, mutate, setLoadingStatus }: Use
       console.error('Error renaming project:', error);
       toast.error('Failed to rename project');
     } finally {
-      setLoadingStatus({ isLoading: false, message: null });
+      onLoadingChange({ isLoading: false, message: null });
     }
-  }, [mutate, setLoadingStatus]);
+  }, [mutate, onLoadingChange]);
 
   // Find or create GitHub project
   const findOrCreateGitHubProject = useCallback(async (

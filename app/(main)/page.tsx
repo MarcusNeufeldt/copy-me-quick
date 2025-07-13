@@ -30,10 +30,8 @@ function AppContent() {
     isMounted,
     userContext, 
     userContextError,
-    loadingStatus,
-    state,
-    isFilterSheetOpen,
-    isLocalFilterSheetOpen,
+    ui,
+    workspace,
     actions: { 
       handleSaveFilters, 
       handleSaveLocalFilters,
@@ -121,13 +119,13 @@ function AppContent() {
       <Toaster position="top-center" />
       
       {/* Loading indicator */}
-      {loadingStatus.isLoading && (
+      {ui.loadingStatus.isLoading && (
         <div className="fixed top-0 left-0 w-full h-1 bg-primary/10 z-50">
           <div className="h-full bg-gradient-to-r from-primary to-purple-500 animate-pulse-fast" style={{ width: '100%' }} />
-          {loadingStatus.message && (
+          {ui.loadingStatus.message && (
             <div className="absolute top-1 left-1/2 -translate-x-1/2 mt-2 px-3 py-1 bg-background border rounded-full shadow-lg text-xs font-medium flex items-center gap-2">
               <Loader2 className="h-3 w-3 animate-spin" />
-              {loadingStatus.message}
+              {ui.loadingStatus.message}
             </div>
           )}
         </div>
@@ -153,18 +151,18 @@ function AppContent() {
 
       {/* GitHub Filter Manager */}
       <GitHubFilterManager
-        isOpen={isFilterSheetOpen}
+        isOpen={ui.isFilterSheetOpen}
         onClose={() => setIsFilterSheetOpen(false)}
-        currentExclusions={state.excludeFolders}
+        currentExclusions={workspace.excludeFolders}
         onSave={handleSaveFilters}
       />
 
       {/* Local Template Manager */}
       <LocalTemplateManager
-        isOpen={isLocalFilterSheetOpen}
+        isOpen={ui.isLocalFilterSheetOpen}
         onClose={() => setIsLocalFilterSheetOpen(false)}
-        currentExclusions={state.excludeFolders}
-        currentFileTypes={state.fileTypes}
+        currentExclusions={workspace.excludeFolders}
+        currentFileTypes={workspace.fileTypes}
         onSave={handleSaveLocalFilters}
       />
 

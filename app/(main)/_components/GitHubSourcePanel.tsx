@@ -13,22 +13,13 @@ import { useAppContext } from '../_context/AppContext';
 export function GitHubSourcePanel() {
   const { 
     userContext,
-    repos,
-    selectedRepoFullName,
-    branches,
-    selectedBranchName,
-    githubSelectionError,
-    isGithubTreeTruncated,
-    loadingStatus,
+    github,
+    ui,
     projects,
     actions: { 
-      handleRepoChange, 
       handleBranchChange, 
       handleGitHubLogout,
-      handleLoadProject, 
-      handlePinProject, 
-      handleRemoveProject, 
-      handleRenameProject,
+      handleLoadProject,
       setIsFilterSheetOpen
     }
   } = useAppContext();
@@ -78,15 +69,15 @@ export function GitHubSourcePanel() {
           <BookMarked className="h-3 w-3" /> Repository
         </label>
         <Select
-          value={selectedRepoFullName || ''}
-          onValueChange={handleRepoChange}
-          disabled={loadingStatus.isLoading}
+          value={github.selectedRepoFullName || ''}
+          onValueChange={github.handleRepoChange}
+          disabled={ui.loadingStatus.isLoading}
         >
           <SelectTrigger className="text-xs sm:text-sm">
             <SelectValue placeholder="Select repository..." />
           </SelectTrigger>
           <SelectContent>
-            {repos.map((repo) => (
+            {github.repos.map((repo) => (
               <SelectItem key={repo.id} value={repo.full_name} className="text-xs sm:text-sm">
                 {repo.full_name}
               </SelectItem>
@@ -96,7 +87,7 @@ export function GitHubSourcePanel() {
       </div>
 
       {/* Branch Selector */}
-      {selectedRepoFullName && (
+      {github.selectedRepoFullName && (
         <div className="space-y-1.5">
           <div className="flex items-center justify-between">
             <label className="flex items-center gap-1 text-xs font-medium text-muted-foreground">
@@ -109,8 +100,8 @@ export function GitHubSourcePanel() {
                     variant="ghost"
                     size="icon"
                     className="h-7 w-7"
-                    onClick={() => selectedBranchName && handleBranchChange(selectedBranchName)}
-                    disabled={!selectedBranchName || loadingStatus.isLoading}
+                    onClick={() => github.selectedBranchName && handleBranchChange(github.selectedBranchName)}
+                    disabled={!github.selectedBranchName || ui.loadingStatus.isLoading}
                   >
                     <RefreshCw className="h-4 w-4" />
                   </Button>
@@ -122,16 +113,16 @@ export function GitHubSourcePanel() {
             </TooltipProvider>
           </div>
 
-          {branches.length > 0 ? (
+          {github.branches.length > 0 ? (
             <ScrollArea className="h-40 w-full rounded-md border p-2">
-              {branches.map((branch) => (
+              {github.branches.map((branch) => (
                 <Button
                   key={branch.name}
                   size="sm"
-                  variant={selectedBranchName === branch.name ? "default" : "ghost"}
+                  variant={github.selectedBranchName === branch.name ? "default" : "ghost"}
                   className="w-full justify-start text-xs mb-1 h-8"
                   onClick={() => handleBranchChange(branch.name)}
-                  disabled={loadingStatus.isLoading}
+                  disabled={ui.loadingStatus.isLoading}
                 >
                   <GitBranch className="h-3 w-3 mr-1" />
                   {branch.name}
@@ -146,13 +137,13 @@ export function GitHubSourcePanel() {
         </div>
       )}
 
-      {githubSelectionError && (
+      {github.githubSelectionError && (
         <Alert variant="destructive" className="text-xs mt-2">
-          <AlertDescription>{githubSelectionError}</AlertDescription>
+          <AlertDescription>{github.githubSelectionError}</AlertDescription>
         </Alert>
       )}
 
-      {isGithubTreeTruncated && (
+      {github.isGithubTreeTruncated && (
         <Alert variant="default" className="text-xs mt-2">
           <AlertDescription>
             Warning: Repository tree is large and was truncated.
@@ -161,11 +152,11 @@ export function GitHubSourcePanel() {
       )}
       
       <RecentProjectsDisplay 
-        projects={projects.filter(p => p.sourceType === 'github')} 
+        projects={projects.items.filter(p => p.sourceType === 'github')} 
         onLoadProject={handleLoadProject}
-        onPinProject={handlePinProject}
-        onRemoveProject={handleRemoveProject}
-        onRenameProject={handleRenameProject}
+        onPinProject={projects.handlePinProject}
+        onRemoveProject={projects.handleRemoveProject}
+        onRenameProject={projects.handleRenameProject}
       />
     </div>
   );

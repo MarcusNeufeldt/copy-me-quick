@@ -4,7 +4,7 @@ import { toast } from 'sonner';
 import { Project, FileData, AnalysisResultData, LoadingStatus } from '../_types';
 
 interface UseLocalSourceProps {
-  setLoadingStatus: (status: LoadingStatus) => void;
+  onLoadingChange: (status: LoadingStatus) => void;
 }
 
 // Helper to recursively get files from a directory handle
@@ -89,7 +89,7 @@ async function getFilesFromHandle(
   return files;
 }
 
-export function useLocalSource({ setLoadingStatus }: UseLocalSourceProps) {
+export function useLocalSource({ onLoadingChange }: UseLocalSourceProps) {
   
   // Centralized file processing logic (files are now pre-filtered)
   const processFiles = useCallback(async (
@@ -99,7 +99,7 @@ export function useLocalSource({ setLoadingStatus }: UseLocalSourceProps) {
   ): Promise<AnalysisResultData> => {
     let newFileContentsMap = new Map<string, FileData>();
     let newTotalLines = 0;
-    setLoadingStatus({ isLoading: true, message: `Processing ${files.length} files...` });
+    onLoadingChange({ isLoading: true, message: `Processing ${files.length} files...` });
 
     // Files are now pre-filtered during directory traversal, so we just need to read content
     for (const file of files) {
@@ -123,7 +123,7 @@ export function useLocalSource({ setLoadingStatus }: UseLocalSourceProps) {
     }
 
     const finalFiles: FileData[] = Array.from(newFileContentsMap.values());
-    setLoadingStatus({ isLoading: false, message: null });
+    onLoadingChange({ isLoading: false, message: null });
     return {
       totalFiles: finalFiles.length,
       totalLines: newTotalLines,
@@ -133,17 +133,17 @@ export function useLocalSource({ setLoadingStatus }: UseLocalSourceProps) {
       files: finalFiles,
       uploadTimestamp: Date.now(),
     };
-  }, [setLoadingStatus]);
+  }, [onLoadingChange]);
 
   // Logic to reload a local project from IndexedDB
   const handleReloadLocalProject = useCallback(async (project: Project): Promise<AnalysisResultData | null> => {
-    setLoadingStatus({ isLoading: true, message: `Re-opening ${project.name}...` });
+    onLoadingChange({ isLoading: true, message: `Re-opening ${project.name}...` });
     try {
       const handle = await getDirectoryHandle(project.id);
       if (!handle) {
         console.log(`No stored handle found for project: ${project.name}`);
         toast.info(`Please re-select the folder for '${project.name}'.`);
-        setLoadingStatus({ isLoading: false, message: null });
+        onLoadingChange({ isLoading: false, message: null });
         return null;
       }
       
@@ -202,9 +202,9 @@ export function useLocalSource({ setLoadingStatus }: UseLocalSourceProps) {
       
       return null;
     } finally {
-      setLoadingStatus({ isLoading: false, message: null });
+      onLoadingChange({ isLoading: false, message: null });
     }
-  }, [setLoadingStatus, processFiles]);
+  }, [onLoadingChange, processFiles]);
 
   // Handle file upload completion (files are now pre-filtered)
   const handleDirectorySelection = useCallback(async (

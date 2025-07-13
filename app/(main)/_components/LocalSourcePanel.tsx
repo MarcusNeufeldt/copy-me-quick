@@ -9,15 +9,12 @@ import { useAppContext } from '../_context/AppContext';
 
 export function LocalSourcePanel() {
   const { 
-    state,
-    loadingStatus,
+    workspace,
+    ui,
     projects,
     actions: { 
       handleUploadComplete, 
-      handleLoadProject, 
-      handlePinProject, 
-      handleRemoveProject, 
-      handleRenameProject,
+      handleLoadProject,
       setIsLocalFilterSheetOpen
     }
   } = useAppContext();
@@ -33,9 +30,9 @@ export function LocalSourcePanel() {
       <FileUploadSection
         onUploadComplete={handleUploadComplete}
         setLoadingStatus={() => {}} // Already handled by the context
-        loadingStatus={loadingStatus}
-        excludeFolders={state.excludeFolders.split(',').map(f => f.trim()).filter(Boolean)}
-        allowedFileTypes={state.fileTypes.split(',').map(t => t.trim()).filter(Boolean)}
+        loadingStatus={ui.loadingStatus}
+        excludeFolders={workspace.excludeFolders.split(',').map(f => f.trim()).filter(Boolean)}
+        allowedFileTypes={workspace.fileTypes.split(',').map(t => t.trim()).filter(Boolean)}
       />
 
       <Alert variant="default" className="mt-2 bg-primary/5 border-primary/20">
@@ -46,11 +43,11 @@ export function LocalSourcePanel() {
       </Alert>
       
       <RecentProjectsDisplay 
-        projects={projects.filter(p => p.sourceType === 'local')} 
+        projects={projects.items.filter(p => p.sourceType === 'local')} 
         onLoadProject={handleLoadProject}
-        onPinProject={handlePinProject}
-        onRemoveProject={handleRemoveProject}
-        onRenameProject={handleRenameProject}
+        onPinProject={projects.handlePinProject}
+        onRemoveProject={projects.handleRemoveProject}
+        onRenameProject={projects.handleRenameProject}
       />
     </>
   );

@@ -9,33 +9,28 @@ const MAX_TOKENS = 1048576;
 
 export function MainContentArea() {
   const { 
-    state,
-    activeSourceTab,
-    tokenCount,
-    tokenDetails,
-    githubTree,
-    githubRepoInfo,
-    loadingStatus,
-    currentProjectId,
+    workspace,
+    ui,
+    github,
     actions: { handleTokenCountChange, handleSelectedFilesChange }
   } = useAppContext();
 
-  if (state.analysisResult) {
+  if (workspace.analysisResult) {
     return (
       <AnalysisResult
-        analysisResult={state.analysisResult}
-        selectedFiles={state.selectedFiles}
+        analysisResult={workspace.analysisResult}
+        selectedFiles={workspace.selectedFiles}
         onSelectedFilesChange={handleSelectedFilesChange}
-        tokenCount={tokenCount}
+        tokenCount={workspace.tokenCount}
         setTokenCount={handleTokenCountChange}
-        tokenDetails={tokenDetails}
+        tokenDetails={workspace.tokenDetails}
         maxTokens={MAX_TOKENS}
-        activeSourceTab={activeSourceTab}
-        githubTree={githubTree}
-        githubRepoInfo={githubRepoInfo}
+        activeSourceTab={ui.activeSourceTab}
+        githubTree={github.githubTree}
+        githubRepoInfo={workspace.githubRepoInfo}
         setLoadingStatus={() => {}} // Already handled by context
-        loadingStatus={loadingStatus}
-        currentProjectId={currentProjectId}
+        loadingStatus={ui.loadingStatus}
+        currentProjectId={workspace.currentProjectId}
       />
     );
   }
@@ -45,7 +40,7 @@ export function MainContentArea() {
       <LayoutGrid className="h-10 w-10 sm:h-12 sm:w-12 text-muted-foreground mb-4" />
       <h2 className="text-xl sm:text-2xl font-heading font-semibold mb-2">Start Analyzing</h2>
       <p className="text-sm sm:text-base text-muted-foreground mb-6 max-w-md mx-auto">
-        {activeSourceTab === 'local'
+        {ui.activeSourceTab === 'local'
           ? 'Select a project configuration or upload local files to begin.'
           : 'Choose a repository and branch to analyze.'}
       </p>

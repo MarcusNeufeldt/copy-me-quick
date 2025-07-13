@@ -58,10 +58,10 @@ export function useAppManager(): AppContextType {
   // User context with SWR
   const { data: userContext, error: userContextError, mutate } = useSWR<UserContext>('/api/user/context', fetcher);
 
-  // Domain hooks
-  const gitHubSource = useGitHubSource({ userContext, setLoadingStatus });
-  const localSource = useLocalSource({ setLoadingStatus });
-  const projectManager = useProjectManager({ userContext, mutate, setLoadingStatus });
+  // Domain hooks - now truly self-contained
+  const gitHubSource = useGitHubSource({ userContext, onLoadingChange: setLoadingStatus });
+  const localSource = useLocalSource({ onLoadingChange: setLoadingStatus });
+  const projectManager = useProjectManager({ userContext, mutate, onLoadingChange: setLoadingStatus });
 
   // Mount effect
   useEffect(() => {
@@ -239,7 +239,7 @@ export function useAppManager(): AppContextType {
     }
   }, [mutate]);
 
-  // Handle file upload completion
+  // Handle file upload completion (orchestrator responsibility)
   const handleUploadComplete = useCallback(async (
     files: File[],
     rootHandle?: FileSystemDirectoryHandle
@@ -306,7 +306,7 @@ export function useAppManager(): AppContextType {
     gitHubSource.resetGitHubState();
   }, [gitHubSource]);
 
-  // Handle branch selection with project creation
+  // Handle branch selection with project creation (orchestrator responsibility)
   const handleBranchChange = useCallback(async (branchName: string) => {
     const result = await gitHubSource.handleBranchChange(branchName, state.excludeFolders, state.fileTypes);
     
@@ -517,79 +517,90 @@ export function useAppManager(): AppContextType {
 
 
   return {
-    // State
-    state,
-    currentProjectId,
-    activeSourceTab,
-    loadingStatus,
-    error,
-    tokenCount,
-    tokenDetails,
+    // Core app state
     isMounted,
-    
-    // GitHub state (from domain hook)
-    repos: gitHubSource.repos,
-    selectedRepoFullName: gitHubSource.selectedRepoFullName,
-    branches: gitHubSource.branches,
-    selectedBranchName: gitHubSource.selectedBranchName,
-    githubTree: gitHubSource.githubTree,
-    isGithubTreeTruncated: gitHubSource.isGithubTreeTruncated,
-    githubSelectionError: gitHubSource.githubSelectionError,
-    
-    // Dialog state
-    showSwitchConfirmDialog,
-    nextTabValue,
-    showLoadRecentConfirmDialog,
-    projectToLoadId,
-    loadConfirmationMessage,
-    
-    // Filter sheet state
-    isFilterSheetOpen,
-    isLocalFilterSheetOpen,
-    
-    // Derived state
-    projects: projectManager.projects,
-    githubRepoInfo,
     userContext,
     userContextError,
     
-    // Actions
-    actions: {
-      // GitHub actions
+    // UI state namespace
+    ui: {
+      activeSourceTab,
+      loadingStatus,
+      error,
+      isFilterSheetOpen,
+      isLocalFilterSheetOpen,
+      showSwitchConfirmDialog,
+      showLoadRecentConfirmDialog,
+      nextTabValue,
+      projectToLoadId,
+      loadConfirmationMessage,
+    },
+
+    // Workspace/session namespace
+    workspace: {
+      analysisResult: state.analysisResult,
+      selectedFiles: state.selectedFiles,
+      excludeFolders: state.excludeFolders,
+      fileTypes: state.fileTypes,
+      currentProjectId,
+      tokenCount,
+      tokenDetails,
+      githubRepoInfo,
+    },
+
+    // Domain-specific modules with their complete state and actions
+    github: {
+      repos: gitHubSource.repos,
+      selectedRepoFullName: gitHubSource.selectedRepoFullName,
+      branches: gitHubSource.branches,
+      selectedBranchName: gitHubSource.selectedBranchName,
+      githubTree: gitHubSource.githubTree,
+      isGithubTreeTruncated: gitHubSource.isGithubTreeTruncated,
+      githubSelectionError: gitHubSource.githubSelectionError,
       handleRepoChange: gitHubSource.handleRepoChange,
-      handleBranchChange,
+      handleBranchChange: gitHubSource.handleBranchChange,
+      resetGitHubState: gitHubSource.resetGitHubState,
+      setSelectedRepoFullName: gitHubSource.setSelectedRepoFullName,
+      setSelectedBranchName: gitHubSource.setSelectedBranchName,
+    },
+
+    local: {
+      handleDirectorySelection: localSource.handleDirectorySelection,
+      handleReloadLocalProject: localSource.handleReloadLocalProject,
+      processFiles: localSource.processFiles,
+    },
+
+    projects: {
+      items: projectManager.projects,
+      createProject: projectManager.createProject,
+      updateProjectAccess: projectManager.updateProjectAccess,
+      handlePinProject: projectManager.handlePinProject,
+      handleRemoveProject: projectManager.handleRemoveProject,
+      handleRenameProject: projectManager.handleRenameProject,
+      findOrCreateGitHubProject: projectManager.findOrCreateGitHubProject,
+      getProjectById: projectManager.getProjectById,
+    },
+
+    // Top-level actions (orchestrator responsibilities)
+    actions: {
+      // Auth actions
       handleGitHubLogin,
       handleGitHubLogout,
-      
-      // Local actions
-      handleUploadComplete,
-      handleReloadLocalProject: localSource.handleReloadLocalProject,
-      
-      // Project management actions
-      handleLoadProject,
-      handlePinProject: projectManager.handlePinProject,
-      handleRemoveProject: async (projectId: string) => {
-        const success = await projectManager.handleRemoveProject(projectId);
-        if (success && currentProjectId === projectId) {
-          handleResetWorkspace();
-        }
-        return success;
-      },
-      handleRenameProject: projectManager.handleRenameProject,
       
       // Workspace actions
       handleResetWorkspace,
       handleTabChangeAttempt,
+      handleUploadComplete,
+      handleLoadProject,
+      handleBranchChange, // Orchestrator-level branch change
       
       // Filter actions
       handleSaveFilters,
       handleSaveLocalFilters,
       
-      // Token actions
-      handleTokenCountChange,
-      
-      // File selection actions
+      // File selection and token actions
       handleSelectedFilesChange,
+      handleTokenCountChange,
       
       // Dialog actions
       confirmTabSwitch,
