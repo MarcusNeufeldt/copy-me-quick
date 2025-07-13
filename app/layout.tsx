@@ -38,7 +38,7 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <body className={`${inter.variable} ${montserrat.variable} ${jetbrainsMono.variable} font-sans antialiased min-h-screen`}>
+      <body className={`${inter.variable} ${montserrat.variable} ${jetbrainsMono.variable} font-sans antialiased min-h-screen`} suppressHydrationWarning>
         <ThemeProvider
           attribute="class"
           defaultTheme="system"

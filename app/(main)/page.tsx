@@ -1,8 +1,11 @@
 'use client';
 
 import React from 'react';
+
+// Force dynamic rendering to prevent static generation issues
+export const dynamic = 'force-dynamic';
 import { Loader2, Github, Code2 } from 'lucide-react';
-import dynamic from 'next/dynamic';
+import NextDynamic from 'next/dynamic';
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -15,17 +18,35 @@ import { AppHeader } from './_components/AppHeader';
 import { ProjectSidebar } from './_components/ProjectSidebar';
 import { MainContentArea } from './_components/MainContentArea';
 import { ConfirmationDialogs } from './_components/ConfirmationDialogs';
+import { ErrorBoundary } from './_components/ErrorBoundary';
+import { ClientWrapper } from './_components/ClientWrapper';
 
 // Dynamically import Analytics with error handling
-const AnalyticsComponent = dynamic(
-  () => import('@vercel/analytics/react').then((mod) => mod.Analytics).catch(() => () => null),
+const AnalyticsComponent = NextDynamic(
+  () => import('@vercel/analytics/react').then((mod) => mod.Analytics).catch(() => {
+    // Return a no-op component if import fails
+    return function NoOpAnalytics() { return null; };
+  }),
   { ssr: false, loading: () => null }
 );
 
-import { SpeedInsights } from "@vercel/speed-insights/next";
+// Dynamically import SpeedInsights with error handling
+const SpeedInsightsComponent = NextDynamic(
+  () => import('@vercel/speed-insights/next').then((mod) => mod.SpeedInsights).catch(() => {
+    // Return a no-op component if import fails
+    return function NoOpSpeedInsights() { return null; };
+  }),
+  { ssr: false, loading: () => null }
+);
 
 // Main App Content Component
 function AppContent() {
+  const [isClientMounted, setIsClientMounted] = React.useState(false);
+  
+  React.useEffect(() => {
+    setIsClientMounted(true);
+  }, []);
+
   const { 
     isMounted,
     userContext, 
@@ -40,8 +61,8 @@ function AppContent() {
     }
   } = useAppContext();
 
-  // Handle case where context is not yet mounted
-  if (!isMounted) {
+  // Handle case where client is not yet mounted
+  if (!isClientMounted || !isMounted) {
     return (
       <div className="fixed inset-0 flex items-center justify-center bg-background/50 z-50">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
@@ -167,7 +188,7 @@ function AppContent() {
       />
 
       <AnalyticsComponent />
-      <SpeedInsights />
+      <SpeedInsightsComponent />
     </div>
   );
 }
@@ -175,8 +196,12 @@ function AppContent() {
 // Root Component with Provider
 export default function ClientPageRoot() {
   return (
-    <AppProvider>
-      <AppContent />
-    </AppProvider>
+    <ErrorBoundary>
+      <ClientWrapper>
+        <AppProvider>
+          <AppContent />
+        </AppProvider>
+      </ClientWrapper>
+    </ErrorBoundary>
   );
 }

@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/turso';
 import { requireAuth } from '@/lib/auth';
 
+// Force dynamic rendering for this API route
+export const dynamic = 'force-dynamic';
+
 interface ProjectTemplate {
   value: string;
   label: string;
