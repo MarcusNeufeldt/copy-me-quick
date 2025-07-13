@@ -85,7 +85,7 @@ async function getFilesFromHandle(
     }
   } catch (iterationErr) {
     console.error(`Could not iterate through directory ${path}:`, iterationErr);
-    throw new Error(`Failed to read directory contents: ${iterationErr.message}`);
+    throw new Error(`Failed to read directory contents: ${iterationErr instanceof Error ? iterationErr.message : String(iterationErr)}`);
   }
   
   return files;
