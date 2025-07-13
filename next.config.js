@@ -27,10 +27,6 @@ const nextConfig = {
   
       return config;
     },
-    // Add experimental features for better stability
-    experimental: {
-      optimizePackageImports: ['lucide-react', '@radix-ui/react-icons'],
-    },
   };
   
   module.exports = nextConfig;
