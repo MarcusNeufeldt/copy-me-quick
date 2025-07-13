@@ -6,8 +6,7 @@ import {
   LoadingStatus, 
   GitHubRepoInfo, 
   UserContext, 
-  AnalysisResultData,
-  AppContextType 
+  AnalysisResultData
 } from '../_types';
 import { useGitHubSource } from './useGitHubSource';
 import { useLocalSource } from './useLocalSource';
@@ -30,7 +29,7 @@ const initialAppState: AppState = {
   fileTypes: '.js,.jsx,.ts,.tsx,.py',
 };
 
-export function useAppManager(): AppContextType {
+export function useAppManager() {
   // Core state
   const [state, setState] = useState<AppState>(initialAppState);
   const [currentProjectId, setCurrentProjectId] = useState<string | null>(null);
@@ -167,7 +166,7 @@ export function useAppManager(): AppContextType {
         // Refresh GitHub tree if needed
         if (gitHubSource.selectedBranchName) {
           setTimeout(() => {
-            gitHubSource.handleBranchChange(gitHubSource.selectedBranchName!, newExclusions, state.fileTypes);
+            gitHubSource.fetchTreeForBranch(gitHubSource.selectedBranchName!, newExclusions, state.fileTypes);
           }, 100);
         }
       } else {
@@ -308,7 +307,7 @@ export function useAppManager(): AppContextType {
 
   // Handle branch selection with project creation (orchestrator responsibility)
   const handleBranchChange = useCallback(async (branchName: string) => {
-    const result = await gitHubSource.handleBranchChange(branchName, state.excludeFolders, state.fileTypes);
+    const result = await gitHubSource.fetchTreeForBranch(branchName, state.excludeFolders, state.fileTypes);
     
     if (!result || !gitHubSource.selectedRepoFullName) return;
 
@@ -558,7 +557,7 @@ export function useAppManager(): AppContextType {
       isGithubTreeTruncated: gitHubSource.isGithubTreeTruncated,
       githubSelectionError: gitHubSource.githubSelectionError,
       handleRepoChange: gitHubSource.handleRepoChange,
-      handleBranchChange: gitHubSource.handleBranchChange,
+      fetchTreeForBranch: gitHubSource.fetchTreeForBranch,
       resetGitHubState: gitHubSource.resetGitHubState,
       setSelectedRepoFullName: gitHubSource.setSelectedRepoFullName,
       setSelectedBranchName: gitHubSource.setSelectedBranchName,

@@ -83,8 +83,8 @@ export function useGitHubSource({ userContext, onLoadingChange }: UseGitHubSourc
     fetchBranches();
   }, [repos, onLoadingChange]);
 
-  // Handle branch selection and fetch tree
-  const handleBranchChange = useCallback((branchName: string, excludeFolders: string, fileTypes: string) => {
+  // Fetch GitHub tree data for a specific branch
+  const fetchTreeForBranch = useCallback((branchName: string, excludeFolders: string, fileTypes: string) => {
     setGithubSelectionError(null);
     setGithubTree(null);
     setIsGithubTreeTruncated(false);
@@ -206,7 +206,7 @@ export function useGitHubSource({ userContext, onLoadingChange }: UseGitHubSourc
     
     // Actions
     handleRepoChange,
-    handleBranchChange,
+    fetchTreeForBranch,
     resetGitHubState,
     
     // Setters for external control
