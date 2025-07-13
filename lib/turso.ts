@@ -18,6 +18,7 @@ export async function initializeDatabase() {
         global_github_exclude_folders TEXT DEFAULT 'node_modules,.git,dist,.next,package-lock.json,yarn.lock,pnpm-lock.yaml',
         local_exclude_folders TEXT DEFAULT 'node_modules,.git,dist,build,out,target,bin,obj,.vscode,.idea,.DS_Store,Thumbs.db,*.log,*.tmp,*.temp,coverage',
         local_file_types TEXT DEFAULT '.js,.jsx,.ts,.tsx,.py',
+        local_templates TEXT DEFAULT '[]',
         created_at INTEGER DEFAULT (strftime('%s', 'now')),
         updated_at INTEGER DEFAULT (strftime('%s', 'now'))
       )
@@ -63,6 +64,14 @@ export async function initializeDatabase() {
     try {
       await db.execute(`
         ALTER TABLE users ADD COLUMN local_file_types TEXT DEFAULT '.js,.jsx,.ts,.tsx,.py'
+      `);
+    } catch (e) {
+      // Column might already exist, ignore error
+    }
+
+    try {
+      await db.execute(`
+        ALTER TABLE users ADD COLUMN local_templates TEXT DEFAULT '[]'
       `);
     } catch (e) {
       // Column might already exist, ignore error

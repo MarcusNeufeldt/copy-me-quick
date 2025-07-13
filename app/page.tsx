@@ -4,7 +4,7 @@ import useSWR from 'swr';
 import { Card, CardContent } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { ModeToggle } from "@/components/ui/mode-toggle";
-import ProjectSelector from '@/components/ProjectSelector';
+
 import FileUploadSection from '@/components/FileUploadSection';
 import AnalysisResult from '@/components/AnalysisResult';
 import { AppState, Project, FileData, AnalysisResultData, GitHubRepoInfo } from '@/components/types';
@@ -31,7 +31,7 @@ import { SpeedInsights } from "@vercel/speed-insights/next";
 import { saveDirectoryHandle, getDirectoryHandle } from '@/lib/indexeddb';
 import { TokenCountDetails } from '@/hooks/useTokenCalculator';
 import GitHubFilterManager from '@/components/GitHubFilterManager';
-import LocalFilterManager from '@/components/LocalFilterManager';
+import LocalTemplateManager from '@/components/LocalTemplateManager';
 import { toast, Toaster } from 'sonner';
 
 // Dynamically import Analytics with error handling
@@ -61,19 +61,7 @@ const baseExclusions = [
   'coverage',
 ];
 
-const defaultProjectTypes = [
-  { value: "none", label: "None", excludeFolders: baseExclusions, fileTypes: ['*'] },
-  { value: "nextjs", label: "Next.js", excludeFolders: [...baseExclusions, '.next', 'out'], fileTypes: ['.js', '.jsx', '.ts', '.tsx', '.css', '.scss', '.json', '.md'] },
-  { value: "react", label: "React", excludeFolders: baseExclusions, fileTypes: ['.js', '.jsx', '.ts', '.tsx', '.css', '.scss', '.json', '.md'] },
-  { value: "vue", label: "Vue.js", excludeFolders: [...baseExclusions, '.nuxt'], fileTypes: ['.vue', '.js', '.ts', '.css', '.scss', '.json', '.md'] },
-  { value: "angular", label: "Angular", excludeFolders: baseExclusions, fileTypes: ['.ts', '.html', '.css', '.scss', '.json', '.md'] },
-  { value: "svelte", label: "Svelte", excludeFolders: baseExclusions, fileTypes: ['.svelte', '.js', '.ts', '.css', '.scss', '.json', '.md'] },
-  { value: "flask", label: "Flask", excludeFolders: [...baseExclusions, 'venv', '__pycache__', '*.pyc', 'migrations'], fileTypes: ['.py', '.html', '.css', '.js', '.json', '.md'] },
-  { value: "django", label: "Django", excludeFolders: [...baseExclusions, 'venv', '__pycache__', '*.pyc', 'migrations'], fileTypes: ['.py', '.html', '.css', '.js', '.json', '.md'] },
-  { value: "express", label: "Express.js", excludeFolders: baseExclusions, fileTypes: ['.js', '.ts', '.json', '.md'] },
-  { value: "springboot", label: "Spring Boot", excludeFolders: [...baseExclusions, '.gradle', 'gradle'], fileTypes: ['.java', '.xml', '.properties', '.yml', '.md'] },
-  { value: "dotnet", label: ".NET", excludeFolders: [...baseExclusions, 'packages', 'TestResults'], fileTypes: ['.cs', '.cshtml', '.csproj', '.sln', '.json', '.md'] },
-];
+
 
 // Default initial state
 const initialAppState: AppState = {
@@ -123,6 +111,13 @@ interface LoadingStatus {
   message: string | null;
 }
 
+interface ProjectTemplate {
+  value: string;
+  label: string;
+  excludeFolders: string[];
+  fileTypes: string[];
+}
+
 interface UserContext {
   user: {
     id: string;
@@ -132,6 +127,7 @@ interface UserContext {
     global_github_exclude_folders: string;
     local_exclude_folders: string;
     local_file_types: string;
+    local_templates: string;
   };
   projects: Array<{
     id: string;
@@ -205,7 +201,7 @@ export default function ClientPageRoot() {
   const [state, setState] = useState<AppState>(initialAppState);
   const [currentProjectId, setCurrentProjectId] = useState<string | null>(null);
   const [activeSourceTab, setActiveSourceTab] = useState<'local' | 'github'>('local');
-  const [projectTypes, setProjectTypes] = useState(defaultProjectTypes);
+
   const [isMounted, setIsMounted] = useState(false);
 
   // UI state
@@ -213,7 +209,7 @@ export default function ClientPageRoot() {
   const [error, setError] = useState<string | null>(null);
   const [tokenCount, setTokenCount] = useState(0);
   const [tokenDetails, setTokenDetails] = useState<TokenCountDetails | null>(null);
-  const [projectTypeSelected, setProjectTypeSelected] = useState(false);
+
   const [isFilterSheetOpen, setIsFilterSheetOpen] = useState(false);
   const [isLocalFilterSheetOpen, setIsLocalFilterSheetOpen] = useState(false);
 
@@ -239,17 +235,6 @@ export default function ClientPageRoot() {
   // Mount effect
   useEffect(() => {
     setIsMounted(true);
-    
-    // Load project types from localStorage (this is UI-only, not user data)
-    const savedTemplatesStr = localStorage.getItem('projectTemplates');
-    if (savedTemplatesStr) {
-      try {
-        const parsedTemplates = JSON.parse(savedTemplatesStr);
-        setProjectTypes(parsedTemplates);
-      } catch (e) {
-        console.error('Failed to parse project templates:', e);
-      }
-    }
   }, []);
 
   // Populate state when user context arrives
@@ -490,6 +475,58 @@ export default function ClientPageRoot() {
     }
   }, [mutate]);
 
+  // Handle file upload completion
+  const handleUploadComplete = useCallback(async (
+    newAnalysisResult: AnalysisResultData,
+    rootHandle?: FileSystemDirectoryHandle
+  ) => {
+    // Create or update project
+    const newProjectId = Date.now().toString();
+    const projectName = rootHandle ? rootHandle.name : `Local Project ${new Date().toLocaleDateString()}`;
+    
+    try {
+      await fetch('/api/projects', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: newProjectId,
+          name: projectName,
+          sourceType: 'local',
+          localExcludeFolders: state.excludeFolders,
+          localFileTypes: state.fileTypes,
+        }),
+      });
+      
+      // Update state
+      setState(prevState => ({
+        ...prevState,
+        analysisResult: newAnalysisResult,
+        selectedFiles: [],
+      }));
+      
+      setCurrentProjectId(newProjectId);
+      localStorage.setItem('currentProjectId', newProjectId);
+      
+      // Refresh user context to get the new project
+      await mutate();
+      
+    } catch (error) {
+      console.error('Error creating project:', error);
+      // Still update the state even if project creation fails
+      setState(prevState => ({
+        ...prevState,
+        analysisResult: newAnalysisResult,
+        selectedFiles: [],
+      }));
+    }
+  }, [state.excludeFolders, state.fileTypes, mutate]);
+
+  // Update current project helper (for FileUploadSection)
+  const updateCurrentProject = useCallback((newState: AppState, hasDirectoryHandle?: boolean) => {
+    setState(newState);
+    // Could also update project in database here if needed
+  }, []);
+
   // Handle repo selection
   const handleRepoChange = useCallback((repoFullName: string) => {
     setSelectedRepoFullName(repoFullName);
@@ -668,11 +705,7 @@ export default function ClientPageRoot() {
     fetchTreeAndSetProject();
   }, [repos, selectedRepoFullName, projects, state.excludeFolders, state.fileTypes, mutate]);
 
-  // Handle project template updates
-  const handleProjectTemplateUpdate = useCallback((updatedTemplates: typeof projectTypes) => {
-    setProjectTypes(updatedTemplates);
-    localStorage.setItem('projectTemplates', JSON.stringify(updatedTemplates));
-  }, []);
+
 
   // Handle token count changes
   const handleTokenCountChange = useCallback((count: number, details?: TokenCountDetails) => {
@@ -715,7 +748,6 @@ export default function ClientPageRoot() {
     localStorage.removeItem('currentProjectId');
     setTokenCount(0);
     setError(null);
-    setProjectTypeSelected(false);
     setSelectedRepoFullName(null);
     setSelectedBranchName(null);
     setGithubTree(null);
@@ -916,19 +948,23 @@ export default function ClientPageRoot() {
 
                   {/* LOCAL TAB */}
                   <TabsContent value="local" className="mt-0 space-y-4">
-                    {/* Filter Button */}
+                    {/* Template & Filter Button */}
                     <Button variant="outline" className="w-full" onClick={() => setIsLocalFilterSheetOpen(true)}>
                       <Filter className="mr-2 h-4 w-4" />
-                      Filter Files & Folders
+                      Templates & Filters
                     </Button>
 
-                    <ProjectSelector
+                    <FileUploadSection
+                      state={state}
                       setState={setState}
-                      onProjectTypeSelected={setProjectTypeSelected}
-                      projectTypes={projectTypes}
-                      onProjectTemplatesUpdate={handleProjectTemplateUpdate}
+                      updateCurrentProject={updateCurrentProject}
+                      setError={setError}
+                      onUploadComplete={handleUploadComplete}
+                      projectTypeSelected={true}
+                      buttonTooltip="Select your project's root folder to analyze"
+                      setLoadingStatus={setLoadingStatus}
+                      loadingStatus={loadingStatus}
                     />
-                    {/* FileUploadSection would go here - simplified for now */}
                     <Alert variant="default" className="mt-2 bg-primary/5 border-primary/20">
                       <ShieldCheck className="h-4 w-4 text-primary/80" />
                       <AlertDescription className="text-primary/90 text-xs">
@@ -1148,8 +1184,8 @@ export default function ClientPageRoot() {
         onSave={handleSaveFilters}
       />
 
-      {/* Local Filter Manager */}
-      <LocalFilterManager
+      {/* Local Template Manager */}
+      <LocalTemplateManager
         isOpen={isLocalFilterSheetOpen}
         onClose={() => setIsLocalFilterSheetOpen(false)}
         currentExclusions={state.excludeFolders}
