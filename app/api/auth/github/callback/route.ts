@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 
+export const dynamic = 'force-dynamic';
+
 const GITHUB_TOKEN_COOKIE_NAME = 'github_token';
 const GITHUB_TOKEN_MAX_AGE = 60 * 60 * 24 * 7; // 7 days in seconds
 const GITHUB_STATE_COOKIE_NAME = 'github_oauth_state'; // Define cookie name

@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db, initializeDatabase } from '@/lib/turso';
 import { getGithubUser } from '@/lib/auth';
 
+export const dynamic = 'force-dynamic';
+
 export async function GET(request: NextRequest) {
   try {
     // Ensure database schema is initialized

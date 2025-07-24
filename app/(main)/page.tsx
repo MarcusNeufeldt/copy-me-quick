@@ -1,8 +1,9 @@
 'use client';
 
 import React from 'react';
+
 import { Loader2, Github, Code2 } from 'lucide-react';
-import dynamic from 'next/dynamic';
+import { default as dynamicImport } from 'next/dynamic';
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -17,7 +18,7 @@ import { MainContentArea } from './_components/MainContentArea';
 import { ConfirmationDialogs } from './_components/ConfirmationDialogs';
 
 // Dynamically import Analytics with error handling
-const AnalyticsComponent = dynamic(
+const AnalyticsComponent = dynamicImport(
   () => import('@vercel/analytics/react').then((mod) => mod.Analytics).catch(() => () => null),
   { ssr: false, loading: () => null }
 );
