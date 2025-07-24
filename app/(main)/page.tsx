@@ -4,9 +4,6 @@ import React from 'react';
 
 import { Loader2, Github, Code2 } from 'lucide-react';
 import { default as dynamicImport } from 'next/dynamic';
-
-export const dynamic = 'force-dynamic';
-export const revalidate = 0;
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
