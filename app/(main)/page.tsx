@@ -15,6 +15,7 @@ import { AppHeader } from './_components/AppHeader';
 import { ProjectSidebar } from './_components/ProjectSidebar';
 import { MainContentArea } from './_components/MainContentArea';
 import { ConfirmationDialogs } from './_components/ConfirmationDialogs';
+import { DataFastAnalytics } from '@/components/DataFastAnalytics';
 
 // Dynamically import Analytics with error handling
 const AnalyticsComponent = dynamic(
@@ -166,8 +167,10 @@ function AppContent() {
         onSave={handleSaveLocalFilters}
       />
 
+      <DataFastAnalytics />
       <AnalyticsComponent />
       <SpeedInsights />
+      <Toaster />
     </div>
   );
 }
