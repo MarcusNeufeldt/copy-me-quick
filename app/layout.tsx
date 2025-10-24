@@ -3,6 +3,7 @@ import './globals.css'
 import type { Metadata } from 'next'
 import { Inter, Montserrat, JetBrains_Mono } from 'next/font/google'
 import { ThemeProvider } from "@/components/ui/theme-provider"
+import { DataFastAnalytics } from "@/components/DataFastAnalytics"
 
 // Font configurations
 const inter = Inter({ 
@@ -39,6 +40,7 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <body className={`${inter.variable} ${montserrat.variable} ${jetbrainsMono.variable} font-sans antialiased min-h-screen`}>
+        <DataFastAnalytics />
         <ThemeProvider
           attribute="class"
           defaultTheme="system"
