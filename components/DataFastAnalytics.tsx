@@ -2,7 +2,7 @@
 
 import { useEffect } from 'react'
 
-export function DataFastAnalytics() {
+function DataFastAnalyticsComponent() {
   useEffect(() => {
     const script = document.createElement('script')
     script.src = 'https://datafa.st/js/script.js'
@@ -20,3 +20,5 @@ export function DataFastAnalytics() {
 
   return null
 }
+
+export default DataFastAnalyticsComponent
