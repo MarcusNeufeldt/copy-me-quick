@@ -15,7 +15,6 @@ import { AppHeader } from './_components/AppHeader';
 import { ProjectSidebar } from './_components/ProjectSidebar';
 import { MainContentArea } from './_components/MainContentArea';
 import { ConfirmationDialogs } from './_components/ConfirmationDialogs';
-import { DataFastAnalytics } from '@/components/DataFastAnalytics';
 
 // Dynamically import Analytics with error handling
 const AnalyticsComponent = dynamic(
@@ -177,11 +176,8 @@ function AppContent() {
 // Root Component with Provider
 export default function ClientPageRoot() {
   return (
-    <>
-      <DataFastAnalytics />
-      <AppProvider>
-        <AppContent />
-      </AppProvider>
-    </>
+    <AppProvider>
+      <AppContent />
+    </AppProvider>
   );
 }

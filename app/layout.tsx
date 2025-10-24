@@ -38,6 +38,14 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" suppressHydrationWarning>
+      <head>
+        <script
+          defer
+          data-website-id="dfid_HaJrAMnjWykYQwOEsYuVX"
+          data-domain="copymequick.vercel.app"
+          src="https://datafa.st/js/script.js"
+        />
+      </head>
       <body className={`${inter.variable} ${montserrat.variable} ${jetbrainsMono.variable} font-sans antialiased min-h-screen`}>
         <ThemeProvider
           attribute="class"
