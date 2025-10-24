@@ -167,7 +167,6 @@ function AppContent() {
         onSave={handleSaveLocalFilters}
       />
 
-      <DataFastAnalytics />
       <AnalyticsComponent />
       <SpeedInsights />
       <Toaster />
@@ -178,8 +177,11 @@ function AppContent() {
 // Root Component with Provider
 export default function ClientPageRoot() {
   return (
-    <AppProvider>
-      <AppContent />
-    </AppProvider>
+    <>
+      <DataFastAnalytics />
+      <AppProvider>
+        <AppContent />
+      </AppProvider>
+    </>
   );
 }
