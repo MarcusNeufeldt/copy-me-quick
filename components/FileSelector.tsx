@@ -76,14 +76,75 @@ const FileSelector = ({
   setLoadingStatus,
   loadingStatus,
   currentProjectId,
+  githubExclusions,
+  githubFileTypes,
 }: FileSelectorProps & { tokenCount: number }) => {
+  // Helper function to check if a file matches an exclusion pattern
+  const matchesPattern = useCallback((filePath: string, pattern: string): boolean => {
+    const fileName = filePath.split('/').pop() || '';
+    const trimmedPattern = pattern.trim();
+
+    if (!trimmedPattern) return false;
+
+    // Handle glob patterns like *.svg, *.png
+    if (trimmedPattern.startsWith('*.')) {
+      const ext = trimmedPattern.slice(1); // Get .svg, .png, etc.
+      return fileName.endsWith(ext);
+    }
+
+    // Handle exact file name match (e.g., package-lock.json)
+    if (fileName === trimmedPattern) return true;
+
+    // Handle folder/path exclusion (e.g., node_modules, .git)
+    if (filePath.includes(`/${trimmedPattern}/`) || filePath.startsWith(`${trimmedPattern}/`)) {
+      return true;
+    }
+
+    // Handle if the pattern appears in the path
+    if (filePath.includes(trimmedPattern)) return true;
+
+    return false;
+  }, []);
+
+  // Filter GitHub tree based on exclusions and file types
+  const filteredGithubTree = useMemo(() => {
+    if (!githubTree) return null;
+
+    const exclusions = (githubExclusions || '').split(',').map(s => s.trim()).filter(s => s);
+    const fileTypes = (githubFileTypes || '').split(',').map(s => s.trim()).filter(s => s);
+
+    return githubTree.filter(item => {
+      // Always include directories (trees)
+      if (item.type === 'tree') return true;
+
+      // Check exclusions - if matches any exclusion pattern, filter out
+      for (const exclusion of exclusions) {
+        if (matchesPattern(item.path, exclusion)) {
+          return false;
+        }
+      }
+
+      // Check file types - if file types are specified, only include matching files
+      if (fileTypes.length > 0) {
+        const fileName = item.path.split('/').pop() || '';
+        const hasMatchingType = fileTypes.some(type => {
+          const ext = type.startsWith('.') ? type : `.${type}`;
+          return fileName.endsWith(ext);
+        });
+        if (!hasMatchingType) return false;
+      }
+
+      return true;
+    });
+  }, [githubTree, githubExclusions, githubFileTypes, matchesPattern]);
+
   // Create stable dataSource object locally
   const dataSource = useMemo((): DataSource => {
-    if (activeSourceTab === 'github' && githubTree) {
-      return { type: 'github', tree: githubTree, repoInfo: githubRepoInfo };
+    if (activeSourceTab === 'github' && filteredGithubTree) {
+      return { type: 'github', tree: filteredGithubTree, repoInfo: githubRepoInfo };
     }
     return { type: 'local', files: allFiles || [] };
-  }, [activeSourceTab, githubTree, githubRepoInfo, allFiles]);
+  }, [activeSourceTab, filteredGithubTree, githubRepoInfo, allFiles]);
   const [fileTree, setFileTree] = useState<{ [key: string]: InternalTreeNode } | null>(null);
   const [expandedNodes, setExpandedNodes] = useState<Set<string>>(new Set());
   const [searchTerm, setSearchTerm] = useState('');

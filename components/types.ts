@@ -83,6 +83,8 @@ export interface FileSelectorProps {
   loadingStatus: LoadingStatus;
   tokenCount: number;
   currentProjectId?: string | null;
+  githubExclusions?: string;
+  githubFileTypes?: string;
 }
 
 export interface AnalysisResultProps {
@@ -99,4 +101,6 @@ export interface AnalysisResultProps {
   setLoadingStatus: React.Dispatch<React.SetStateAction<LoadingStatus>>;
   loadingStatus: LoadingStatus;
   currentProjectId?: string | null;
+  githubExclusions?: string;
+  githubFileTypes?: string;
 }

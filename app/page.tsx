@@ -1635,6 +1635,8 @@ export default function ClientPageRoot() {
                   setLoadingStatus={setLoadingStatus}
                   loadingStatus={loadingStatus}
                   currentProjectId={currentProjectId}
+                  githubExclusions={githubExclusions}
+                  githubFileTypes={githubFileTypes}
                 />
               </>
             ) : (

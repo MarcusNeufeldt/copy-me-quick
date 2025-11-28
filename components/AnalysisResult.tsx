@@ -154,6 +154,8 @@ const AnalysisResult: React.FC<AnalysisResultProps> = React.memo(({
   setLoadingStatus,
   loadingStatus,
   currentProjectId,
+  githubExclusions,
+  githubFileTypes,
 }) => {
   // Create stable dataSource object locally to contain the instability
   const dataSource = useMemo((): DataSource => {
@@ -613,6 +615,8 @@ const AnalysisResult: React.FC<AnalysisResultProps> = React.memo(({
                 setLoadingStatus={setLoadingStatus}
                 loadingStatus={loadingStatus}
                 currentProjectId={currentProjectId}
+                githubExclusions={githubExclusions}
+                githubFileTypes={githubFileTypes}
               />
             </CardContent>
           </Card>
