@@ -9,7 +9,9 @@ import AnalysisResult from '@/components/AnalysisResult';
 import { AppState, Project, FileData, AnalysisResultData, DataSource, GitHubRepoInfo } from '@/components/types';
 import dynamic from 'next/dynamic';
 import { Button } from "@/components/ui/button";
-import { GithubIcon, RotateCcw, Code2, GitBranchPlus, LayoutGrid, Github, CheckCircle, XCircle, GitBranch, BookMarked, Computer, Loader2, ShieldCheck, Info, RefreshCw } from 'lucide-react';
+import { GithubIcon, RotateCcw, Code2, GitBranchPlus, LayoutGrid, Github, CheckCircle, XCircle, GitBranch, BookMarked, Computer, Loader2, ShieldCheck, Info, RefreshCw, SlidersHorizontal, Filter } from 'lucide-react';
+import GitHubFilterManager from '@/components/GitHubFilterManager';
+import LocalFilterManager from '@/components/LocalFilterManager';
 import Image from 'next/image';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import FileSelector from '@/components/FileSelector';
@@ -217,6 +219,11 @@ export default function ClientPageRoot() {
   const [isGithubTreeTruncated, setIsGithubTreeTruncated] = useState(false);
   const [fileLoadingMessage, setFileLoadingMessage] = useState<string | null>(null); // Keep this for specific warnings
 
+  // Filter Manager States
+  const [isLocalFilterManagerOpen, setIsLocalFilterManagerOpen] = useState(false);
+  const [isGitHubFilterManagerOpen, setIsGitHubFilterManagerOpen] = useState(false);
+  const [githubExclusions, setGithubExclusions] = useState<string>('package-lock.json,yarn.lock,*.svg,*.png,*.jpg,*.ico');
+
   // Load state from localStorage only on the client after mount
   useEffect(() => {
     setIsMounted(true); // Mark as mounted
@@ -326,6 +333,12 @@ export default function ClientPageRoot() {
     }
     console.groupEnd(); // Added logging group end
 
+    // Load GitHub exclusions from localStorage
+    const savedGithubExclusions = localStorage.getItem('githubExclusions');
+    if (savedGithubExclusions) {
+      setGithubExclusions(savedGithubExclusions);
+    }
+
     // Load the state for the current project
     if (savedProjectId) {
       const currentProject = loadedProjects.find((p: Project) => p.id === savedProjectId);
@@ -340,6 +353,39 @@ export default function ClientPageRoot() {
     }
 
   }, []); // Initial load effect - dependency array is empty
+
+  // Sync filters with server when user is logged in
+  useEffect(() => {
+    if (!githubUser) return;
+
+    const syncFiltersFromServer = async () => {
+      try {
+        const response = await fetch('/api/user/filters');
+        if (response.ok) {
+          const data = await response.json();
+          if (data.synced) {
+            // Only override if server has saved filters
+            if (data.githubExclusions) {
+              setGithubExclusions(data.githubExclusions);
+              localStorage.setItem('githubExclusions', data.githubExclusions);
+            }
+            if (data.localExclusions || data.localFileTypes) {
+              setState(prev => ({
+                ...prev,
+                excludeFolders: data.localExclusions || prev.excludeFolders,
+                fileTypes: data.localFileTypes || prev.fileTypes,
+              }));
+            }
+            console.log('[Filters] Synced filters from server');
+          }
+        }
+      } catch (error) {
+        console.log('[Filters] Failed to sync from server (Turso may not be configured):', error);
+      }
+    };
+
+    syncFiltersFromServer();
+  }, [githubUser]);
 
   // Fetch Repos when GitHub user is loaded
   useEffect(() => {
@@ -800,6 +846,46 @@ export default function ClientPageRoot() {
     setProjectTypes(updatedTemplates);
     console.groupEnd();
   }, []); // Dependency: setProjectTypes is stable
+
+  // Handler for saving local filter settings
+  const handleLocalFilterSave = useCallback((newExclusions: string, newFileTypes: string) => {
+    setState(prevState => ({
+      ...prevState,
+      excludeFolders: newExclusions,
+      fileTypes: newFileTypes,
+    }));
+    console.log("[Filters] Local filters saved:", { newExclusions, newFileTypes });
+
+    // Sync to server if user is logged in
+    if (githubUser) {
+      fetch('/api/user/filters', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          localExclusions: newExclusions,
+          localFileTypes: newFileTypes,
+        }),
+      }).catch(err => console.log('[Filters] Failed to sync local filters to server:', err));
+    }
+  }, [githubUser]);
+
+  // Handler for saving GitHub filter settings
+  const handleGitHubFilterSave = useCallback((newExclusions: string) => {
+    setGithubExclusions(newExclusions);
+    localStorage.setItem('githubExclusions', newExclusions);
+    console.log("[Filters] GitHub filters saved:", newExclusions);
+
+    // Sync to server if user is logged in
+    if (githubUser) {
+      fetch('/api/user/filters', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          githubExclusions: newExclusions,
+        }),
+      }).catch(err => console.log('[Filters] Failed to sync GitHub filters to server:', err));
+    }
+  }, [githubUser]);
 
   // Wrapper function to handle the new token calculator signature
   const handleTokenCountChange = useCallback((count: number, details?: TokenCountDetails) => {
@@ -1298,6 +1384,18 @@ export default function ClientPageRoot() {
                        projectTypeSelected={projectTypeSelected}
                        buttonTooltip="Reads current files from your disk, including uncommitted changes."
                      />
+
+                     {/* Local Filter Manager Button */}
+                     <Button
+                       variant="outline"
+                       size="sm"
+                       className="w-full text-xs"
+                       onClick={() => setIsLocalFilterManagerOpen(true)}
+                     >
+                       <SlidersHorizontal className="h-3.5 w-3.5 mr-1.5" />
+                       Customize Filters
+                     </Button>
+
                      {/* Enhanced Privacy Alert */}
                      <Alert variant="default" className="mt-2 bg-primary/5 border-primary/20">
                        <ShieldCheck className="h-4 w-4 text-primary/80" />
@@ -1442,6 +1540,17 @@ export default function ClientPageRoot() {
                                <AlertDescription>Warning: Repository tree is large and was truncated. Some files/folders might be missing.</AlertDescription>
                             </Alert>
                          )}
+
+                         {/* GitHub Filter Manager Button */}
+                         <Button
+                           variant="outline"
+                           size="sm"
+                           className="w-full text-xs mt-2"
+                           onClick={() => setIsGitHubFilterManagerOpen(true)}
+                         >
+                           <Filter className="h-3.5 w-3.5 mr-1.5" />
+                           Filter Files ({githubExclusions.split(',').filter(Boolean).length} active)
+                         </Button>
                       </div>
                     ) : (
                       <div className="pt-2">
@@ -1571,6 +1680,22 @@ export default function ClientPageRoot() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Filter Manager Components */}
+      <LocalFilterManager
+        isOpen={isLocalFilterManagerOpen}
+        onClose={() => setIsLocalFilterManagerOpen(false)}
+        currentExclusions={state.excludeFolders}
+        currentFileTypes={state.fileTypes}
+        onSave={handleLocalFilterSave}
+      />
+
+      <GitHubFilterManager
+        isOpen={isGitHubFilterManagerOpen}
+        onClose={() => setIsGitHubFilterManagerOpen(false)}
+        currentExclusions={githubExclusions}
+        onSave={handleGitHubFilterSave}
+      />
 
       <AnalyticsComponent />
       <SpeedInsights />
