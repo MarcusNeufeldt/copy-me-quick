@@ -368,16 +368,20 @@ export default function ClientPageRoot() {
         if (response.ok) {
           const data = await response.json();
           if (data.synced) {
-            // Only override if server has saved filters
-            if (data.githubExclusions) {
+            // Apply server filters (use !== undefined to allow empty strings)
+            if (data.githubExclusions !== undefined) {
               setGithubExclusions(data.githubExclusions);
               localStorage.setItem('githubExclusions', data.githubExclusions);
             }
-            if (data.localExclusions || data.localFileTypes) {
+            if (data.githubFileTypes !== undefined) {
+              setGithubFileTypes(data.githubFileTypes);
+              localStorage.setItem('githubFileTypes', data.githubFileTypes);
+            }
+            if (data.localExclusions !== undefined || data.localFileTypes !== undefined) {
               setState(prev => ({
                 ...prev,
-                excludeFolders: data.localExclusions || prev.excludeFolders,
-                fileTypes: data.localFileTypes || prev.fileTypes,
+                excludeFolders: data.localExclusions ?? prev.excludeFolders,
+                fileTypes: data.localFileTypes ?? prev.fileTypes,
               }));
             }
             console.log('[Filters] Synced filters from server');

@@ -55,6 +55,7 @@ export async function GET(request: NextRequest) {
       localExclusions: '',
       localFileTypes: '',
       githubExclusions: '',
+      githubFileTypes: '',
       synced: false,
     });
   }
@@ -88,7 +89,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
   }
 
-  const { localExclusions, localFileTypes, githubExclusions } = body;
+  const { localExclusions, localFileTypes, githubExclusions, githubFileTypes } = body;
 
   // Initialize database
   await initializeDatabase();
@@ -97,6 +98,7 @@ export async function POST(request: NextRequest) {
     localExclusions,
     localFileTypes,
     githubExclusions,
+    githubFileTypes,
   });
 
   if (!success) {

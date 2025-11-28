@@ -50,10 +50,18 @@ export async function initializeDatabase(): Promise<boolean> {
         local_exclusions TEXT DEFAULT '',
         local_file_types TEXT DEFAULT '',
         github_exclusions TEXT DEFAULT '',
+        github_file_types TEXT DEFAULT '',
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
       )
     `);
+
+    // Add github_file_types column if it doesn't exist (for existing databases)
+    try {
+      await client.execute(`ALTER TABLE user_filters ADD COLUMN github_file_types TEXT DEFAULT ''`);
+    } catch {
+      // Column already exists, ignore error
+    }
 
     // Create index for faster lookups
     await client.execute(`
@@ -76,13 +84,14 @@ export async function getUserFilters(githubUserId: string): Promise<{
   localExclusions: string;
   localFileTypes: string;
   githubExclusions: string;
+  githubFileTypes: string;
 } | null> {
   const client = getTursoClient();
   if (!client) return null;
 
   try {
     const result = await client.execute({
-      sql: 'SELECT local_exclusions, local_file_types, github_exclusions FROM user_filters WHERE github_user_id = ?',
+      sql: 'SELECT local_exclusions, local_file_types, github_exclusions, github_file_types FROM user_filters WHERE github_user_id = ?',
       args: [githubUserId],
     });
 
@@ -92,9 +101,10 @@ export async function getUserFilters(githubUserId: string): Promise<{
 
     const row = result.rows[0];
     return {
-      localExclusions: (row.local_exclusions as string) || '',
-      localFileTypes: (row.local_file_types as string) || '',
-      githubExclusions: (row.github_exclusions as string) || '',
+      localExclusions: (row.local_exclusions as string) ?? '',
+      localFileTypes: (row.local_file_types as string) ?? '',
+      githubExclusions: (row.github_exclusions as string) ?? '',
+      githubFileTypes: (row.github_file_types as string) ?? '',
     };
   } catch (error) {
     console.error('[Turso] Failed to get user filters:', error);
@@ -112,6 +122,7 @@ export async function saveUserFilters(
     localExclusions?: string;
     localFileTypes?: string;
     githubExclusions?: string;
+    githubFileTypes?: string;
   }
 ): Promise<boolean> {
   const client = getTursoClient();
@@ -121,13 +132,14 @@ export async function saveUserFilters(
     // Use INSERT OR REPLACE for upsert behavior
     await client.execute({
       sql: `
-        INSERT INTO user_filters (github_user_id, github_username, local_exclusions, local_file_types, github_exclusions, updated_at)
-        VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+        INSERT INTO user_filters (github_user_id, github_username, local_exclusions, local_file_types, github_exclusions, github_file_types, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
         ON CONFLICT(github_user_id) DO UPDATE SET
           github_username = excluded.github_username,
           local_exclusions = COALESCE(excluded.local_exclusions, local_exclusions),
           local_file_types = COALESCE(excluded.local_file_types, local_file_types),
           github_exclusions = COALESCE(excluded.github_exclusions, github_exclusions),
+          github_file_types = COALESCE(excluded.github_file_types, github_file_types),
           updated_at = CURRENT_TIMESTAMP
       `,
       args: [
@@ -136,6 +148,7 @@ export async function saveUserFilters(
         filters.localExclusions ?? null,
         filters.localFileTypes ?? null,
         filters.githubExclusions ?? null,
+        filters.githubFileTypes ?? null,
       ],
     });
 
@@ -152,7 +165,7 @@ export async function saveUserFilters(
  */
 export async function updateUserFilter(
   githubUserId: string,
-  field: 'local_exclusions' | 'local_file_types' | 'github_exclusions',
+  field: 'local_exclusions' | 'local_file_types' | 'github_exclusions' | 'github_file_types',
   value: string
 ): Promise<boolean> {
   const client = getTursoClient();
