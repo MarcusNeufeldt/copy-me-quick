@@ -10,8 +10,7 @@ import { AppState, Project, FileData, AnalysisResultData, DataSource, GitHubRepo
 import dynamic from 'next/dynamic';
 import { Button } from "@/components/ui/button";
 import { GithubIcon, RotateCcw, Code2, GitBranchPlus, LayoutGrid, Github, CheckCircle, XCircle, GitBranch, BookMarked, Computer, Loader2, ShieldCheck, Info, RefreshCw, SlidersHorizontal, Filter } from 'lucide-react';
-import GitHubFilterManager from '@/components/GitHubFilterManager';
-import LocalFilterManager from '@/components/LocalFilterManager';
+import FilterManager from '@/components/FilterManager';
 import Image from 'next/image';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import FileSelector from '@/components/FileSelector';
@@ -223,6 +222,7 @@ export default function ClientPageRoot() {
   const [isLocalFilterManagerOpen, setIsLocalFilterManagerOpen] = useState(false);
   const [isGitHubFilterManagerOpen, setIsGitHubFilterManagerOpen] = useState(false);
   const [githubExclusions, setGithubExclusions] = useState<string>('package-lock.json,yarn.lock,*.svg,*.png,*.jpg,*.ico');
+  const [githubFileTypes, setGithubFileTypes] = useState<string>('.js,.jsx,.ts,.tsx,.py,.java,.go,.rs,.css,.html,.json');
 
   // Load state from localStorage only on the client after mount
   useEffect(() => {
@@ -333,10 +333,14 @@ export default function ClientPageRoot() {
     }
     console.groupEnd(); // Added logging group end
 
-    // Load GitHub exclusions from localStorage
+    // Load GitHub filters from localStorage
     const savedGithubExclusions = localStorage.getItem('githubExclusions');
     if (savedGithubExclusions) {
       setGithubExclusions(savedGithubExclusions);
+    }
+    const savedGithubFileTypes = localStorage.getItem('githubFileTypes');
+    if (savedGithubFileTypes) {
+      setGithubFileTypes(savedGithubFileTypes);
     }
 
     // Load the state for the current project
@@ -870,10 +874,12 @@ export default function ClientPageRoot() {
   }, [githubUser]);
 
   // Handler for saving GitHub filter settings
-  const handleGitHubFilterSave = useCallback((newExclusions: string) => {
+  const handleGitHubFilterSave = useCallback((newExclusions: string, newFileTypes: string) => {
     setGithubExclusions(newExclusions);
+    setGithubFileTypes(newFileTypes);
     localStorage.setItem('githubExclusions', newExclusions);
-    console.log("[Filters] GitHub filters saved:", newExclusions);
+    localStorage.setItem('githubFileTypes', newFileTypes);
+    console.log("[Filters] GitHub filters saved:", { newExclusions, newFileTypes });
 
     // Sync to server if user is logged in
     if (githubUser) {
@@ -882,6 +888,7 @@ export default function ClientPageRoot() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           githubExclusions: newExclusions,
+          githubFileTypes: newFileTypes,
         }),
       }).catch(err => console.log('[Filters] Failed to sync GitHub filters to server:', err));
     }
@@ -1682,18 +1689,21 @@ export default function ClientPageRoot() {
       </AlertDialog>
 
       {/* Filter Manager Components */}
-      <LocalFilterManager
+      <FilterManager
         isOpen={isLocalFilterManagerOpen}
         onClose={() => setIsLocalFilterManagerOpen(false)}
+        mode="local"
         currentExclusions={state.excludeFolders}
         currentFileTypes={state.fileTypes}
         onSave={handleLocalFilterSave}
       />
 
-      <GitHubFilterManager
+      <FilterManager
         isOpen={isGitHubFilterManagerOpen}
         onClose={() => setIsGitHubFilterManagerOpen(false)}
+        mode="github"
         currentExclusions={githubExclusions}
+        currentFileTypes={githubFileTypes}
         onSave={handleGitHubFilterSave}
       />
 

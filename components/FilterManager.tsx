@@ -14,61 +14,106 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { FolderX, FileType, X } from 'lucide-react';
+import { FolderX, FileType, X, Filter, Github, Computer } from 'lucide-react';
 
-interface LocalFilterManagerProps {
+type FilterMode = 'local' | 'github';
+
+interface FilterManagerProps {
   isOpen: boolean;
   onClose: () => void;
+  mode: FilterMode;
   currentExclusions: string;
   currentFileTypes: string;
-  onSave: (newExclusions: string, newFileTypes: string) => void;
+  onSave: (exclusions: string, fileTypes: string) => void;
 }
 
-const commonFolderExclusions = [
+// Shared exclusion options (files to exclude)
+const fileExclusions = [
+  // Lock files
+  { id: 'package-lock.json', label: 'package-lock.json', category: 'lockfiles' },
+  { id: 'yarn.lock', label: 'yarn.lock', category: 'lockfiles' },
+  { id: 'pnpm-lock.yaml', label: 'pnpm-lock.yaml', category: 'lockfiles' },
+  { id: 'bun.lockb', label: 'bun.lockb', category: 'lockfiles' },
+  { id: 'Cargo.lock', label: 'Cargo.lock', category: 'lockfiles' },
+  { id: 'Gemfile.lock', label: 'Gemfile.lock', category: 'lockfiles' },
+  { id: 'poetry.lock', label: 'poetry.lock', category: 'lockfiles' },
+  { id: 'composer.lock', label: 'composer.lock', category: 'lockfiles' },
+  // Documentation
+  { id: '*.md', label: 'Markdown (*.md)', category: 'docs' },
+  { id: 'README*', label: 'README files', category: 'docs' },
+  { id: 'LICENSE*', label: 'LICENSE files', category: 'docs' },
+  { id: 'CHANGELOG*', label: 'CHANGELOG files', category: 'docs' },
+  // Assets
+  { id: '*.svg', label: 'SVG (*.svg)', category: 'assets' },
+  { id: '*.png', label: 'PNG (*.png)', category: 'assets' },
+  { id: '*.jpg', label: 'JPG (*.jpg)', category: 'assets' },
+  { id: '*.jpeg', label: 'JPEG (*.jpeg)', category: 'assets' },
+  { id: '*.gif', label: 'GIF (*.gif)', category: 'assets' },
+  { id: '*.ico', label: 'ICO (*.ico)', category: 'assets' },
+  { id: '*.webp', label: 'WebP (*.webp)', category: 'assets' },
+  // Config files
+  { id: '.gitignore', label: '.gitignore', category: 'config' },
+  { id: '.gitattributes', label: '.gitattributes', category: 'config' },
+  { id: '.editorconfig', label: '.editorconfig', category: 'config' },
+  { id: '.prettierrc*', label: '.prettierrc*', category: 'config' },
+  { id: '.eslintrc*', label: '.eslintrc*', category: 'config' },
+  { id: 'tsconfig*.json', label: 'tsconfig*.json', category: 'config' },
+];
+
+// Folder exclusions (primarily for local mode, but useful for both)
+const folderExclusions = [
+  // Dependencies
   { id: 'node_modules', label: 'node_modules', category: 'dependencies' },
-  { id: '.git', label: '.git', category: 'vcs' },
-  { id: '.svn', label: '.svn', category: 'vcs' },
+  { id: 'venv', label: 'venv', category: 'dependencies' },
+  { id: '.venv', label: '.venv', category: 'dependencies' },
+  { id: 'vendor', label: 'vendor', category: 'dependencies' },
+  // Build output
   { id: 'dist', label: 'dist', category: 'build' },
   { id: 'build', label: 'build', category: 'build' },
   { id: 'out', label: 'out', category: 'build' },
   { id: '.next', label: '.next', category: 'build' },
   { id: '.nuxt', label: '.nuxt', category: 'build' },
   { id: 'target', label: 'target', category: 'build' },
-  { id: 'bin', label: 'bin', category: 'build' },
-  { id: 'obj', label: 'obj', category: 'build' },
   { id: '__pycache__', label: '__pycache__', category: 'build' },
+  // Version control
+  { id: '.git', label: '.git', category: 'vcs' },
+  { id: '.svn', label: '.svn', category: 'vcs' },
+  // IDE
   { id: '.vscode', label: '.vscode', category: 'ide' },
   { id: '.idea', label: '.idea', category: 'ide' },
+  // System
   { id: '.DS_Store', label: '.DS_Store', category: 'system' },
   { id: 'Thumbs.db', label: 'Thumbs.db', category: 'system' },
   { id: '*.log', label: '*.log', category: 'system' },
-  { id: '*.tmp', label: '*.tmp', category: 'system' },
-  { id: '*.temp', label: '*.temp', category: 'system' },
+  // Testing
   { id: 'coverage', label: 'coverage', category: 'testing' },
   { id: '.nyc_output', label: '.nyc_output', category: 'testing' },
-  { id: 'venv', label: 'venv', category: 'dependencies' },
-  { id: '.venv', label: '.venv', category: 'dependencies' },
-  { id: 'vendor', label: 'vendor', category: 'dependencies' },
 ];
 
-const folderCategories = [
-  { id: 'dependencies', label: 'Dependencies' },
-  { id: 'build', label: 'Build Output' },
-  { id: 'vcs', label: 'Version Control' },
-  { id: 'ide', label: 'IDE Files' },
-  { id: 'system', label: 'System Files' },
-  { id: 'testing', label: 'Test Coverage' },
+const exclusionCategories = [
+  { id: 'lockfiles', label: 'Lock Files', type: 'file' },
+  { id: 'docs', label: 'Documentation', type: 'file' },
+  { id: 'assets', label: 'Assets & Images', type: 'file' },
+  { id: 'config', label: 'Config Files', type: 'file' },
+  { id: 'dependencies', label: 'Dependencies', type: 'folder' },
+  { id: 'build', label: 'Build Output', type: 'folder' },
+  { id: 'vcs', label: 'Version Control', type: 'folder' },
+  { id: 'ide', label: 'IDE Files', type: 'folder' },
+  { id: 'system', label: 'System Files', type: 'folder' },
+  { id: 'testing', label: 'Test Coverage', type: 'folder' },
 ];
 
-const commonFileTypes = [
+// File types to include
+const fileTypes = [
+  // JavaScript/TypeScript
   { id: '.js', label: 'JavaScript (.js)', category: 'javascript' },
   { id: '.jsx', label: 'React JSX (.jsx)', category: 'javascript' },
   { id: '.ts', label: 'TypeScript (.ts)', category: 'javascript' },
   { id: '.tsx', label: 'React TSX (.tsx)', category: 'javascript' },
   { id: '.mjs', label: 'ES Module (.mjs)', category: 'javascript' },
-  { id: '.cjs', label: 'CommonJS (.cjs)', category: 'javascript' },
   { id: '.vue', label: 'Vue (.vue)', category: 'javascript' },
   { id: '.svelte', label: 'Svelte (.svelte)', category: 'javascript' },
+  // Backend
   { id: '.py', label: 'Python (.py)', category: 'backend' },
   { id: '.java', label: 'Java (.java)', category: 'backend' },
   { id: '.cs', label: 'C# (.cs)', category: 'backend' },
@@ -78,19 +123,23 @@ const commonFileTypes = [
   { id: '.php', label: 'PHP (.php)', category: 'backend' },
   { id: '.cpp', label: 'C++ (.cpp)', category: 'backend' },
   { id: '.c', label: 'C (.c)', category: 'backend' },
+  // Web
   { id: '.html', label: 'HTML (.html)', category: 'web' },
   { id: '.css', label: 'CSS (.css)', category: 'web' },
   { id: '.scss', label: 'SCSS (.scss)', category: 'web' },
   { id: '.sass', label: 'Sass (.sass)', category: 'web' },
   { id: '.less', label: 'Less (.less)', category: 'web' },
+  // Data
   { id: '.json', label: 'JSON (.json)', category: 'data' },
   { id: '.yaml', label: 'YAML (.yaml)', category: 'data' },
   { id: '.yml', label: 'YML (.yml)', category: 'data' },
   { id: '.xml', label: 'XML (.xml)', category: 'data' },
   { id: '.toml', label: 'TOML (.toml)', category: 'data' },
-  { id: '.md', label: 'Markdown (.md)', category: 'docs' },
-  { id: '.txt', label: 'Text (.txt)', category: 'docs' },
   { id: '.sql', label: 'SQL (.sql)', category: 'data' },
+  // Docs
+  { id: '.md', label: 'Markdown (.md)', category: 'docfiles' },
+  { id: '.txt', label: 'Text (.txt)', category: 'docfiles' },
+  // Scripts
   { id: '.sh', label: 'Shell (.sh)', category: 'scripts' },
   { id: '.bash', label: 'Bash (.bash)', category: 'scripts' },
   { id: '.ps1', label: 'PowerShell (.ps1)', category: 'scripts' },
@@ -102,13 +151,17 @@ const fileTypeCategories = [
   { id: 'backend', label: 'Backend Languages' },
   { id: 'web', label: 'Web (HTML/CSS)' },
   { id: 'data', label: 'Data Files' },
-  { id: 'docs', label: 'Documentation' },
+  { id: 'docfiles', label: 'Documentation' },
   { id: 'scripts', label: 'Scripts' },
 ];
 
-const LocalFilterManager: React.FC<LocalFilterManagerProps> = ({
+// All exclusions combined
+const allExclusions = [...fileExclusions, ...folderExclusions];
+
+const FilterManager: React.FC<FilterManagerProps> = ({
   isOpen,
   onClose,
+  mode,
   currentExclusions,
   currentFileTypes,
   onSave,
@@ -126,9 +179,9 @@ const LocalFilterManager: React.FC<LocalFilterManagerProps> = ({
       const customExclusionItems: string[] = [];
 
       exclusionsArray.forEach(item => {
-        const common = commonFolderExclusions.find(c => c.id === item);
-        if (common) {
-          newSelectedExclusions.add(common.id);
+        const found = allExclusions.find(e => e.id === item);
+        if (found) {
+          newSelectedExclusions.add(found.id);
         } else {
           customExclusionItems.push(item);
         }
@@ -143,9 +196,9 @@ const LocalFilterManager: React.FC<LocalFilterManagerProps> = ({
       const customFileTypeItems: string[] = [];
 
       fileTypesArray.forEach(item => {
-        const common = commonFileTypes.find(c => c.id === item);
-        if (common) {
-          newSelectedFileTypes.add(common.id);
+        const found = fileTypes.find(ft => ft.id === item);
+        if (found) {
+          newSelectedFileTypes.add(found.id);
         } else {
           customFileTypeItems.push(item);
         }
@@ -194,9 +247,15 @@ const LocalFilterManager: React.FC<LocalFilterManagerProps> = ({
     setSelectedFileTypes(newSet);
   };
 
-  const handleSelectAllExclusionsInCategory = (categoryId: string, select: boolean) => {
-    const newSet = new Set(selectedExclusions);
-    commonFolderExclusions
+  const handleSelectAllInCategory = (
+    categoryId: string,
+    items: typeof allExclusions | typeof fileTypes,
+    selected: Set<string>,
+    setSelected: React.Dispatch<React.SetStateAction<Set<string>>>,
+    select: boolean
+  ) => {
+    const newSet = new Set(selected);
+    items
       .filter(e => e.category === categoryId)
       .forEach(e => {
         if (select) {
@@ -205,98 +264,114 @@ const LocalFilterManager: React.FC<LocalFilterManagerProps> = ({
           newSet.delete(e.id);
         }
       });
-    setSelectedExclusions(newSet);
-  };
-
-  const handleSelectAllFileTypesInCategory = (categoryId: string, select: boolean) => {
-    const newSet = new Set(selectedFileTypes);
-    commonFileTypes
-      .filter(e => e.category === categoryId)
-      .forEach(e => {
-        if (select) {
-          newSet.add(e.id);
-        } else {
-          newSet.delete(e.id);
-        }
-      });
-    setSelectedFileTypes(newSet);
+    setSelected(newSet);
   };
 
   const isCategoryFullySelected = (
     categoryId: string,
-    items: typeof commonFolderExclusions | typeof commonFileTypes,
+    items: typeof allExclusions | typeof fileTypes,
     selected: Set<string>
   ) => {
     const categoryItems = items.filter(e => e.category === categoryId);
-    return categoryItems.every(item => selected.has(item.id));
+    return categoryItems.length > 0 && categoryItems.every(item => selected.has(item.id));
   };
+
+  // Get relevant exclusion categories based on mode
+  const getExclusionCategories = () => {
+    if (mode === 'github') {
+      // GitHub: prioritize file exclusions, but also show folder exclusions
+      return exclusionCategories;
+    }
+    // Local: show folder exclusions first, then file exclusions
+    return [
+      ...exclusionCategories.filter(c => c.type === 'folder'),
+      ...exclusionCategories.filter(c => c.type === 'file'),
+    ];
+  };
+
+  const ModeIcon = mode === 'github' ? Github : Computer;
+  const modeLabel = mode === 'github' ? 'GitHub' : 'Local';
 
   return (
     <Sheet open={isOpen} onOpenChange={onClose}>
-      <SheetContent className="w-[400px] sm:w-[600px]">
+      <SheetContent className="w-[420px] sm:w-[560px]">
         <SheetHeader>
           <SheetTitle className="flex items-center gap-2">
-            <FolderX className="h-5 w-5" />
-            Local File Filters
+            <ModeIcon className="h-5 w-5" />
+            {modeLabel} Filter Settings
           </SheetTitle>
           <SheetDescription>
-            Configure which folders to exclude and which file types to include when processing local files.
+            Configure which files to exclude and which file types to include.
           </SheetDescription>
         </SheetHeader>
 
         <Tabs defaultValue="exclusions" className="mt-4">
           <TabsList className="grid w-full grid-cols-2">
             <TabsTrigger value="exclusions" className="text-xs">
-              <FolderX className="h-3 w-3 mr-1" />
-              Excluded Folders
+              <FolderX className="h-3.5 w-3.5 mr-1.5" />
+              Exclusions
             </TabsTrigger>
             <TabsTrigger value="filetypes" className="text-xs">
-              <FileType className="h-3 w-3 mr-1" />
+              <FileType className="h-3.5 w-3.5 mr-1.5" />
               File Types
             </TabsTrigger>
           </TabsList>
 
+          {/* Exclusions Tab */}
           <TabsContent value="exclusions" className="mt-4">
-            <ScrollArea className="h-[calc(100vh-320px)] pr-4">
+            <ScrollArea className="h-[calc(100vh-300px)] pr-4">
               <div className="space-y-4">
-                {folderCategories.map(category => (
-                  <div key={category.id} className="space-y-2">
-                    <div className="flex items-center justify-between">
-                      <Label className="text-xs font-semibold">{category.label}</Label>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-6 text-xs px-2"
-                        onClick={() => handleSelectAllExclusionsInCategory(
-                          category.id,
-                          !isCategoryFullySelected(category.id, commonFolderExclusions, selectedExclusions)
-                        )}
-                      >
-                        {isCategoryFullySelected(category.id, commonFolderExclusions, selectedExclusions) ? 'Clear' : 'All'}
-                      </Button>
-                    </div>
-                    <div className="grid grid-cols-2 gap-1.5">
-                      {commonFolderExclusions
-                        .filter(e => e.category === category.id)
-                        .map(exclusion => (
-                          <div key={exclusion.id} className="flex items-center space-x-2">
+                {getExclusionCategories().map(category => {
+                  const categoryItems = allExclusions.filter(e => e.category === category.id);
+                  if (categoryItems.length === 0) return null;
+
+                  return (
+                    <div key={category.id} className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <Label className="text-xs font-semibold flex items-center gap-1.5">
+                          {category.type === 'folder' ? (
+                            <FolderX className="h-3 w-3 text-muted-foreground" />
+                          ) : (
+                            <Filter className="h-3 w-3 text-muted-foreground" />
+                          )}
+                          {category.label}
+                        </Label>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-6 text-xs px-2"
+                          onClick={() => handleSelectAllInCategory(
+                            category.id,
+                            allExclusions,
+                            selectedExclusions,
+                            setSelectedExclusions,
+                            !isCategoryFullySelected(category.id, allExclusions, selectedExclusions)
+                          )}
+                        >
+                          {isCategoryFullySelected(category.id, allExclusions, selectedExclusions) ? 'Clear' : 'All'}
+                        </Button>
+                      </div>
+                      <div className="grid grid-cols-2 gap-1.5">
+                        {categoryItems.map(item => (
+                          <div key={item.id} className="flex items-center space-x-2">
                             <Checkbox
-                              id={`exclusion-${exclusion.id}`}
-                              checked={selectedExclusions.has(exclusion.id)}
-                              onCheckedChange={(checked) => handleExclusionToggle(exclusion.id, !!checked)}
+                              id={`exclusion-${item.id}`}
+                              checked={selectedExclusions.has(item.id)}
+                              onCheckedChange={(checked) => handleExclusionToggle(item.id, !!checked)}
                             />
                             <label
-                              htmlFor={`exclusion-${exclusion.id}`}
+                              htmlFor={`exclusion-${item.id}`}
                               className="text-xs font-medium leading-none cursor-pointer truncate"
-                              title={exclusion.label}
+                              title={item.label}
                             >
-                              {exclusion.label}
+                              {item.label}
                             </label>
                           </div>
                         ))}
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
 
                 <Separator />
 
@@ -306,7 +381,7 @@ const LocalFilterManager: React.FC<LocalFilterManagerProps> = ({
                   </Label>
                   <Input
                     id="custom-exclusions"
-                    placeholder="e.g., temp/, *.bak, backup"
+                    placeholder="e.g., temp/, *.bak, __tests__"
                     value={customExclusions}
                     onChange={(e) => setCustomExclusions(e.target.value)}
                     className="text-sm"
@@ -316,10 +391,10 @@ const LocalFilterManager: React.FC<LocalFilterManagerProps> = ({
                 {selectedExclusions.size > 0 && (
                   <div className="space-y-1">
                     <Label className="text-xs text-muted-foreground">
-                      Excluded ({selectedExclusions.size})
+                      Active Exclusions ({selectedExclusions.size})
                     </Label>
                     <div className="flex flex-wrap gap-1">
-                      {Array.from(selectedExclusions).slice(0, 10).map(id => (
+                      {Array.from(selectedExclusions).slice(0, 8).map(id => (
                         <span
                           key={id}
                           className="inline-flex items-center gap-1 px-1.5 py-0.5 text-xs bg-destructive/10 text-destructive rounded"
@@ -330,9 +405,9 @@ const LocalFilterManager: React.FC<LocalFilterManagerProps> = ({
                           </button>
                         </span>
                       ))}
-                      {selectedExclusions.size > 10 && (
+                      {selectedExclusions.size > 8 && (
                         <span className="text-xs text-muted-foreground">
-                          +{selectedExclusions.size - 10} more
+                          +{selectedExclusions.size - 8} more
                         </span>
                       )}
                     </div>
@@ -342,29 +417,35 @@ const LocalFilterManager: React.FC<LocalFilterManagerProps> = ({
             </ScrollArea>
           </TabsContent>
 
+          {/* File Types Tab */}
           <TabsContent value="filetypes" className="mt-4">
-            <ScrollArea className="h-[calc(100vh-320px)] pr-4">
+            <ScrollArea className="h-[calc(100vh-300px)] pr-4">
               <div className="space-y-4">
-                {fileTypeCategories.map(category => (
-                  <div key={category.id} className="space-y-2">
-                    <div className="flex items-center justify-between">
-                      <Label className="text-xs font-semibold">{category.label}</Label>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-6 text-xs px-2"
-                        onClick={() => handleSelectAllFileTypesInCategory(
-                          category.id,
-                          !isCategoryFullySelected(category.id, commonFileTypes, selectedFileTypes)
-                        )}
-                      >
-                        {isCategoryFullySelected(category.id, commonFileTypes, selectedFileTypes) ? 'Clear' : 'All'}
-                      </Button>
-                    </div>
-                    <div className="grid grid-cols-2 gap-1.5">
-                      {commonFileTypes
-                        .filter(e => e.category === category.id)
-                        .map(fileType => (
+                {fileTypeCategories.map(category => {
+                  const categoryItems = fileTypes.filter(ft => ft.category === category.id);
+                  if (categoryItems.length === 0) return null;
+
+                  return (
+                    <div key={category.id} className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <Label className="text-xs font-semibold">{category.label}</Label>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-6 text-xs px-2"
+                          onClick={() => handleSelectAllInCategory(
+                            category.id,
+                            fileTypes,
+                            selectedFileTypes,
+                            setSelectedFileTypes,
+                            !isCategoryFullySelected(category.id, fileTypes, selectedFileTypes)
+                          )}
+                        >
+                          {isCategoryFullySelected(category.id, fileTypes, selectedFileTypes) ? 'Clear' : 'All'}
+                        </Button>
+                      </div>
+                      <div className="grid grid-cols-2 gap-1.5">
+                        {categoryItems.map(fileType => (
                           <div key={fileType.id} className="flex items-center space-x-2">
                             <Checkbox
                               id={`filetype-${fileType.id}`}
@@ -380,9 +461,10 @@ const LocalFilterManager: React.FC<LocalFilterManagerProps> = ({
                             </label>
                           </div>
                         ))}
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
 
                 <Separator />
 
@@ -392,7 +474,7 @@ const LocalFilterManager: React.FC<LocalFilterManagerProps> = ({
                   </Label>
                   <Input
                     id="custom-filetypes"
-                    placeholder="e.g., .env, .config, .prisma"
+                    placeholder="e.g., .env, .prisma, .graphql"
                     value={customFileTypes}
                     onChange={(e) => setCustomFileTypes(e.target.value)}
                     className="text-sm"
@@ -402,10 +484,10 @@ const LocalFilterManager: React.FC<LocalFilterManagerProps> = ({
                 {selectedFileTypes.size > 0 && (
                   <div className="space-y-1">
                     <Label className="text-xs text-muted-foreground">
-                      Included ({selectedFileTypes.size})
+                      Included Types ({selectedFileTypes.size})
                     </Label>
                     <div className="flex flex-wrap gap-1">
-                      {Array.from(selectedFileTypes).slice(0, 12).map(id => (
+                      {Array.from(selectedFileTypes).slice(0, 10).map(id => (
                         <span
                           key={id}
                           className="inline-flex items-center gap-1 px-1.5 py-0.5 text-xs bg-primary/10 text-primary rounded"
@@ -416,9 +498,9 @@ const LocalFilterManager: React.FC<LocalFilterManagerProps> = ({
                           </button>
                         </span>
                       ))}
-                      {selectedFileTypes.size > 12 && (
+                      {selectedFileTypes.size > 10 && (
                         <span className="text-xs text-muted-foreground">
-                          +{selectedFileTypes.size - 12} more
+                          +{selectedFileTypes.size - 10} more
                         </span>
                       )}
                     </div>
@@ -438,4 +520,4 @@ const LocalFilterManager: React.FC<LocalFilterManagerProps> = ({
   );
 };
 
-export default LocalFilterManager;
+export default FilterManager;
