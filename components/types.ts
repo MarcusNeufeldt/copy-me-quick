@@ -38,6 +38,37 @@ export interface Project {
   isPinned?: boolean;
 }
 
+export interface ProjectTemplate {
+  value: string;
+  label: string;
+  excludeFolders: string[];
+  fileTypes: string[];
+}
+
+export interface GitHubUser {
+  login: string;
+  avatarUrl?: string;
+  name?: string;
+}
+
+export interface GitHubRepo {
+  id: number;
+  name: string;
+  full_name: string;
+  private: boolean;
+  owner: {
+    login: string;
+  };
+  default_branch: string;
+}
+
+export interface GitHubBranch {
+  name: string;
+  commit: {
+    sha: string;
+  };
+}
+
 export interface GitHubTreeItem {
   path: string;
   mode: string;
@@ -83,6 +114,8 @@ export interface FileSelectorProps {
   loadingStatus: LoadingStatus;
   tokenCount: number;
   currentProjectId?: string | null;
+  githubExclusions?: string;
+  githubFileTypes?: string;
 }
 
 export interface AnalysisResultProps {
@@ -99,4 +132,6 @@ export interface AnalysisResultProps {
   setLoadingStatus: React.Dispatch<React.SetStateAction<LoadingStatus>>;
   loadingStatus: LoadingStatus;
   currentProjectId?: string | null;
+  githubExclusions?: string;
+  githubFileTypes?: string;
 }

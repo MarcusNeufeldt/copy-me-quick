@@ -76,14 +76,61 @@ const FileSelector = ({
   setLoadingStatus,
   loadingStatus,
   currentProjectId,
+  githubExclusions,
+  githubFileTypes,
 }: FileSelectorProps & { tokenCount: number }) => {
+  const matchesGithubFilterPattern = useCallback((filePath: string, pattern: string): boolean => {
+    const trimmedPattern = pattern.trim();
+    if (!trimmedPattern) return false;
+
+    const fileName = filePath.split('/').pop() || '';
+
+    if (trimmedPattern.startsWith('*.')) {
+      return fileName.endsWith(trimmedPattern.slice(1));
+    }
+
+    if (fileName === trimmedPattern) return true;
+
+    return filePath === trimmedPattern
+      || filePath.startsWith(`${trimmedPattern}/`)
+      || filePath.includes(`/${trimmedPattern}/`);
+  }, []);
+
+  const filteredGithubTree = useMemo(() => {
+    if (!githubTree) return null;
+
+    const exclusions = (githubExclusions || '')
+      .split(',')
+      .map(item => item.trim())
+      .filter(Boolean);
+    const fileTypes = (githubFileTypes || '')
+      .split(',')
+      .map(item => item.trim())
+      .filter(Boolean);
+
+    return githubTree.filter(item => {
+      if (item.type === 'tree') return true;
+
+      if (exclusions.some(exclusion => matchesGithubFilterPattern(item.path, exclusion))) {
+        return false;
+      }
+
+      if (fileTypes.length === 0 || fileTypes.includes('*')) {
+        return true;
+      }
+
+      const fileName = item.path.split('/').pop() || '';
+      return fileTypes.some(type => fileName.endsWith(type.startsWith('.') ? type : `.${type}`));
+    });
+  }, [githubTree, githubExclusions, githubFileTypes, matchesGithubFilterPattern]);
+
   // Create stable dataSource object locally
   const dataSource = useMemo((): DataSource => {
-    if (activeSourceTab === 'github' && githubTree) {
-      return { type: 'github', tree: githubTree, repoInfo: githubRepoInfo };
+    if (activeSourceTab === 'github' && filteredGithubTree) {
+      return { type: 'github', tree: filteredGithubTree, repoInfo: githubRepoInfo };
     }
     return { type: 'local', files: allFiles || [] };
-  }, [activeSourceTab, githubTree, githubRepoInfo, allFiles]);
+  }, [activeSourceTab, filteredGithubTree, githubRepoInfo, allFiles]);
   const [fileTree, setFileTree] = useState<{ [key: string]: InternalTreeNode } | null>(null);
   const [expandedNodes, setExpandedNodes] = useState<Set<string>>(new Set());
   const [searchTerm, setSearchTerm] = useState('');

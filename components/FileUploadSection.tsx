@@ -4,56 +4,7 @@ import { Progress } from "@/components/ui/progress";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { FileUp, RefreshCw, Loader2 } from 'lucide-react';
 import { AppState, FileData, AnalysisResultData } from './types';
-import { saveDirectoryHandle } from '@/lib/indexeddb'; // <-- IMPORT new helper
-
-// Add this at the top of the file (after imports)
-declare global {
-  interface Window {
-    showDirectoryPicker?: () => Promise<FileSystemDirectoryHandle>;
-  }
-}
-
-// --- Helper to recursively get files from a directory handle ---
-async function getFilesFromHandle(
-  dirHandle: FileSystemDirectoryHandle,
-  path: string = '',
-  includeRootName: boolean = true
-): Promise<File[]> {
-  const files: File[] = [];
-  
-  // If this is the root call (path is empty) and we should include root name,
-  // use the directory handle's name as the root folder name
-  const rootPrefix = path === '' && includeRootName ? dirHandle.name : '';
-  
-  // @ts-ignore: .values() is not yet in TypeScript's lib.dom.d.ts
-  for await (const entry of (dirHandle as any).values()) {
-    let newPath: string;
-    
-    if (path === '' && includeRootName) {
-      // Root level: include the directory name
-      newPath = `${rootPrefix}/${entry.name}`;
-    } else if (path === '') {
-      // Root level without including root name
-      newPath = entry.name;
-    } else {
-      // Nested path
-      newPath = `${path}/${entry.name}`;
-    }
-    
-    if (entry.kind === 'file') {
-      const file = await entry.getFile();
-      Object.defineProperty(file, 'webkitRelativePath', {
-        value: newPath,
-        writable: true,
-        enumerable: true,
-      });
-      files.push(file);
-    } else if (entry.kind === 'directory') {
-      files.push(...(await getFilesFromHandle(entry, newPath, false))); // Don't include root name for recursive calls
-    }
-  }
-  return files;
-}
+import { getFilesFromHandle } from '@/lib/localDirectory';
 
 interface LoadingStatus {
   isLoading: boolean;
@@ -94,7 +45,7 @@ const FileUploadSection: React.FC<FileUploadSectionProps> = ({
     const excludedFolders = state.excludeFolders.split(',').map(f => f.trim()).filter(f => f);
     const allowedFileTypes = state.fileTypes.split(',').map(t => t.trim()).filter(t => t);
     console.log('Excluded folders:', excludedFolders);
-    let newFileContentsMap = new Map<string, FileData>();
+    const newFileContentsMap = new Map<string, FileData>();
     let newTotalLines = 0;
     let processedFileCount = 0;
     setLoadingStatus({ isLoading: true, message: `Processing ${files.length} files...` });

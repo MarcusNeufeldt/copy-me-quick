@@ -41,7 +41,7 @@ const ProjectSelector: React.FC<ProjectSelectorProps> = ({
         projectType: type,
       }));
     }
-    onProjectTypeSelected(type !== "none");
+    onProjectTypeSelected(Boolean(template));
   };
 
   const handleEditClick = () => {

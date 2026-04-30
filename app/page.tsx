@@ -1,39 +1,23 @@
 "use client";
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { Card, CardContent } from "@/components/ui/card";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { ModeToggle } from "@/components/ui/mode-toggle";
-import ProjectSelector from '@/components/ProjectSelector';
-import FileUploadSection from '@/components/FileUploadSection';
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import AnalysisResult from '@/components/AnalysisResult';
-import { AppState, Project, FileData, AnalysisResultData, DataSource, GitHubRepoInfo } from '@/components/types';
+import { AppState, Project, FileData, AnalysisResultData, GitHubRepoInfo, GitHubUser, GitHubRepo, GitHubBranch, GitHubTreeItem } from '@/components/types';
 import dynamic from 'next/dynamic';
-import { Button } from "@/components/ui/button";
-import { GithubIcon, RotateCcw, Code2, GitBranchPlus, LayoutGrid, Github, CheckCircle, XCircle, GitBranch, BookMarked, Computer, Loader2, ShieldCheck, Info, RefreshCw, SlidersHorizontal, Filter } from 'lucide-react';
+import { Loader2 } from 'lucide-react';
 import GitHubFilterManager from '@/components/GitHubFilterManager';
 import LocalFilterManager from '@/components/LocalFilterManager';
-import Image from 'next/image';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import FileSelector from '@/components/FileSelector';
-import RecentProjectsDisplay from '@/components/RecentProjectsDisplay'; // Added Import
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import { Input } from "@/components/ui/input";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
 import { SpeedInsights } from "@vercel/speed-insights/next";
-import { formatDistanceToNow } from 'date-fns';
 import { saveDirectoryHandle, getDirectoryHandle } from '@/lib/indexeddb';
 import { TokenCountDetails } from '@/hooks/useTokenCalculator';
+import { AppHeader } from '@/components/page/AppHeader';
+import { EmptyAnalysisState } from '@/components/page/EmptyAnalysisState';
+import { LoadingIndicator } from '@/components/page/LoadingIndicator';
+import { PageDialogs } from '@/components/page/PageDialogs';
+import { SourceSidebar } from '@/components/page/SourceSidebar';
+import { defaultProjectTypes, initialAppState, MAX_RECENT_PROJECTS, MAX_TOKENS } from '@/lib/appDefaults';
+import { getFilesFromHandle } from '@/lib/localDirectory';
+import { formatFileSize } from '@/components/fileSelectorUtils';
 
 // Dynamically import Analytics with error handling
 const AnalyticsComponent = dynamic(
@@ -41,143 +25,10 @@ const AnalyticsComponent = dynamic(
   { ssr: false, loading: () => null }
 );
 
-const MAX_TOKENS = 1048576;
-const MAX_RECENT_PROJECTS = 10; // Max number of recent projects to store
-
-const baseExclusions = [
-  '.git',
-  'node_modules',
-  'dist',
-  'build',
-  'out',
-  'target',
-  'bin',
-  'obj',
-  '.vscode',
-  '.idea',
-  '.DS_Store',
-  'Thumbs.db',
-  '*.log',
-  '*.tmp',
-  '*.temp',
-  'coverage',
-  // Note: .github is intentionally NOT excluded by default to support GitHub Actions workflows
-];
-
-const defaultProjectTypes = [
-  { value: "none", label: "None", excludeFolders: baseExclusions, fileTypes: ['*'] },
-  { value: "nextjs", label: "Next.js", excludeFolders: [...baseExclusions, '.next', 'out'], fileTypes: ['.js', '.jsx', '.ts', '.tsx', '.css', '.scss', '.json', '.md'] },
-  { value: "react", label: "React", excludeFolders: baseExclusions, fileTypes: ['.js', '.jsx', '.ts', '.tsx', '.css', '.scss', '.json', '.md'] },
-  { value: "vue", label: "Vue.js", excludeFolders: [...baseExclusions, '.nuxt'], fileTypes: ['.vue', '.js', '.ts', '.css', '.scss', '.json', '.md'] },
-  { value: "angular", label: "Angular", excludeFolders: baseExclusions, fileTypes: ['.ts', '.html', '.css', '.scss', '.json', '.md'] },
-  { value: "svelte", label: "Svelte", excludeFolders: baseExclusions, fileTypes: ['.svelte', '.js', '.ts', '.css', '.scss', '.json', '.md'] },
-  { value: "flask", label: "Flask", excludeFolders: [...baseExclusions, 'venv', '__pycache__', '*.pyc', 'migrations'], fileTypes: ['.py', '.html', '.css', '.js', '.json', '.md'] },
-  { value: "django", label: "Django", excludeFolders: [...baseExclusions, 'venv', '__pycache__', '*.pyc', 'migrations'], fileTypes: ['.py', '.html', '.css', '.js', '.json', '.md'] },
-  { value: "express", label: "Express.js", excludeFolders: baseExclusions, fileTypes: ['.js', '.ts', '.json', '.md'] },
-  { value: "springboot", label: "Spring Boot", excludeFolders: [...baseExclusions, '.gradle', 'gradle'], fileTypes: ['.java', '.xml', '.properties', '.yml', '.md'] },
-  { value: "dotnet", label: ".NET", excludeFolders: [...baseExclusions, 'packages', 'TestResults'], fileTypes: ['.cs', '.cshtml', '.csproj', '.sln', '.json', '.md'] },
-];
-
-// Default initial state, safe for server rendering
-const initialAppState: AppState = {
-  analysisResult: null,
-  selectedFiles: [],
-  excludeFolders: 'node_modules,.git,dist,.next',
-  fileTypes: '.js,.jsx,.ts,.tsx,.py',
-};
-
-interface GitHubUser {
-  login: string;
-  avatarUrl?: string;
-  name?: string;
-}
-
-interface GitHubRepo {
-  id: number;
-  name: string;
-  full_name: string;
-  private: boolean;
-  owner: {
-    login: string;
-  };
-  default_branch: string;
-}
-
-interface GitHubBranch {
-  name: string;
-  commit: {
-    sha: string;
-  };
-}
-
-interface GitHubTreeItem {
-  path: string;
-  mode: string; // e.g., "100644"
-  type: 'blob' | 'tree' | 'commit'; // file | folder | submodule
-  sha: string;
-  size?: number; // Only present for blobs
-  url: string;
-}
-
 // Unified Loading State Type
 interface LoadingStatus {
   isLoading: boolean;
   message: string | null;
-}
-
-// Add formatFileSize function definition
-function formatFileSize(bytes: number, decimals = 2): string {
-  if (bytes === 0) return '0 Bytes';
-
-  const k = 1024;
-  const dm = decimals < 0 ? 0 : decimals;
-  const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB', 'PB', 'EB', 'ZB', 'YB'];
-
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
-}
-
-// --- Helper to recursively get files from a directory handle (move from FileUploadSection) ---
-async function getFilesFromHandle(
-  dirHandle: FileSystemDirectoryHandle,
-  path: string = '',
-  includeRootName: boolean = true
-): Promise<File[]> {
-  const files: File[] = [];
-  
-  // If this is the root call (path is empty) and we should include root name,
-  // use the directory handle's name as the root folder name
-  const rootPrefix = path === '' && includeRootName ? dirHandle.name : '';
-  
-  // @ts-ignore: .values() is not yet in TypeScript's lib.dom.d.ts
-  for await (const entry of (dirHandle as any).values()) {
-    let newPath: string;
-    
-    if (path === '' && includeRootName) {
-      // Root level: include the directory name
-      newPath = `${rootPrefix}/${entry.name}`;
-    } else if (path === '') {
-      // Root level without including root name
-      newPath = entry.name;
-    } else {
-      // Nested path
-      newPath = `${path}/${entry.name}`;
-    }
-    
-    if (entry.kind === 'file') {
-      const file = await entry.getFile();
-      Object.defineProperty(file, 'webkitRelativePath', {
-        value: newPath,
-        writable: true,
-        enumerable: true,
-      });
-      files.push(file);
-    } else if (entry.kind === 'directory') {
-      files.push(...(await getFilesFromHandle(entry, newPath, false))); // Don't include root name for recursive calls
-    }
-  }
-  return files;
 }
 
 export default function ClientPageRoot() {
@@ -203,7 +54,7 @@ export default function ClientPageRoot() {
   const [error, setError] = useState<string | null>(null);
   const [tokenCount, setTokenCount] = useState(0);
   const [tokenDetails, setTokenDetails] = useState<TokenCountDetails | null>(null);
-  const [projectTypeSelected, setProjectTypeSelected] = useState(false);
+  const [projectTypeSelected, setProjectTypeSelected] = useState(true);
   const [githubUser, setGithubUser] = useState<GitHubUser | null>(null);
   const [githubError, setGithubError] = useState<string | null>(null);
 
@@ -792,7 +643,7 @@ export default function ClientPageRoot() {
       const excludedFolders = projectToLoad.state.excludeFolders.split(',').map(f => f.trim()).filter(f => f);
       const allowedFileTypes = projectToLoad.state.fileTypes.split(',').map(t => t.trim()).filter(t => t);
       console.log('Project loading - Excluded folders:', excludedFolders);
-      let newFileContentsMap = new Map<string, FileData>();
+      const newFileContentsMap = new Map<string, FileData>();
       let newTotalLines = 0;
       for (const file of fileList) {
         // @ts-ignore
@@ -1306,298 +1157,49 @@ export default function ClientPageRoot() {
 
   return (
     <div className="relative">
-      {/* Unified Loading Indicator */}
-      {loadingStatus.isLoading && (
-        <div className="fixed top-0 left-0 w-full h-1 bg-primary/10 z-50">
-          <div
-            className="h-full bg-gradient-to-r from-primary to-purple-500 animate-pulse-fast"
-            style={{ width: '100%' }} // Simple full-width pulse for now
-          ></div>
-           {loadingStatus.message && (
-            <div className="absolute top-1 left-1/2 -translate-x-1/2 mt-2 px-3 py-1 bg-background border rounded-full shadow-lg text-xs font-medium flex items-center gap-2">
-               <Loader2 className="h-3 w-3 animate-spin" />
-               {loadingStatus.message}
-            </div>
-           )}
-        </div>
-      )}
-
-      {/* Header with background blur */}
-      <header className="sticky top-0 z-40 w-full border-b bg-background/80 backdrop-blur-sm shadow-sm">
-        <div className="container flex h-16 items-center justify-between py-4 px-4 sm:px-6">
-          <div className="flex items-center gap-2">
-            <Code2 className="h-5 w-5 sm:h-6 sm:w-6 text-primary" />
-            <h1 className="text-lg sm:text-xl font-heading font-bold text-gradient">Copy Me Quick</h1>
-          </div>
-          <div className="flex items-center gap-2">
-            <a 
-              href="https://github.com/MarcusNeufeldt/copy-me-quick" 
-              target="_blank" 
-              rel="noopener noreferrer"
-              className="text-muted-foreground hover:text-foreground transition-colors"
-            >
-              <GithubIcon className="h-5 w-5" />
-            </a>
-            <ModeToggle />
-          </div>
-        </div>
-      </header>
+      <LoadingIndicator isLoading={loadingStatus.isLoading} message={loadingStatus.message} />
+      <AppHeader />
       
       <div className="container px-4 py-4 sm:py-6 md:py-10 max-w-7xl mx-auto animate-fade-in">
         <div className="grid gap-6 grid-cols-1 md:grid-cols-[250px_1fr] lg:grid-cols-[280px_1fr]">
-          {/* Sidebar Navigation */}
-          <aside className="flex flex-col gap-4">
-            <Card className="glass-card animate-slide-up sticky top-[calc(theme(spacing.16)+1rem)]">
-              <CardContent className="p-4 sm:p-5 space-y-4 sm:space-y-5">
-                <div className="flex items-center gap-2 mb-2 sm:mb-4">
-                  <GitBranchPlus className="h-4 w-4 sm:h-5 sm:w-5 text-primary" />
-                  <h2 className="font-heading font-semibold text-sm sm:text-base">Project Configuration</h2>
-                </div>
-
-                {/* --- Source Selection Tabs --- */}
-                <Tabs value={activeSourceTab} onValueChange={(value) => handleTabChangeAttempt(value as 'local' | 'github')} className="w-full">
-                  <TabsList className="grid w-full grid-cols-2 mb-4">
-                    <TabsTrigger value="local" className="text-xs px-2 py-1.5">
-                      <Computer className="h-4 w-4 mr-1.5" /> Local
-                    </TabsTrigger>
-                    <TabsTrigger value="github" className="text-xs px-2 py-1.5">
-                      <Github className="h-4 w-4 mr-1.5" /> GitHub
-                    </TabsTrigger>
-                  </TabsList>
-
-                  {/* LOCAL TAB */}
-                  <TabsContent value="local" className="mt-0 space-y-4">
-                     <ProjectSelector
-                       setState={setState}
-                       onProjectTypeSelected={setProjectTypeSelected}
-                       projectTypes={projectTypes}
-                       onProjectTemplatesUpdate={handleProjectTemplateUpdate}
-                     />
-                     <FileUploadSection
-                       state={state}
-                       setState={setState}
-                       setLoadingStatus={setLoadingStatus}
-                       loadingStatus={loadingStatus}
-                       updateCurrentProject={updateCurrentProject}
-                       onUploadComplete={handleUploadComplete}
-                       setError={setError}
-                       projectTypeSelected={projectTypeSelected}
-                       buttonTooltip="Reads current files from your disk, including uncommitted changes."
-                     />
-
-                     {/* Local Filter Manager Button */}
-                     <Button
-                       variant="outline"
-                       size="sm"
-                       className="w-full text-xs"
-                       onClick={() => setIsLocalFilterManagerOpen(true)}
-                     >
-                       <SlidersHorizontal className="h-3.5 w-3.5 mr-1.5" />
-                       Customize Filters
-                     </Button>
-
-                     {/* Enhanced Privacy Alert */}
-                     <Alert variant="default" className="mt-2 bg-primary/5 border-primary/20">
-                       <ShieldCheck className="h-4 w-4 text-primary/80" />
-                       <AlertDescription className="text-primary/90 text-xs">
-                         <strong>Privacy Assured:</strong> Your local files are processed <i>only</i> in your browser and are <strong>never</strong> uploaded to any server.
-                       </AlertDescription>
-                     </Alert>
-                     
-                     {/* Recent Projects Section - moved here */}
-                     <RecentProjectsDisplay 
-                       projects={projects} 
-                       onLoadProject={handleLoadRecentProject}
-                       onPinProject={handlePinProject}
-                       onRemoveProject={handleRemoveProject}
-                       onRenameProject={handleRenameProject}
-                     />
-                  </TabsContent>
-
-                  {/* GITHUB TAB */}
-                  <TabsContent value="github" className="mt-0 space-y-3">
-                    {/* GitHub Connection Logic */}
-                    {loadingStatus.isLoading && loadingStatus.message?.includes('GitHub connection') ? (
-                       <div className="flex items-center justify-center gap-2 text-muted-foreground text-xs sm:text-sm py-4">
-                         <Loader2 className="h-4 w-4 animate-spin" />
-                         Checking GitHub connection...
-                       </div>
-                    ) : githubUser ? (
-                       <div className="space-y-4 text-xs sm:text-sm">
-                         <div className="flex items-center justify-between gap-2">
-                           <div className="flex items-center gap-2 overflow-hidden">
-                             {githubUser.avatarUrl && (
-                               <Image
-                                  src={githubUser.avatarUrl}
-                                  alt={`${githubUser.login} avatar`}
-                                  width={24}
-                                  height={24}
-                                  className="rounded-full"
-                               />
-                             )}
-                             <span className="font-medium truncate" title={githubUser.login}>{githubUser.login}</span>
-                             <CheckCircle className="h-4 w-4 text-green-500 shrink-0" />
-                           </div>
-                           <Button variant="ghost" size="icon" className="h-7 w-7" onClick={handleGitHubLogout} title="Disconnect GitHub">
-                             <XCircle className="h-4 w-4 text-muted-foreground" />
-                           </Button>
-                         </div>
-
-                         {/* Repo Selector */}
-                         <div className="space-y-1.5">
-                           <label htmlFor="github-repo-select" className="flex items-center gap-1 text-xs font-medium text-muted-foreground">
-                             <BookMarked className="h-3 w-3" /> Repository
-                           </label>
-                           <Select
-                             value={selectedRepoFullName || ''}
-                             onValueChange={handleRepoChange}
-                             disabled={loadingStatus.isLoading || repos.length === 0}
-                           >
-                             <SelectTrigger id="github-repo-select" className="text-xs sm:text-sm">
-                               <SelectValue placeholder={loadingStatus.isLoading && loadingStatus.message?.includes('repositories') ? "Loading..." : "Select repository..."} />
-                             </SelectTrigger>
-                             <SelectContent>
-                                {loadingStatus.isLoading && loadingStatus.message?.includes('repositories') && (
-                                   <div className="flex items-center justify-center p-4 text-muted-foreground text-xs">
-                                      <Loader2 className="h-4 w-4 mr-2 animate-spin" /> Loading...
-                                   </div>
-                                )}
-                                {repos.map((repo: GitHubRepo) => (
-                                 <SelectItem key={repo.id} value={repo.full_name} className="text-xs sm:text-sm">
-                                     {repo.full_name}
-                                 </SelectItem>
-                                ))}
-                             </SelectContent>
-                           </Select>
-                         </div>
-
-                         {/* Branch Selector */}
-                         {selectedRepoFullName && (
-                            <div className="space-y-1.5">
-                             <div className="flex items-center justify-between">
-                               <label htmlFor="github-branch-select" className="flex items-center gap-1 text-xs font-medium text-muted-foreground">
-                                 <GitBranch className="h-3 w-3" /> Branch
-                               </label>
-                               <TooltipProvider delayDuration={300}>
-                                 <Tooltip>
-                                   <TooltipTrigger asChild>
-                                     <Button
-                                       variant="ghost"
-                                       size="icon"
-                                       className="h-7 w-7"
-                                       onClick={() => handleBranchChange(selectedBranchName!)}
-                                       disabled={!selectedBranchName || loadingStatus.isLoading}
-                                       aria-label="Refresh branch file list"
-                                     >
-                                       <RefreshCw className="h-4 w-4" />
-                                     </Button>
-                                   </TooltipTrigger>
-                                   <TooltipContent side="top">
-                                     <p>Refresh file tree for current branch</p>
-                                   </TooltipContent>
-                                 </Tooltip>
-                               </TooltipProvider>
-                             </div>
-
-                             {loadingStatus.isLoading && loadingStatus.message?.includes('branches') ? (
-                               <div className="text-center text-muted-foreground text-xs py-2">Loading branches...</div>
-                             ) : branches.length > 0 ? (
-                                <ScrollArea className="h-40 w-full rounded-md border p-2">
-                                 {branches.map((branch: GitHubBranch) => (
-                                   <Button
-                                     key={branch.name}
-                                     size="sm"
-                                     variant={selectedBranchName === branch.name ? "default" : "ghost"}
-                                     className="w-full justify-start text-xs mb-1 h-8"
-                                     onClick={() => handleBranchChange(branch.name)}
-                                     disabled={loadingStatus.isLoading && (loadingStatus.message?.includes('tree') || loadingStatus.message?.includes('contents'))}
-                                   >
-                                     <GitBranch className="h-3 w-3 mr-1" />
-                                     {branch.name}
-                                   </Button>
-                                 ))}
-                               </ScrollArea>
-                             ) : (
-                               <div className="text-center text-muted-foreground text-xs py-2">No branches found</div>
-                             )}
-                           </div>
-                         )}
-
-                         {/* Error Display for Selection - Used Alert */}
-                         {githubSelectionError && (
-                           <Alert variant="destructive" className="text-xs mt-2"><AlertDescription>{githubSelectionError}</AlertDescription></Alert>
-                         )}
-
-                         {/* Display specific file loading progress message */} 
-                         {fileLoadingMessage && (
-                           <div className="text-center text-amber-500 text-xs mt-2 font-medium">
-                             {fileLoadingMessage}
-                           </div>
-                         )}
-
-                         {isGithubTreeTruncated && (
-                            <Alert variant="default" className="text-xs mt-2">
-                               <AlertDescription>Warning: Repository tree is large and was truncated. Some files/folders might be missing.</AlertDescription>
-                            </Alert>
-                         )}
-
-                         {/* GitHub Filter Manager Button */}
-                         <Button
-                           variant="outline"
-                           size="sm"
-                           className="w-full text-xs mt-2"
-                           onClick={() => setIsGitHubFilterManagerOpen(true)}
-                         >
-                           <Filter className="h-3.5 w-3.5 mr-1.5" />
-                           Filter Files ({githubExclusions.split(',').filter(Boolean).length} active)
-                         </Button>
-                      </div>
-                    ) : (
-                      <div className="pt-2">
-                        <TooltipProvider>
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <Button
-                                size="default"
-                                variant="outline"
-                                className="w-full flex items-center justify-center gap-2"
-                                onClick={handleGitHubLogin}
-                              >
-                                <Github className="h-4 w-4" />
-                                <span>Connect to GitHub</span>
-                              </Button>
-                            </TooltipTrigger>
-                            <TooltipContent side="top">
-                              <p>Reads committed files from your GitHub repository.</p>
-                            </TooltipContent>
-                          </Tooltip>
-                        </TooltipProvider>
-                        {githubError && (
-                          <Alert variant="destructive" className="text-xs mt-2"><AlertDescription>{githubError}</AlertDescription></Alert>
-                        )}
-                      </div>
-                    )}
-                    <p className="text-xs text-muted-foreground pt-1">
-                       <b>GitHub:</b> Reads the <i>committed files</i> directly from the selected repository and branch.
-                    </p>
-                  </TabsContent>
-                </Tabs>
-                {/* --- End of Source Selection Tabs --- */}
-
-                <Button
-                  variant="outline"
-                  onClick={handleResetWorkspace}
-                  className="w-full transition-all hover:bg-destructive hover:text-destructive-foreground border-destructive/50 text-destructive/90"
-                  disabled={!state.analysisResult}
-                >
-                  <RotateCcw className="mr-2 h-4 w-4" />
-                  Clear Current Session
-                </Button>
-
-
-              </CardContent>
-            </Card>
-          </aside>
+          <SourceSidebar
+            activeSourceTab={activeSourceTab}
+            onSourceTabChange={handleTabChangeAttempt}
+            setState={setState}
+            onProjectTypeSelected={setProjectTypeSelected}
+            projectTypes={projectTypes}
+            onProjectTemplatesUpdate={handleProjectTemplateUpdate}
+            state={state}
+            setLoadingStatus={setLoadingStatus}
+            loadingStatus={loadingStatus}
+            updateCurrentProject={updateCurrentProject}
+            onUploadComplete={handleUploadComplete}
+            setError={setError}
+            projectTypeSelected={projectTypeSelected}
+            onOpenLocalFilters={() => setIsLocalFilterManagerOpen(true)}
+            projects={projects}
+            onLoadProject={handleLoadRecentProject}
+            onPinProject={handlePinProject}
+            onRemoveProject={handleRemoveProject}
+            onRenameProject={handleRenameProject}
+            githubUser={githubUser}
+            githubError={githubError}
+            repos={repos}
+            selectedRepoFullName={selectedRepoFullName}
+            branches={branches}
+            selectedBranchName={selectedBranchName}
+            githubSelectionError={githubSelectionError}
+            fileLoadingMessage={fileLoadingMessage}
+            isGithubTreeTruncated={isGithubTreeTruncated}
+            githubExclusions={githubExclusions}
+            onGitHubLogin={handleGitHubLogin}
+            onGitHubLogout={handleGitHubLogout}
+            onRepoChange={handleRepoChange}
+            onBranchChange={handleBranchChange}
+            onOpenGitHubFilters={() => setIsGitHubFilterManagerOpen(true)}
+            onResetWorkspace={handleResetWorkspace}
+            hasAnalysisResult={Boolean(state.analysisResult)}
+          />
           
           {/* Main Content */}
           <div className="space-y-6 animate-slide-up animation-delay-200">
@@ -1609,77 +1211,43 @@ export default function ClientPageRoot() {
 
             {/* Conditionally render AnalysisResult based on having valid data */}
             {state.analysisResult ? (
-              <>
-                <AnalysisResult
-                  analysisResult={state.analysisResult}
-                  selectedFiles={state.selectedFiles}
-                  onSelectedFilesChange={handleSelectedFilesChange}
-                  tokenCount={tokenCount}
-                  setTokenCount={handleTokenCountChange}
-                  tokenDetails={tokenDetails}
-                  maxTokens={MAX_TOKENS}
-                  activeSourceTab={activeSourceTab}
-                  githubTree={githubTree}
-                  githubRepoInfo={githubRepoInfo}
-                  setLoadingStatus={setLoadingStatus}
-                  loadingStatus={loadingStatus}
-                  currentProjectId={currentProjectId}
-                />
-              </>
+              <AnalysisResult
+                analysisResult={state.analysisResult}
+                selectedFiles={state.selectedFiles}
+                onSelectedFilesChange={handleSelectedFilesChange}
+                tokenCount={tokenCount}
+                setTokenCount={handleTokenCountChange}
+                tokenDetails={tokenDetails}
+                maxTokens={MAX_TOKENS}
+                activeSourceTab={activeSourceTab}
+                githubTree={githubTree}
+                githubRepoInfo={githubRepoInfo}
+                setLoadingStatus={setLoadingStatus}
+                loadingStatus={loadingStatus}
+                currentProjectId={currentProjectId}
+                githubExclusions={githubExclusions}
+              />
             ) : (
-              <Card className="glass-card flex flex-col items-center justify-center p-8 sm:p-12 text-center min-h-[400px]">
-                <LayoutGrid className="h-10 w-10 sm:h-12 sm:w-12 text-muted-foreground mb-4" />
-                <h2 className="text-xl sm:text-2xl font-heading font-semibold mb-2">Start Analyzing</h2>
-                <p className="text-sm sm:text-base text-muted-foreground mb-6 max-w-md mx-auto">
-                  {activeSourceTab === 'local'
-                    ? 'Select a project configuration or upload local files to begin below.'
-                    : 'Connect your GitHub account, then choose a repository and branch.'
-                  }
-                </p>
-                <p className="text-xs text-muted-foreground max-w-xs mx-auto">
-                  {activeSourceTab === 'local'
-                    ? 'Your files are processed directly in your browser for privacy.'
-                    : 'Only committed files from the selected branch will be read.'
-                  }
-                  {isGithubTreeTruncated && " (Large repos might be truncated)"}
-                </p>
-              </Card>
+              <EmptyAnalysisState
+                activeSourceTab={activeSourceTab}
+                isGithubTreeTruncated={isGithubTreeTruncated}
+              />
             )}
           </div>
         </div>
       </div>
 
-      {/* Add the AlertDialog component */}
-      <AlertDialog open={showSwitchConfirmDialog} onOpenChange={setShowSwitchConfirmDialog}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Confirm Source Switch</AlertDialogTitle>
-            <AlertDialogDescription>
-              Switching sources will change your current view. Continue?
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel onClick={cancelTabSwitch}>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={confirmTabSwitch}>Continue</AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
-      {/* Confirmation Dialog for Loading Recent Project */}
-      <AlertDialog open={showLoadRecentConfirmDialog} onOpenChange={setShowLoadRecentConfirmDialog}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Load Project?</AlertDialogTitle>
-            <AlertDialogDescription>
-              {loadConfirmationMessage || 'Loading this project will replace your current session. Continue?'}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel onClick={cancelLoadRecent}>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={confirmLoadRecent}>Load Project</AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <PageDialogs
+        showSwitchConfirmDialog={showSwitchConfirmDialog}
+        setShowSwitchConfirmDialog={setShowSwitchConfirmDialog}
+        confirmTabSwitch={confirmTabSwitch}
+        cancelTabSwitch={cancelTabSwitch}
+        showLoadRecentConfirmDialog={showLoadRecentConfirmDialog}
+        setShowLoadRecentConfirmDialog={setShowLoadRecentConfirmDialog}
+        loadConfirmationMessage={loadConfirmationMessage}
+        confirmLoadRecent={confirmLoadRecent}
+        cancelLoadRecent={cancelLoadRecent}
+      />
 
       {/* Filter Manager Components */}
       <LocalFilterManager
