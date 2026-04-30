@@ -332,56 +332,54 @@ export function SourceSidebar({
                     </div>
                   )}
 
-                  {selectedRepoFullName && (
-                    <div className="space-y-2">
-                      <label htmlFor="github-pr-input" className="flex items-center gap-1 text-xs font-medium text-muted-foreground">
-                        <GitPullRequest className="h-3 w-3" /> Pull Request
-                      </label>
-                      <div className="flex gap-2">
-                        <Input
-                          id="github-pr-input"
-                          value={pullRequestInput}
-                          onChange={(event) => onPullRequestInputChange(event.target.value)}
-                          onKeyDown={(event) => {
-                            if (event.key === 'Enter') {
-                              event.preventDefault();
-                              onPullRequestInputSubmit();
-                            }
-                          }}
-                          placeholder="PR # or GitHub PR URL"
-                          className="h-8 text-xs"
-                        />
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          className="h-8"
-                          onClick={onPullRequestInputSubmit}
-                          disabled={loadingStatus.isLoading || !pullRequestInput.trim()}
-                        >
-                          Load
-                        </Button>
-                      </div>
-                      {pullRequests.length > 0 && (
-                        <Select
-                          value={selectedPullNumber ? String(selectedPullNumber) : ''}
-                          onValueChange={(value) => onPullRequestSelect(Number(value))}
-                          disabled={loadingStatus.isLoading}
-                        >
-                          <SelectTrigger className="text-xs sm:text-sm">
-                            <SelectValue placeholder="Select open pull request..." />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {pullRequests.map((pull) => (
-                              <SelectItem key={pull.number} value={String(pull.number)} className="text-xs sm:text-sm">
-                                #{pull.number} {pull.title}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      )}
+                  <div className="space-y-2">
+                    <label htmlFor="github-pr-input" className="flex items-center gap-1 text-xs font-medium text-muted-foreground">
+                      <GitPullRequest className="h-3 w-3" /> Pull Request
+                    </label>
+                    <div className="flex gap-2">
+                      <Input
+                        id="github-pr-input"
+                        value={pullRequestInput}
+                        onChange={(event) => onPullRequestInputChange(event.target.value)}
+                        onKeyDown={(event) => {
+                          if (event.key === 'Enter') {
+                            event.preventDefault();
+                            onPullRequestInputSubmit();
+                          }
+                        }}
+                        placeholder={selectedRepoFullName ? 'PR # or GitHub PR URL' : 'GitHub PR URL'}
+                        className="h-8 text-xs"
+                      />
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="h-8"
+                        onClick={onPullRequestInputSubmit}
+                        disabled={loadingStatus.isLoading || !pullRequestInput.trim()}
+                      >
+                        Load
+                      </Button>
                     </div>
-                  )}
+                    {selectedRepoFullName && pullRequests.length > 0 && (
+                      <Select
+                        value={selectedPullNumber ? String(selectedPullNumber) : ''}
+                        onValueChange={(value) => onPullRequestSelect(Number(value))}
+                        disabled={loadingStatus.isLoading}
+                      >
+                        <SelectTrigger className="text-xs sm:text-sm">
+                          <SelectValue placeholder="Select open pull request..." />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {pullRequests.map((pull) => (
+                            <SelectItem key={pull.number} value={String(pull.number)} className="text-xs sm:text-sm">
+                              #{pull.number} {pull.title}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )}
+                  </div>
 
                   {githubSelectionError && (
                     <Alert variant="destructive" className="text-xs mt-2"><AlertDescription>{githubSelectionError}</AlertDescription></Alert>

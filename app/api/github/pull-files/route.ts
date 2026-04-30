@@ -19,7 +19,9 @@ async function fetchGitHub(url: string, token: string) {
     }
     const errorText = await response.text();
     console.error(`GitHub API error fetching ${url}:`, response.status, errorText);
-    throw new Error(`GitHub API error: ${response.statusText}`);
+    throw Object.assign(new Error(`GitHub API error: ${response.statusText}`), {
+      status: response.status,
+    });
   }
 
   return response.json();
@@ -45,7 +47,9 @@ async function fetchGitHubPaginated(url: string, token: string): Promise<any[]> 
       }
       const errorText = await response.text();
       console.error(`GitHub API error fetching ${url} page ${page}:`, response.status, errorText);
-      throw new Error(`GitHub API error: ${response.statusText}`);
+      throw Object.assign(new Error(`GitHub API error: ${response.statusText}`), {
+        status: response.status,
+      });
     }
 
     const data = await response.json();
@@ -120,8 +124,11 @@ export async function GET(request: NextRequest) {
     });
   } catch (error: any) {
     console.error('Error fetching GitHub pull request files:', error);
-    const status = error.message === 'Invalid GitHub token' ? 401 : 500;
-    const res = NextResponse.json({ error: error.message || 'Failed to fetch pull request files' }, { status });
+    const status = error.message === 'Invalid GitHub token' ? 401 : (error.status || 500);
+    const message = (status === 403 || status === 404)
+      ? `The connected GitHub OAuth token cannot access ${owner}/${repo}. If this is an organization repository, the organization may need to approve this OAuth app or you may need to reconnect GitHub with org access.`
+      : error.message || 'Failed to fetch pull request files';
+    const res = NextResponse.json({ error: message }, { status });
     if (status === 401) {
       res.cookies.delete(GITHUB_TOKEN_COOKIE_NAME);
     }
