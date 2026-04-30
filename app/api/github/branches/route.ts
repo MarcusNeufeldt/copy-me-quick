@@ -1,7 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { cookies } from 'next/headers';
-
-const GITHUB_TOKEN_COOKIE_NAME = 'github_token';
+import { clearGitHubCookie, resolveGitHubToken } from '@/lib/githubAuth';
 const GITHUB_API_BASE = 'https://api.github.com';
 
 // Simple fetch function for branches (pagination less likely needed for branches)
@@ -27,8 +25,7 @@ async function fetchGitHubBranches(url: string, token: string): Promise<any[]> {
 
 
 export async function GET(request: NextRequest) {
-    const cookieStore = await cookies();
-    const token = cookieStore.get(GITHUB_TOKEN_COOKIE_NAME)?.value;
+    const { token, source } = await resolveGitHubToken();
     const { searchParams } = new URL(request.url);
     const owner = searchParams.get('owner');
     const repo = searchParams.get('repo');
@@ -60,9 +57,11 @@ export async function GET(request: NextRequest) {
         let status = 500;
         if (error.message === 'Invalid GitHub token') {
             status = 401;
-            const storeToDelete = await cookies();
-            storeToDelete.delete(GITHUB_TOKEN_COOKIE_NAME);
         }
-        return NextResponse.json({ error: error.message || 'Failed to fetch branches' }, { status });
+        const res = NextResponse.json({ error: error.message || 'Failed to fetch branches' }, { status });
+        if (status === 401) {
+            clearGitHubCookie(res, source);
+        }
+        return res;
     }
-} 
+}

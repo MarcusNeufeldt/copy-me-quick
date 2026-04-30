@@ -1,8 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { cookies } from 'next/headers';
 import { getUserFilters, saveUserFilters, initializeDatabase } from '@/lib/turso';
-
-const GITHUB_TOKEN_COOKIE_NAME = 'github_token';
+import { resolveGitHubToken } from '@/lib/githubAuth';
 
 // Helper to get authenticated GitHub user info
 async function getGitHubUser(token: string): Promise<{ id: string; login: string } | null> {
@@ -32,8 +30,7 @@ async function getGitHubUser(token: string): Promise<{ id: string; login: string
  * GET /api/user/filters - Get user's saved filter preferences
  */
 export async function GET(request: NextRequest) {
-  const cookieStore = await cookies();
-  const token = cookieStore.get(GITHUB_TOKEN_COOKIE_NAME)?.value;
+  const { token } = await resolveGitHubToken();
 
   if (!token) {
     return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
@@ -69,8 +66,7 @@ export async function GET(request: NextRequest) {
  * POST /api/user/filters - Save user's filter preferences
  */
 export async function POST(request: NextRequest) {
-  const cookieStore = await cookies();
-  const token = cookieStore.get(GITHUB_TOKEN_COOKIE_NAME)?.value;
+  const { token } = await resolveGitHubToken();
 
   if (!token) {
     return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });

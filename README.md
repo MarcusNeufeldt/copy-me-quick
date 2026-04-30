@@ -111,6 +111,24 @@ Copy Me Quick solves this by:
 
 ### Development
 
+#### Local GitHub CLI token workaround
+
+If your GitHub OAuth app is waiting for organization approval, local development can use your GitHub CLI token instead:
+
+```bash
+gh auth login
+GITHUB_USE_CLI_TOKEN=1 npm run dev
+```
+
+On Windows PowerShell:
+
+```powershell
+$env:GITHUB_USE_CLI_TOKEN="1"
+npm run dev
+```
+
+This is local-only. The server routes ignore `GITHUB_USE_CLI_TOKEN` in production and on Vercel.
+
 1. **Start the development server:**
 
     ```bash
@@ -188,5 +206,4 @@ My goal is to: [Describe your task, e.g., "Refactor this component to use hooks,
 ## 📄 License
 
 This project is licensed under the [MIT License](LICENSE).
-
 

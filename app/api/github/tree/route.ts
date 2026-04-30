@@ -1,7 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { cookies } from 'next/headers';
-
-const GITHUB_TOKEN_COOKIE_NAME = 'github_token';
+import { clearGitHubCookie, resolveGitHubToken } from '@/lib/githubAuth';
 const GITHUB_API_BASE = 'https://api.github.com';
 
 // Helper to fetch a single resource, handling errors and token
@@ -27,8 +25,7 @@ async function fetchGitHub(url: string, token: string, cacheMode: RequestCache =
 }
 
 export async function GET(request: NextRequest) {
-    const cookieStore = await cookies();
-    const token = cookieStore.get(GITHUB_TOKEN_COOKIE_NAME)?.value;
+    const { token, source } = await resolveGitHubToken();
     const { searchParams } = new URL(request.url);
     const owner = searchParams.get('owner');
     const repo = searchParams.get('repo');
@@ -36,7 +33,7 @@ export async function GET(request: NextRequest) {
 
     if (!token) {
         const res = NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
-        res.cookies.delete(GITHUB_TOKEN_COOKIE_NAME);
+        clearGitHubCookie(res, source);
         return res;
     }
 
@@ -113,8 +110,8 @@ export async function GET(request: NextRequest) {
         }
         const res = NextResponse.json({ error: errorMessage }, { status });
         if (status === 401) {
-            res.cookies.delete(GITHUB_TOKEN_COOKIE_NAME);
+            clearGitHubCookie(res, source);
         }
         return res;
     }
-} 
+}

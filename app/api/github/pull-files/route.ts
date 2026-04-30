@@ -1,7 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { cookies } from 'next/headers';
-
-const GITHUB_TOKEN_COOKIE_NAME = 'github_token';
+import { clearGitHubCookie, resolveGitHubToken } from '@/lib/githubAuth';
 const GITHUB_API_BASE = 'https://api.github.com';
 
 async function fetchGitHub(url: string, token: string) {
@@ -69,8 +67,7 @@ async function fetchGitHubPaginated(url: string, token: string): Promise<any[]> 
 }
 
 export async function GET(request: NextRequest) {
-  const cookieStore = await cookies();
-  const token = cookieStore.get(GITHUB_TOKEN_COOKIE_NAME)?.value;
+  const { token, source } = await resolveGitHubToken();
   const { searchParams } = new URL(request.url);
   const owner = searchParams.get('owner');
   const repo = searchParams.get('repo');
@@ -78,7 +75,7 @@ export async function GET(request: NextRequest) {
 
   if (!token) {
     const res = NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
-    res.cookies.delete(GITHUB_TOKEN_COOKIE_NAME);
+    clearGitHubCookie(res, source);
     return res;
   }
 
@@ -125,12 +122,15 @@ export async function GET(request: NextRequest) {
   } catch (error: any) {
     console.error('Error fetching GitHub pull request files:', error);
     const status = error.message === 'Invalid GitHub token' ? 401 : (error.status || 500);
+    const tokenLabel = source === 'cli' || source === 'env'
+      ? 'local GitHub token'
+      : 'connected GitHub OAuth token';
     const message = (status === 403 || status === 404)
-      ? `The connected GitHub OAuth token cannot access ${owner}/${repo}. If this is an organization repository, the organization may need to approve this OAuth app or you may need to reconnect GitHub with org access.`
+      ? `The ${tokenLabel} cannot access ${owner}/${repo}. If this is an organization repository, the organization may need to approve this OAuth app or you may need to reconnect GitHub with org access.`
       : error.message || 'Failed to fetch pull request files';
     const res = NextResponse.json({ error: message }, { status });
     if (status === 401) {
-      res.cookies.delete(GITHUB_TOKEN_COOKIE_NAME);
+      clearGitHubCookie(res, source);
     }
     return res;
   }

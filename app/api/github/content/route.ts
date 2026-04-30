@@ -1,7 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { cookies } from 'next/headers';
-
-const GITHUB_TOKEN_COOKIE_NAME = 'github_token';
+import { clearGitHubCookie, resolveGitHubToken } from '@/lib/githubAuth';
 const GITHUB_API_BASE = 'https://api.github.com';
 
 // Helper to fetch a single resource, handling errors and token
@@ -27,8 +25,7 @@ async function fetchGitHub(url: string, token: string, cacheMode: RequestCache =
 }
 
 export async function GET(request: NextRequest) {
-    const cookieStore = await cookies(); // Await cookie store
-    const token = cookieStore.get(GITHUB_TOKEN_COOKIE_NAME)?.value; // Use resolved store
+    const { token, source } = await resolveGitHubToken();
     const { searchParams } = new URL(request.url);
     const owner = searchParams.get('owner');
     const repo = searchParams.get('repo');
@@ -108,8 +105,9 @@ export async function GET(request: NextRequest) {
 
         // Check for the specific error and delete cookie here
         if (status === 401 && error.message === 'Invalid GitHub token') {
-             const storeToDelete = await cookies(); // Get store again for deletion
-             storeToDelete.delete(GITHUB_TOKEN_COOKIE_NAME);
+             const res = NextResponse.json({ error: 'Invalid GitHub token' }, { status });
+             clearGitHubCookie(res, source);
+             return res;
         }
 
         let errorMessage = error.message || 'Failed to fetch file content';
@@ -119,4 +117,4 @@ export async function GET(request: NextRequest) {
         
         return NextResponse.json({ error: errorMessage }, { status });
     }
-} 
+}

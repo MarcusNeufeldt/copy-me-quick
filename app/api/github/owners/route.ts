@@ -1,7 +1,5 @@
 import { NextResponse } from 'next/server';
-import { cookies } from 'next/headers';
-
-const GITHUB_TOKEN_COOKIE_NAME = 'github_token';
+import { clearGitHubCookie, resolveGitHubToken } from '@/lib/githubAuth';
 const GITHUB_API_BASE = 'https://api.github.com';
 
 async function fetchGitHub(url: string, token: string) {
@@ -65,12 +63,11 @@ async function fetchGitHubPaginated(url: string, token: string): Promise<any[]> 
 }
 
 export async function GET() {
-  const cookieStore = await cookies();
-  const token = cookieStore.get(GITHUB_TOKEN_COOKIE_NAME)?.value;
+  const { token, source } = await resolveGitHubToken();
 
   if (!token) {
     const res = NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
-    res.cookies.delete(GITHUB_TOKEN_COOKIE_NAME);
+    clearGitHubCookie(res, source);
     return res;
   }
 
@@ -99,7 +96,7 @@ export async function GET() {
     const status = error.message === 'Invalid GitHub token' ? 401 : 500;
     const res = NextResponse.json({ error: error.message || 'Failed to fetch GitHub owners' }, { status });
     if (status === 401) {
-      res.cookies.delete(GITHUB_TOKEN_COOKIE_NAME);
+      clearGitHubCookie(res, source);
     }
     return res;
   }
