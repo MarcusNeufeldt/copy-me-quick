@@ -50,7 +50,7 @@ import {
   minifyCode,
   isBinaryFile
 } from './fileSelectorUtils';
-import { useTokenCalculator } from '../hooks/useTokenCalculator'; // Adjust path if needed
+import { type GetEncodingFunc, useTokenCalculator } from '../hooks/useTokenCalculator'; // Adjust path if needed
 import { CopyMode, useClipboardCopy } from '../hooks/useClipboardCopy'; // Adjust path if needed
 
 
@@ -143,7 +143,7 @@ const FileSelector = ({
   const [isPresetsOpen, setIsPresetsOpen] = useState(false);
 
   // State to hold the get_encoding function once loaded
-  const [getEncodingFunc, setGetEncodingFunc] = useState<(() => any) | null>(null);
+  const [getEncodingFunc, setGetEncodingFunc] = useState<GetEncodingFunc | null>(null);
 
   // Ref to track the previous data source identity
   const prevDataSourceRef = useRef<DataSource>();
@@ -155,16 +155,28 @@ const FileSelector = ({
     if (dataSource.type === 'local' && dataSource.files) {
       return dataSource.files.map(f => ({ ...f, dataSourceType: 'local' }));
     } else if (dataSource.type === 'github' && dataSource.tree) {
+      const analysisFilesByPath = new Map((allFiles || []).map(file => [file.path, file]));
+
       return dataSource.tree
         .filter(item => item.type === 'blob')
         .map(item => {
-          const extendedItem = item as GitHubTreeItem & { lines?: number, content?: string };
+          const extendedItem = item as GitHubTreeItem;
+          const analysisFile = analysisFilesByPath.get(item.path);
+
           return {
             path: item.path,
-            lines: extendedItem.lines || 0,
-            content: extendedItem.content || '',
-            size: item.size,
-            sha: item.sha,
+            lines: analysisFile?.lines ?? extendedItem.lines ?? 0,
+            content: analysisFile?.content ?? extendedItem.content ?? '',
+            size: analysisFile?.size ?? item.size,
+            sha: analysisFile?.sha ?? item.sha,
+            ref: analysisFile?.ref ?? extendedItem.ref,
+            baseRef: analysisFile?.baseRef ?? extendedItem.baseRef,
+            patch: analysisFile?.patch ?? extendedItem.patch,
+            status: analysisFile?.status ?? extendedItem.status,
+            additions: analysisFile?.additions ?? extendedItem.additions,
+            deletions: analysisFile?.deletions ?? extendedItem.deletions,
+            previousPath: analysisFile?.previousPath ?? extendedItem.previousPath,
+            pullNumber: analysisFile?.pullNumber ?? extendedItem.pullNumber,
             dataSourceType: 'github'
           };
         });
@@ -231,8 +243,9 @@ const FileSelector = ({
         console.log("Attempting dynamic import of tiktoken...");
         const tiktoken = await import('tiktoken');
         if (typeof tiktoken.get_encoding === 'function') {
-          // Store the function itself in state
-          setGetEncodingFunc(() => tiktoken.get_encoding);
+          const getEncoding = ((encoding: string) =>
+            tiktoken.get_encoding(encoding as Parameters<typeof tiktoken.get_encoding>[0])) as GetEncodingFunc;
+          setGetEncodingFunc(() => getEncoding);
           console.log("✅ Tiktoken dynamically imported and get_encoding function set in state.");
         } else {
           console.error("⚠️ Dynamic import succeeded, but get_encoding is not a function.");

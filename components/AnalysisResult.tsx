@@ -403,6 +403,9 @@ const AnalysisResult: React.FC<AnalysisResultProps> = React.memo(({
   const tokenPercentage = Math.min(100, (tokenCount / maxTokens) * 100);
   const isTokenWarning = tokenPercentage > 75;
   const isTokenExceeded = tokenPercentage >= 100;
+  const tokenDetailText = tokenDetails
+    ? `${tokenDetails.exactFileCount} exact / ${tokenDetails.estimatedFileCount} estimated files using ${tokenDetails.encodingName}`
+    : 'Approximate tokens for selected files.';
 
   const selectedFilesSummary = useMemo(() => selectedFilesData.map(file =>
     `// ${file.path} - ${file.lines} lines`
@@ -522,7 +525,7 @@ const AnalysisResult: React.FC<AnalysisResultProps> = React.memo(({
                   </div>
                 </TooltipTrigger>
                 <TooltipContent>
-                  Approximate tokens for selected files.
+                  <p>{tokenDetailText}</p>
                 </TooltipContent>
               </Tooltip>
             </TooltipProvider>
@@ -530,6 +533,8 @@ const AnalysisResult: React.FC<AnalysisResultProps> = React.memo(({
             <p className="text-xs text-muted-foreground mt-1">
               {tokenCount > maxTokens ? (
                 <span className="text-destructive font-medium">Exceeds limit ({maxTokens.toLocaleString()})</span>
+              ) : tokenDetails && tokenCount > 0 ? (
+                tokenDetailText
               ) : (
                 `Limit: ${maxTokens.toLocaleString()}`
               )}

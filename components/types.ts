@@ -131,6 +131,7 @@ export interface GitHubTreeItem {
   url: string;
   formattedSize?: string; // Added for display purposes
   lines?: number; // For when content is fetched
+  content?: string;
   ref?: string;
   baseRef?: string;
   patch?: string;
