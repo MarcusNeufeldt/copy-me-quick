@@ -51,7 +51,7 @@ import {
   isBinaryFile
 } from './fileSelectorUtils';
 import { useTokenCalculator } from '../hooks/useTokenCalculator'; // Adjust path if needed
-import { useClipboardCopy } from '../hooks/useClipboardCopy'; // Adjust path if needed
+import { CopyMode, useClipboardCopy } from '../hooks/useClipboardCopy'; // Adjust path if needed
 
 
 // Add LoadingStatus interface definition
@@ -194,6 +194,10 @@ const FileSelector = ({
     setLoadingStatus,
     loadingStatus
   });
+  const isPullRequestSource = dataSource.type === 'github' && dataSource.repoInfo?.sourceMode === 'pull';
+  const handleCopy = useCallback((mode: CopyMode = 'full') => {
+    copySelectedFiles(mode);
+  }, [copySelectedFiles]);
 
   // Calculate projectWideAverageLines based on getAllFilesFromDataSource
   const projectWideAverageLines = useMemo(() => {
@@ -633,29 +637,61 @@ const FileSelector = ({
             </Tooltip>
           </TooltipProvider>
 
-          <TooltipProvider delayDuration={300}>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                 <Button
+          {isPullRequestSource ? (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="default"
+                  size="sm"
+                  className="h-9 px-3"
+                  disabled={selectedFiles.length === 0 || (loadingStatus.isLoading && loadingStatus.message?.includes('Copying'))}
+                >
+                  {loadingStatus.isLoading && loadingStatus.message?.includes('Copying') ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <Copy className="mr-2 h-4 w-4" />
+                  )}
+                  <span>{loadingStatus.isLoading && loadingStatus.message?.includes('Copying') ? 'Copying...' : copySuccess ? 'Copied!' : 'Copy PR'}</span>
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onClick={() => handleCopy('diff')}>
+                  Diff only
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => handleCopy('diff-full')}>
+                  Diff + full file content
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={() => handleCopy('full')}>
+                  Full file content only
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          ) : (
+            <TooltipProvider delayDuration={300}>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
                     variant="default"
                     size="sm"
                     className="h-9 px-3" // Adjusted padding
-                    onClick={copySelectedFiles}
+                    onClick={() => handleCopy('full')}
                     disabled={selectedFiles.length === 0 || (loadingStatus.isLoading && loadingStatus.message?.includes('Copying'))}
-                >
+                  >
                     {loadingStatus.isLoading && loadingStatus.message?.includes('Copying') ? (
-                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                     ) : (
-                        <Copy className="mr-2 h-4 w-4" />
+                      <Copy className="mr-2 h-4 w-4" />
                     )}
                     <span>{loadingStatus.isLoading && loadingStatus.message?.includes('Copying') ? 'Copying...' : copySuccess ? 'Copied!' : 'Copy'}</span>
-                 </Button>
-              </TooltipTrigger>
-              <TooltipContent>
-                 <p>Copy selected files ({selectedFiles.length}) to clipboard</p>
-              </TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Copy selected files ({selectedFiles.length}) to clipboard</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          )}
         </div>
       </div>
 

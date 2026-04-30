@@ -4,6 +4,14 @@ export interface FileData {
   content: string;
   size?: number;
   sha?: string;
+  ref?: string;
+  baseRef?: string;
+  patch?: string;
+  status?: string;
+  additions?: number;
+  deletions?: number;
+  previousPath?: string;
+  pullNumber?: number;
   dataSourceType?: 'local' | 'github';
 }
 
@@ -32,6 +40,8 @@ export interface Project {
   sourceFolderName?: string;
   githubRepoFullName?: string;
   githubBranch?: string;
+  githubPullNumber?: number;
+  githubSourceMode?: 'branch' | 'pull';
   state: AppState;
   lastAccessed?: number; // Unix timestamp
   hasDirectoryHandle?: boolean;
@@ -69,6 +79,48 @@ export interface GitHubBranch {
   };
 }
 
+export interface GitHubOwner {
+  login: string;
+  type: 'User' | 'Organization';
+  avatarUrl?: string;
+}
+
+export interface GitHubPullRequest {
+  number: number;
+  title: string;
+  state: string;
+  html_url: string;
+  updated_at: string;
+  user?: {
+    login: string;
+  };
+  head: {
+    ref: string;
+    sha: string;
+    repo?: {
+      full_name: string;
+    } | null;
+  };
+  base: {
+    ref: string;
+    sha: string;
+    repo?: {
+      full_name: string;
+    } | null;
+  };
+}
+
+export interface GitHubPullFile {
+  filename: string;
+  status: string;
+  sha: string;
+  additions: number;
+  deletions: number;
+  changes: number;
+  patch?: string;
+  previous_filename?: string;
+}
+
 export interface GitHubTreeItem {
   path: string;
   mode: string;
@@ -78,12 +130,24 @@ export interface GitHubTreeItem {
   url: string;
   formattedSize?: string; // Added for display purposes
   lines?: number; // For when content is fetched
+  ref?: string;
+  baseRef?: string;
+  patch?: string;
+  status?: string;
+  additions?: number;
+  deletions?: number;
+  previousPath?: string;
+  pullNumber?: number;
 }
 
 export interface GitHubRepoInfo {
   owner: string;
   repo: string;
   branch: string;
+  ref?: string;
+  baseRef?: string;
+  pullNumber?: number;
+  sourceMode?: 'branch' | 'pull';
 }
 
 export type DataSourceType = 'local' | 'github';

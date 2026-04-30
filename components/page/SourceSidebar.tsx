@@ -5,6 +5,7 @@ import Image from 'next/image';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -16,6 +17,8 @@ import {
   AnalysisResultData,
   AppState,
   GitHubBranch,
+  GitHubOwner,
+  GitHubPullRequest,
   GitHubRepo,
   GitHubUser,
   Project,
@@ -28,6 +31,7 @@ import {
   Filter,
   GitBranch,
   GitBranchPlus,
+  GitPullRequest,
   Github,
   Loader2,
   RefreshCw,
@@ -64,10 +68,19 @@ interface SourceSidebarProps {
   onRenameProject: (projectId: string, newName: string) => void;
   githubUser: GitHubUser | null;
   githubError: string | null;
+  githubOwners: GitHubOwner[];
+  selectedOwnerLogin: string | null;
+  onOwnerChange: (ownerLogin: string) => void;
   repos: GitHubRepo[];
   selectedRepoFullName: string | null;
   branches: GitHubBranch[];
   selectedBranchName: string | null;
+  pullRequests: GitHubPullRequest[];
+  selectedPullNumber: number | null;
+  pullRequestInput: string;
+  onPullRequestInputChange: (value: string) => void;
+  onPullRequestInputSubmit: () => void;
+  onPullRequestSelect: (pullNumber: number) => void;
   githubSelectionError: string | null;
   fileLoadingMessage: string | null;
   isGithubTreeTruncated: boolean;
@@ -103,10 +116,19 @@ export function SourceSidebar({
   onRenameProject,
   githubUser,
   githubError,
+  githubOwners,
+  selectedOwnerLogin,
+  onOwnerChange,
   repos,
   selectedRepoFullName,
   branches,
   selectedBranchName,
+  pullRequests,
+  selectedPullNumber,
+  pullRequestInput,
+  onPullRequestInputChange,
+  onPullRequestInputSubmit,
+  onPullRequestSelect,
   githubSelectionError,
   fileLoadingMessage,
   isGithubTreeTruncated,
@@ -211,6 +233,28 @@ export function SourceSidebar({
                   </div>
 
                   <div className="space-y-1.5">
+                    <label htmlFor="github-owner-select" className="flex items-center gap-1 text-xs font-medium text-muted-foreground">
+                      <Github className="h-3 w-3" /> Account / Org
+                    </label>
+                    <Select
+                      value={selectedOwnerLogin || ''}
+                      onValueChange={onOwnerChange}
+                      disabled={loadingStatus.isLoading || githubOwners.length === 0}
+                    >
+                      <SelectTrigger id="github-owner-select" className="text-xs sm:text-sm">
+                        <SelectValue placeholder="Select account or org..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {githubOwners.map((owner) => (
+                          <SelectItem key={owner.login} value={owner.login} className="text-xs sm:text-sm">
+                            {owner.login} {owner.type === 'Organization' ? '(org)' : '(you)'}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="space-y-1.5">
                     <label htmlFor="github-repo-select" className="flex items-center gap-1 text-xs font-medium text-muted-foreground">
                       <BookMarked className="h-3 w-3" /> Repository
                     </label>
@@ -284,6 +328,57 @@ export function SourceSidebar({
                         </ScrollArea>
                       ) : (
                         <div className="text-center text-muted-foreground text-xs py-2">No branches found</div>
+                      )}
+                    </div>
+                  )}
+
+                  {selectedRepoFullName && (
+                    <div className="space-y-2">
+                      <label htmlFor="github-pr-input" className="flex items-center gap-1 text-xs font-medium text-muted-foreground">
+                        <GitPullRequest className="h-3 w-3" /> Pull Request
+                      </label>
+                      <div className="flex gap-2">
+                        <Input
+                          id="github-pr-input"
+                          value={pullRequestInput}
+                          onChange={(event) => onPullRequestInputChange(event.target.value)}
+                          onKeyDown={(event) => {
+                            if (event.key === 'Enter') {
+                              event.preventDefault();
+                              onPullRequestInputSubmit();
+                            }
+                          }}
+                          placeholder="PR # or GitHub PR URL"
+                          className="h-8 text-xs"
+                        />
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="h-8"
+                          onClick={onPullRequestInputSubmit}
+                          disabled={loadingStatus.isLoading || !pullRequestInput.trim()}
+                        >
+                          Load
+                        </Button>
+                      </div>
+                      {pullRequests.length > 0 && (
+                        <Select
+                          value={selectedPullNumber ? String(selectedPullNumber) : ''}
+                          onValueChange={(value) => onPullRequestSelect(Number(value))}
+                          disabled={loadingStatus.isLoading}
+                        >
+                          <SelectTrigger className="text-xs sm:text-sm">
+                            <SelectValue placeholder="Select open pull request..." />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {pullRequests.map((pull) => (
+                              <SelectItem key={pull.number} value={String(pull.number)} className="text-xs sm:text-sm">
+                                #{pull.number} {pull.title}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
                       )}
                     </div>
                   )}

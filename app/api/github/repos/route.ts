@@ -50,6 +50,8 @@ async function fetchGitHubPaginated(url: string, token: string): Promise<any[]> 
 export async function GET(request: NextRequest) {
   const cookieStore = await cookies();
   const token = cookieStore.get(GITHUB_TOKEN_COOKIE_NAME)?.value;
+  const { searchParams } = new URL(request.url);
+  const owner = searchParams.get('owner');
 
   if (!token) {
     const res = NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
@@ -59,9 +61,10 @@ export async function GET(request: NextRequest) {
 
   try {
     const repos = await fetchGitHubPaginated(`${GITHUB_API_BASE}/user/repos`, token);
+    const filteredRepos = owner ? repos.filter((repo) => repo.owner?.login === owner) : repos;
 
     // We only need specific fields for the dropdown
-    const repoData = repos.map(repo => ({
+    const repoData = filteredRepos.map(repo => ({
         id: repo.id,
         name: repo.name,
         full_name: repo.full_name, // e.g., "owner/repo"
@@ -83,4 +86,4 @@ export async function GET(request: NextRequest) {
     }
     return res;
   }
-} 
+}

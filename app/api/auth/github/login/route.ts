@@ -5,7 +5,7 @@ import crypto from 'crypto'; // Import crypto module
 
 // Example scopes: 'repo' for private repo access, 'read:user' for user profile info
 // Adjust scopes based on the required permissions for your app.
-const GITHUB_SCOPES = ['repo', 'read:user'].join(' ');
+const GITHUB_SCOPES = ['repo', 'read:user', 'read:org'].join(' ');
 
 const GITHUB_STATE_COOKIE_NAME = 'github_oauth_state';
 
@@ -37,4 +37,4 @@ export async function GET(request: NextRequest) {
   )}&scope=${encodeURIComponent(GITHUB_SCOPES)}&state=${state}`; // Use secure state
 
   redirect(githubAuthUrl);
-} 
+}

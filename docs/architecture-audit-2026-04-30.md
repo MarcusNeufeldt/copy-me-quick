@@ -4,7 +4,7 @@
 
 - Default branch is `main`; local `main` is synced with `origin/main`.
 - App is a Next.js 15 app-router project with one large client page at `app/page.tsx`.
-- Main product flow is local folder/GitHub repo ingestion, file filtering/selection, token counting, and copying code context for LLM use.
+- Main product flow is local folder/GitHub repo/PR ingestion, file filtering/selection, token counting, and copying code context for LLM use.
 - GitHub auth and repo APIs are server routes; most app state still lives in React state/localStorage/IndexedDB.
 
 ## Updates Applied
@@ -18,6 +18,7 @@
 - Ported missing local upload behavior: project type `None` is treated as a valid "accept all files" template.
 - Refactored `app/page.tsx` from 1706 to 1273 lines by extracting app defaults, directory traversal, header, loading indicator, empty state, dialogs, and source sidebar UI.
 - Added shared GitHub/project template types to `components/types.ts` so page-level UI can move out without duplicating contracts.
+- Added GitHub owner/org selection plus pull request loading, PR file-tree display, and PR copy modes for diff-only or diff plus full file content.
 
 ## Branch Review
 
@@ -30,14 +31,14 @@
 
 - `app/page.tsx` is smaller, but still owns persistence, upload, GitHub fetching, recent project mutation, and token state. Next refactor should extract state/hooks, not more JSX.
 - `tiktoken` still bundles WASM into the client path and emits a build warning.
-- Lint now runs, but there are 70 unused-code warnings. No lint errors remain.
+- Lint now runs, but there are 68 unused-code warnings. No lint errors remain.
 - `npm audit` still reports 4 moderate advisories through Vercel analytics/speed-insights and Next's bundled `postcss`; npm's forced fix suggests downgrading Next to 9, so it was not applied.
-- There is no automated test suite covering local folder upload, GitHub tree filtering, auth routes, or copy output.
+- There is no automated test suite covering local folder upload, GitHub tree/PR filtering, auth routes, or copy output.
 - Vercel deployment verification was intentionally skipped after the CLI defaulted to the Boldstream team on a read-only list command. Do not use Boldstream Vercel for this app.
 
 ## Suggested Next Work
 
 - Split `app/page.tsx` into source panels, project state hooks, and result/selection containers.
-- Add small unit tests for GitHub exclusion matching and local project type handling.
+- Add small unit tests for GitHub exclusion matching, PR copy formatting, and local project type handling.
 - Decide whether Vercel analytics/speed-insights are needed; removing them may clear the remaining audit path.
 - Replace or isolate browser `tiktoken` usage if the WASM warning becomes a runtime issue.

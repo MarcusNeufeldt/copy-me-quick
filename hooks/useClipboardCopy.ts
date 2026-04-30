@@ -13,6 +13,8 @@ import {
 // Define the API endpoint constant within the hook or pass it
 const GITHUB_CONTENT_API = '/api/github/content';
 
+export type CopyMode = 'full' | 'diff' | 'diff-full';
+
 // Import LoadingStatus type (define if needed)
 interface LoadingStatus {
   isLoading: boolean;
@@ -31,7 +33,7 @@ interface UseClipboardCopyProps {
 }
 
 interface UseClipboardCopyReturn {
-  copySelectedFiles: () => Promise<void>;
+  copySelectedFiles: (mode?: CopyMode) => Promise<void>;
   // Remove isCopying as it's now handled globally
   // isCopying: boolean;
   copySuccess: boolean;
@@ -50,7 +52,7 @@ export function useClipboardCopy({
   // const [isCopying, setIsCopying] = useState(false);
   const [copySuccess, setCopySuccess] = useState(false);
 
-  const copySelectedFiles = useCallback(async () => {
+  const copySelectedFiles = useCallback(async (mode: CopyMode = 'full') => {
     // Check prerequisites including global loading state
     if (!fileTree || selectedFiles.length === 0 || loadingStatus.isLoading) return;
 
@@ -90,6 +92,7 @@ export function useClipboardCopy({
       const fetchPromises = [];
       const fileContentMap = new Map<string, string>();
       let githubFetchNeeded = false;
+      const shouldFetchFullContent = mode === 'full' || mode === 'diff-full';
       
       for (const file of filesToCopy) {
         if (isBinaryFile(file.path)) { // Use imported/passed function
@@ -98,12 +101,16 @@ export function useClipboardCopy({
           continue;
         }
         
-        if (file.dataSourceType === 'github' && !file.content && file.path && dataSource.type === 'github' && dataSource.repoInfo) {
+        if (shouldFetchFullContent && file.dataSourceType === 'github' && !file.content && file.path && dataSource.type === 'github' && dataSource.repoInfo) {
           githubFetchNeeded = true; // Mark that fetching is needed
           const { owner, repo } = dataSource.repoInfo;
           const fetchPromise = (async () => {
             try {
-              const contentUrl = `${GITHUB_CONTENT_API}?owner=${owner}&repo=${repo}&path=${encodeURIComponent(file.path)}`;
+              const fileRef = file.status === 'removed'
+                ? file.baseRef || dataSource.repoInfo?.baseRef || dataSource.repoInfo?.ref || dataSource.repoInfo?.branch
+                : file.ref || dataSource.repoInfo?.ref || dataSource.repoInfo?.branch;
+              const refParam = fileRef ? `&sha=${encodeURIComponent(fileRef)}` : '';
+              const contentUrl = `${GITHUB_CONTENT_API}?owner=${owner}&repo=${repo}&path=${encodeURIComponent(file.path)}${refParam}`;
               const response = await fetch(contentUrl);
               if (!response.ok) {
                 const errorData = await response.json();
@@ -132,24 +139,66 @@ export function useClipboardCopy({
         setLoadingStatus({ isLoading: true, message: 'Copying files...' });
       }
       
-      let combinedContent = '';
-      for (const file of filesToCopy) {
-        const content = fileContentMap.get(file.path) || '';
-        if (!content && !isBinaryFile(file.path)) {
-          combinedContent += `// ${file.path}\n// [Empty file]\n\n`;
-          continue;
+      let clipboardText = '';
+
+      if (mode === 'diff' || mode === 'diff-full') {
+        const diffContent = filesToCopy.map((file) => {
+          const header = [
+            `File: ${file.path}`,
+            file.previousPath ? `Previous path: ${file.previousPath}` : null,
+            file.status ? `Status: ${file.status}` : null,
+            typeof file.additions === 'number' || typeof file.deletions === 'number'
+              ? `Changes: +${file.additions || 0} / -${file.deletions || 0}`
+              : null,
+          ].filter(Boolean).join('\n');
+
+          return `${header}\n\n${file.patch || '[No textual patch available. The file may be binary, renamed without textual changes, or too large for GitHub patch output.]'}`;
+        }).join('\n\n---\n\n');
+
+        clipboardText = `Project Structure:\n${treeString}\n\n---\n\nPull Request Diffs:\n${diffContent}`;
+
+        if (mode === 'diff-full') {
+          let fullContent = '';
+          for (const file of filesToCopy) {
+            const content = fileContentMap.get(file.path) || '';
+            const versionLabel = file.status === 'removed' ? 'base/original' : 'PR head';
+
+            if (isBinaryFile(file.path)) {
+              fullContent += `// ${file.path} (${versionLabel})\n// [Binary file not included]\n\n`;
+              continue;
+            }
+
+            if (!content) {
+              fullContent += `// ${file.path} (${versionLabel})\n// [Empty file or content unavailable]\n\n`;
+              continue;
+            }
+
+            const processedContent = minifyOnCopy ? minifyCode(content) : content;
+            fullContent += `// ${file.path} (${versionLabel})\n${processedContent}\n\n`;
+          }
+
+          clipboardText += `\n\n---\n\nFull File Contents:\n${fullContent}`;
         }
-        
-        if (isBinaryFile(file.path)) {
-          combinedContent += `// ${file.path}\n// [Binary file not included]\n\n`;
-          continue;
+      } else {
+        let combinedContent = '';
+        for (const file of filesToCopy) {
+          const content = fileContentMap.get(file.path) || '';
+          if (!content && !isBinaryFile(file.path)) {
+            combinedContent += `// ${file.path}\n// [Empty file]\n\n`;
+            continue;
+          }
+
+          if (isBinaryFile(file.path)) {
+            combinedContent += `// ${file.path}\n// [Binary file not included]\n\n`;
+            continue;
+          }
+
+          const processedContent = minifyOnCopy ? minifyCode(content) : content; // Use imported/passed function
+          combinedContent += `// ${file.path}\n${processedContent}\n\n`;
         }
-        
-        const processedContent = minifyOnCopy ? minifyCode(content) : content; // Use imported/passed function
-        combinedContent += `// ${file.path}\n${processedContent}\n\n`;
+
+        clipboardText = `Project Structure:\n${treeString}\n\n---\n\nFile Contents:\n${combinedContent}`;
       }
-      
-      const clipboardText = `Project Structure:\n${treeString}\n\n---\n\nFile Contents:\n${combinedContent}`;
       
       await navigator.clipboard.writeText(clipboardText);
       setCopySuccess(true);
@@ -165,4 +214,4 @@ export function useClipboardCopy({
 
   // Return only copySelectedFiles and copySuccess
   return { copySelectedFiles, copySuccess };
-} 
+}

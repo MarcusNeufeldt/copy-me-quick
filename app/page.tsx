@@ -2,7 +2,20 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import AnalysisResult from '@/components/AnalysisResult';
-import { AppState, Project, FileData, AnalysisResultData, GitHubRepoInfo, GitHubUser, GitHubRepo, GitHubBranch, GitHubTreeItem } from '@/components/types';
+import {
+  AppState,
+  Project,
+  FileData,
+  AnalysisResultData,
+  GitHubRepoInfo,
+  GitHubUser,
+  GitHubRepo,
+  GitHubBranch,
+  GitHubOwner,
+  GitHubPullFile,
+  GitHubPullRequest,
+  GitHubTreeItem,
+} from '@/components/types';
 import dynamic from 'next/dynamic';
 import { Loader2 } from 'lucide-react';
 import GitHubFilterManager from '@/components/GitHubFilterManager';
@@ -59,10 +72,17 @@ export default function ClientPageRoot() {
   const [githubError, setGithubError] = useState<string | null>(null);
 
   // State for GitHub repo/branch selection
+  const [githubOwners, setGithubOwners] = useState<GitHubOwner[]>([]);
+  const [selectedOwnerLogin, setSelectedOwnerLogin] = useState<string | null>(null);
   const [repos, setRepos] = useState<GitHubRepo[]>([]);
   const [selectedRepoFullName, setSelectedRepoFullName] = useState<string | null>(null);
   const [branches, setBranches] = useState<GitHubBranch[]>([]);
   const [selectedBranchName, setSelectedBranchName] = useState<string | null>(null);
+  const [pullRequests, setPullRequests] = useState<GitHubPullRequest[]>([]);
+  const [selectedPullNumber, setSelectedPullNumber] = useState<number | null>(null);
+  const [pullRequestInput, setPullRequestInput] = useState('');
+  const [githubSourceMode, setGithubSourceMode] = useState<'branch' | 'pull'>('branch');
+  const [selectedPullRequest, setSelectedPullRequest] = useState<GitHubPullRequest | null>(null);
   const [githubSelectionError, setGithubSelectionError] = useState<string | null>(null); // Separate error state for selection
 
   const [fileLoadingProgress, setFileLoadingProgress] = useState({ current: 0, total: 0 });
@@ -138,8 +158,11 @@ export default function ClientPageRoot() {
         // If it's a GitHub project, restore relevant GitHub state too
         if (currentProject.sourceType === 'github' && currentProject.githubRepoFullName && currentProject.githubBranch) {
             console.log(`Restoring GitHub context: Repo=${currentProject.githubRepoFullName}, Branch=${currentProject.githubBranch}`); // Added log
+            setSelectedOwnerLogin(currentProject.githubRepoFullName.split('/')[0]);
             setSelectedRepoFullName(currentProject.githubRepoFullName);
             setSelectedBranchName(currentProject.githubBranch);
+            setGithubSourceMode(currentProject.githubSourceMode || (currentProject.githubPullNumber ? 'pull' : 'branch'));
+            setSelectedPullNumber(currentProject.githubPullNumber || null);
             // Note: We might still need to re-fetch branches/tree if not persisted or stale,
             // but setting the selected repo/branch is crucial for UI consistency.
             // Consider if handleBranchChange needs to be smarter about re-fetching vs using restored state.
@@ -238,9 +261,43 @@ export default function ClientPageRoot() {
     syncFiltersFromServer();
   }, [githubUser]);
 
-  // Fetch Repos when GitHub user is loaded
+  // Fetch GitHub account/org owners when GitHub user is loaded
   useEffect(() => {
     if (!githubUser) {
+      setGithubOwners([]);
+      setSelectedOwnerLogin(null);
+      setRepos([]);
+      setSelectedRepoFullName(null);
+      return;
+    }
+
+    const fetchOwners = async () => {
+      setLoadingStatus({ isLoading: true, message: 'Fetching GitHub accounts...' });
+      setGithubSelectionError(null);
+      try {
+        const response = await fetch('/api/github/owners');
+        if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(errorData.error || 'Failed to fetch GitHub accounts');
+        }
+        const ownersData: GitHubOwner[] = await response.json();
+        setGithubOwners(ownersData);
+        setSelectedOwnerLogin(prev => prev || ownersData[0]?.login || githubUser.login);
+      } catch (error: any) {
+        console.error("Error fetching GitHub owners:", error);
+        setGithubSelectionError(error.message);
+        if (error.message === 'Invalid GitHub token') setGithubUser(null);
+      } finally {
+        setLoadingStatus({ isLoading: false, message: null });
+      }
+    };
+
+    fetchOwners();
+  }, [githubUser]);
+
+  // Fetch Repos when a GitHub owner is selected
+  useEffect(() => {
+    if (!githubUser || !selectedOwnerLogin) {
       setRepos([]);
       setSelectedRepoFullName(null);
       return;
@@ -252,7 +309,7 @@ export default function ClientPageRoot() {
       setGithubSelectionError(null);
       setRepos([]);
       try {
-        const response = await fetch('/api/github/repos');
+        const response = await fetch(`/api/github/repos?owner=${encodeURIComponent(selectedOwnerLogin)}`);
         if (!response.ok) {
             const errorData = await response.json();
             throw new Error(errorData.error || 'Failed to fetch repositories');
@@ -270,13 +327,30 @@ export default function ClientPageRoot() {
     };
 
     fetchRepos();
-  }, [githubUser]);
+  }, [githubUser, selectedOwnerLogin]);
 
   // Fetch Branches when a repo is selected
+  const handleOwnerChange = useCallback((ownerLogin: string) => {
+    setSelectedOwnerLogin(ownerLogin);
+    setSelectedRepoFullName(null);
+    setSelectedBranchName(null);
+    setSelectedPullNumber(null);
+    setSelectedPullRequest(null);
+    setPullRequestInput('');
+    setBranches([]);
+    setPullRequests([]);
+    setGithubTree(null);
+    setGithubSelectionError(null);
+  }, []);
+
   const handleRepoChange = useCallback((repoFullName: string) => {
     setSelectedRepoFullName(repoFullName);
     setSelectedBranchName(null); // Reset branch selection
+    setSelectedPullNumber(null);
+    setSelectedPullRequest(null);
+    setPullRequestInput('');
     setBranches([]); // Clear old branches
+    setPullRequests([]);
     setGithubSelectionError(null);
 
     if (!repoFullName) {
@@ -286,25 +360,37 @@ export default function ClientPageRoot() {
     const selectedRepo = repos.find(r => r.full_name === repoFullName);
     if (!selectedRepo) return;
 
-    const fetchBranches = async () => {
+    const fetchRepoData = async () => {
       // Use unified loading state
-      setLoadingStatus({ isLoading: true, message: 'Fetching branches...' });
+      setLoadingStatus({ isLoading: true, message: 'Fetching repository refs...' });
       setGithubSelectionError(null);
       try {
-        const response = await fetch(`/api/github/branches?owner=${selectedRepo.owner.login}&repo=${selectedRepo.name}`);
-        if (!response.ok) {
-            const errorData = await response.json();
-            throw new Error(errorData.error || 'Failed to fetch branches');
+        const [branchesResponse, pullsResponse] = await Promise.all([
+          fetch(`/api/github/branches?owner=${selectedRepo.owner.login}&repo=${selectedRepo.name}`),
+          fetch(`/api/github/pulls?owner=${selectedRepo.owner.login}&repo=${selectedRepo.name}&state=open`),
+        ]);
+
+        if (!branchesResponse.ok) {
+          const errorData = await branchesResponse.json();
+          throw new Error(errorData.error || 'Failed to fetch branches');
         }
-        const branchData: GitHubBranch[] = await response.json();
+        const branchData: GitHubBranch[] = await branchesResponse.json();
         setBranches(branchData);
         const defaultBranch = branchData.find(b => b.name === selectedRepo.default_branch);
         if (defaultBranch) {
             setSelectedBranchName(defaultBranch.name);
         }
 
+        if (pullsResponse.ok) {
+          const pullData: GitHubPullRequest[] = await pullsResponse.json();
+          setPullRequests(pullData);
+        } else {
+          console.warn('Failed to fetch pull requests for repository', await pullsResponse.text());
+          setPullRequests([]);
+        }
+
       } catch (error: any) {
-        console.error("Error fetching branches:", error);
+        console.error("Error fetching repository refs:", error);
         setGithubSelectionError(error.message);
         if (error.message === 'Invalid GitHub token') setGithubUser(null);
       } finally {
@@ -313,7 +399,7 @@ export default function ClientPageRoot() {
       }
     };
 
-    fetchBranches();
+    fetchRepoData();
   }, [repos]);
 
   // Handle Branch Selection - Modified to fetch tree and manage projects
@@ -334,6 +420,9 @@ export default function ClientPageRoot() {
 
     // Set the selected branch name immediately for UI responsiveness
     setSelectedBranchName(branchName);
+    setGithubSourceMode('branch');
+    setSelectedPullNumber(null);
+    setSelectedPullRequest(null);
 
     const selectedRepo = repos.find(r => r.full_name === selectedRepoFullName);
     if (!selectedRepo) return;
@@ -484,6 +573,177 @@ export default function ClientPageRoot() {
     fetchTreeAndSetProject();
 
   }, [repos, selectedRepoFullName, projects, setProjects, setState, setCurrentProjectId, setLoadingStatus]); // Added projects dependencies
+
+  const parsePullRequestInput = useCallback((value: string) => {
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+
+    const urlMatch = trimmed.match(/github\.com\/([^/]+)\/([^/]+)\/pull\/(\d+)/i);
+    if (urlMatch) {
+      return {
+        owner: urlMatch[1],
+        repo: urlMatch[2],
+        pullNumber: Number(urlMatch[3]),
+      };
+    }
+
+    const numberMatch = trimmed.match(/^#?(\d+)$/);
+    if (numberMatch && selectedRepoFullName) {
+      const [owner, repo] = selectedRepoFullName.split('/');
+      return {
+        owner,
+        repo,
+        pullNumber: Number(numberMatch[1]),
+      };
+    }
+
+    return null;
+  }, [selectedRepoFullName]);
+
+  const loadPullRequest = useCallback(async (owner: string, repo: string, pullNumber: number) => {
+    const repoFullName = `${owner}/${repo}`;
+
+    setLoadingStatus({ isLoading: true, message: `Loading PR #${pullNumber} file tree...` });
+    setGithubSelectionError(null);
+    setGithubSourceMode('pull');
+    setSelectedOwnerLogin(owner);
+    setSelectedRepoFullName(repoFullName);
+    setSelectedPullNumber(pullNumber);
+    setSelectedBranchName(null);
+    setGithubTree(null);
+    setIsGithubTreeTruncated(false);
+    setFileLoadingProgress({ current: 0, total: 0 });
+    setFileLoadingMessage(null);
+
+    try {
+      const response = await fetch(`/api/github/pull-files?owner=${encodeURIComponent(owner)}&repo=${encodeURIComponent(repo)}&pullNumber=${pullNumber}`);
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to fetch pull request files');
+      }
+
+      const pull: GitHubPullRequest = data.pull;
+      const pullFiles: GitHubPullFile[] = data.files || [];
+      setSelectedPullRequest(pull);
+
+      const enhancedTree: GitHubTreeItem[] = pullFiles.map((file) => ({
+        path: file.filename,
+        mode: '100644',
+        type: 'blob',
+        sha: file.sha,
+        url: '',
+        formattedSize: `+${file.additions} / -${file.deletions}`,
+        ref: pull.head.sha,
+        baseRef: pull.base.sha,
+        patch: file.patch,
+        status: file.status,
+        additions: file.additions,
+        deletions: file.deletions,
+        previousPath: file.previous_filename,
+        pullNumber,
+      }));
+
+      setGithubTree(enhancedTree);
+
+      const filesMetadata: FileData[] = pullFiles.map((file) => ({
+        path: file.filename,
+        lines: 0,
+        content: '',
+        sha: file.sha,
+        ref: pull.head.sha,
+        baseRef: pull.base.sha,
+        patch: file.patch,
+        status: file.status,
+        additions: file.additions,
+        deletions: file.deletions,
+        previousPath: file.previous_filename,
+        pullNumber,
+        dataSourceType: 'github',
+      }));
+
+      const analysisResultData: AnalysisResultData = {
+        totalFiles: filesMetadata.length,
+        totalLines: 0,
+        totalTokens: 0,
+        summary: `GitHub PR: ${repoFullName} #${pullNumber} - ${pull.title}`,
+        project_tree: `GitHub PR file tree for ${repoFullName} #${pullNumber}`,
+        files: filesMetadata,
+        commitDate: pull.updated_at,
+      };
+
+      const existingProject = projects.find(
+        (p) =>
+          p.sourceType === 'github' &&
+          p.githubRepoFullName === repoFullName &&
+          p.githubPullNumber === pullNumber
+      );
+
+      const targetProjectId = existingProject?.id || Date.now().toString();
+      const finalState: AppState = {
+        ...(existingProject?.state || initialAppState),
+        analysisResult: analysisResultData,
+        selectedFiles: [],
+      };
+
+      if (existingProject) {
+        setProjects(prevProjects =>
+          prevProjects.map(p =>
+            p.id === targetProjectId
+              ? {
+                  ...p,
+                  name: `${repoFullName} PR #${pullNumber}`,
+                  githubSourceMode: 'pull',
+                  githubPullNumber: pullNumber,
+                  githubBranch: pull.head.ref,
+                  state: finalState,
+                  lastAccessed: Date.now(),
+                }
+              : p
+          )
+        );
+      } else {
+        const newProject: Project = {
+          id: targetProjectId,
+          name: `${repoFullName} PR #${pullNumber}`,
+          sourceType: 'github',
+          githubRepoFullName: repoFullName,
+          githubBranch: pull.head.ref,
+          githubPullNumber: pullNumber,
+          githubSourceMode: 'pull',
+          state: finalState,
+          lastAccessed: Date.now(),
+        };
+        setProjects(prevProjects => [...prevProjects, newProject]);
+      }
+
+      setState(finalState);
+      setCurrentProjectId(targetProjectId);
+    } catch (error) {
+      console.error("Error loading pull request:", error);
+      setGithubSelectionError(error instanceof Error ? error.message : String(error));
+      setGithubTree(null);
+      if (error instanceof Error && error.message === 'Invalid GitHub token') setGithubUser(null);
+    } finally {
+      setLoadingStatus({ isLoading: false, message: null });
+    }
+  }, [projects, setCurrentProjectId, setLoadingStatus, setProjects, setState]);
+
+  const handlePullRequestSelect = useCallback((pullNumber: number) => {
+    const repoFullName = selectedRepoFullName;
+    if (!repoFullName || !pullNumber) return;
+    const [owner, repo] = repoFullName.split('/');
+    setPullRequestInput(`#${pullNumber}`);
+    loadPullRequest(owner, repo, pullNumber);
+  }, [loadPullRequest, selectedRepoFullName]);
+
+  const handlePullRequestInputSubmit = useCallback(() => {
+    const parsed = parsePullRequestInput(pullRequestInput);
+    if (!parsed) {
+      setGithubSelectionError('Enter a PR number for the selected repo, or a GitHub PR URL.');
+      return;
+    }
+    loadPullRequest(parsed.owner, parsed.repo, parsed.pullNumber);
+  }, [loadPullRequest, parsePullRequestInput, pullRequestInput]);
 
   // Persist state changes to localStorage
   useEffect(() => {
@@ -746,15 +1006,29 @@ export default function ClientPageRoot() {
 
   // Create stable GitHub repo info to avoid object recreation
   const githubRepoInfo = useMemo(() => {
+    if (selectedRepoFullName && githubSourceMode === 'pull' && selectedPullRequest) {
+      return {
+        owner: selectedRepoFullName.split('/')[0],
+        repo: selectedRepoFullName.split('/')[1],
+        branch: selectedPullRequest.head.ref,
+        ref: selectedPullRequest.head.sha,
+        baseRef: selectedPullRequest.base.sha,
+        pullNumber: selectedPullRequest.number,
+        sourceMode: 'pull' as const,
+      };
+    }
+
     if (selectedRepoFullName && selectedBranchName) {
       return {
         owner: selectedRepoFullName.split('/')[0],
         repo: selectedRepoFullName.split('/')[1],
-        branch: selectedBranchName
+        branch: selectedBranchName,
+        ref: selectedBranchName,
+        sourceMode: 'branch' as const,
       };
     }
     return undefined;
-  }, [selectedRepoFullName, selectedBranchName]);
+  }, [githubSourceMode, selectedPullRequest, selectedRepoFullName, selectedBranchName]);
 
   // This callback is passed to AnalysisResult for its internal state changes
   const handleSelectedFilesChange = useCallback(async (filesOrUpdater: string[] | ((prev: string[]) => string[])) => {
@@ -796,7 +1070,10 @@ export default function ClientPageRoot() {
           try {
             const fetchPromises = filesToFetch.map(async (file) => {
               try {
-                const contentUrl = `/api/github/content?owner=${githubRepoInfo.owner}&repo=${githubRepoInfo.repo}&path=${encodeURIComponent(file.path)}`;
+                const fileRef = file.status === 'removed'
+                  ? file.baseRef || githubRepoInfo.baseRef || githubRepoInfo.ref || githubRepoInfo.branch
+                  : file.ref || githubRepoInfo.ref || githubRepoInfo.branch;
+                const contentUrl = `/api/github/content?owner=${githubRepoInfo.owner}&repo=${githubRepoInfo.repo}&path=${encodeURIComponent(file.path)}&sha=${encodeURIComponent(fileRef)}`;
                 const response = await fetch(contentUrl);
                 if (!response.ok) {
                   const errorData = await response.json();
@@ -887,8 +1164,12 @@ export default function ClientPageRoot() {
     if (projectToLoad.sourceType === 'github') {
       setActiveSourceTab('github');
       // These will trigger useEffects to fetch repo details and then branch details/tree
+      setSelectedOwnerLogin(projectToLoad.githubRepoFullName?.split('/')[0] || null);
       setSelectedRepoFullName(projectToLoad.githubRepoFullName || null);
       setSelectedBranchName(projectToLoad.githubBranch || null);
+      setGithubSourceMode(projectToLoad.githubSourceMode || (projectToLoad.githubPullNumber ? 'pull' : 'branch'));
+      setSelectedPullNumber(projectToLoad.githubPullNumber || null);
+      setPullRequestInput(projectToLoad.githubPullNumber ? `#${projectToLoad.githubPullNumber}` : '');
       // Note: The actual data fetching (tree, content) for GitHub projects is handled
       // by the useEffects triggered by selectedRepoFullName and handleBranchChange.
       // If the state (analysisResult) was fully persisted, we might load it here.
@@ -969,6 +1250,11 @@ export default function ClientPageRoot() {
     // Reset GitHub specific UI state
     setSelectedRepoFullName(null);
     setSelectedBranchName(null);
+    setSelectedPullNumber(null);
+    setSelectedPullRequest(null);
+    setPullRequestInput('');
+    setGithubSourceMode('branch');
+    setPullRequests([]);
     setGithubTree(null);
     setIsGithubTreeTruncated(false);
     setGithubSelectionError(null);
@@ -1184,10 +1470,19 @@ export default function ClientPageRoot() {
             onRenameProject={handleRenameProject}
             githubUser={githubUser}
             githubError={githubError}
+            githubOwners={githubOwners}
+            selectedOwnerLogin={selectedOwnerLogin}
+            onOwnerChange={handleOwnerChange}
             repos={repos}
             selectedRepoFullName={selectedRepoFullName}
             branches={branches}
             selectedBranchName={selectedBranchName}
+            pullRequests={pullRequests}
+            selectedPullNumber={selectedPullNumber}
+            pullRequestInput={pullRequestInput}
+            onPullRequestInputChange={setPullRequestInput}
+            onPullRequestInputSubmit={handlePullRequestInputSubmit}
+            onPullRequestSelect={handlePullRequestSelect}
             githubSelectionError={githubSelectionError}
             fileLoadingMessage={fileLoadingMessage}
             isGithubTreeTruncated={isGithubTreeTruncated}
