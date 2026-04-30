@@ -91,6 +91,7 @@ export interface GitHubPullRequest {
   state: string;
   html_url: string;
   updated_at: string;
+  lastCommitDate?: string | null;
   user?: {
     login: string;
   };

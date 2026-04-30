@@ -5,7 +5,6 @@ import Image from 'next/image';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -77,9 +76,6 @@ interface SourceSidebarProps {
   selectedBranchName: string | null;
   pullRequests: GitHubPullRequest[];
   selectedPullNumber: number | null;
-  pullRequestInput: string;
-  onPullRequestInputChange: (value: string) => void;
-  onPullRequestInputSubmit: () => void;
   onPullRequestSelect: (pullNumber: number) => void;
   githubSelectionError: string | null;
   fileLoadingMessage: string | null;
@@ -125,9 +121,6 @@ export function SourceSidebar({
   selectedBranchName,
   pullRequests,
   selectedPullNumber,
-  pullRequestInput,
-  onPullRequestInputChange,
-  onPullRequestInputSubmit,
   onPullRequestSelect,
   githubSelectionError,
   fileLoadingMessage,
@@ -141,50 +134,64 @@ export function SourceSidebar({
   onResetWorkspace,
   hasAnalysisResult,
 }: SourceSidebarProps) {
-  const pullRequestControls = (showPullRequestSelect: boolean) => (
+  const formatShortDate = (value?: string | null) => {
+    if (!value) return 'unknown';
+    return new Intl.DateTimeFormat(undefined, {
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    }).format(new Date(value));
+  };
+
+  const selectedPullRequest = pullRequests.find((pull) => pull.number === selectedPullNumber);
+
+  const pullRequestControls = (
     <div className="space-y-2">
-      <div className="flex gap-2">
-        <Input
-          id="github-pr-input"
-          value={pullRequestInput}
-          onChange={(event) => onPullRequestInputChange(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter') {
-              event.preventDefault();
-              onPullRequestInputSubmit();
-            }
-          }}
-          placeholder={selectedRepoFullName ? 'PR # or GitHub PR URL' : 'GitHub PR URL'}
-          className="h-8 text-xs"
-        />
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          className="h-8"
-          onClick={onPullRequestInputSubmit}
-          disabled={loadingStatus.isLoading || !pullRequestInput.trim()}
-        >
-          Load
-        </Button>
+      <div className="flex items-center justify-between gap-2">
+        <span className="flex items-center gap-1 text-xs font-medium text-muted-foreground">
+          <GitPullRequest className="h-3 w-3" /> Open pull requests
+        </span>
+        <span className="text-[11px] text-muted-foreground">
+          {pullRequests.length} sorted by latest commit
+        </span>
       </div>
-      {showPullRequestSelect && pullRequests.length > 0 && (
+
+      {loadingStatus.isLoading && loadingStatus.message?.includes('refs') ? (
+        <div className="flex items-center justify-center gap-2 rounded-md border py-3 text-xs text-muted-foreground">
+          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          Loading pull requests...
+        </div>
+      ) : pullRequests.length > 0 ? (
         <Select
           value={selectedPullNumber ? String(selectedPullNumber) : ''}
           onValueChange={(value) => onPullRequestSelect(Number(value))}
           disabled={loadingStatus.isLoading}
         >
           <SelectTrigger className="text-xs sm:text-sm">
-            <SelectValue placeholder="Select open pull request..." />
+            <SelectValue placeholder="Select open pull request...">
+              {selectedPullRequest ? `#${selectedPullRequest.number} ${selectedPullRequest.title}` : undefined}
+            </SelectValue>
           </SelectTrigger>
           <SelectContent>
             {pullRequests.map((pull) => (
               <SelectItem key={pull.number} value={String(pull.number)} className="text-xs sm:text-sm">
-                #{pull.number} {pull.title}
+                <div className="flex min-w-0 flex-col gap-0.5">
+                  <span className="truncate">
+                    #{pull.number} {pull.title}
+                  </span>
+                  <span className="truncate text-[11px] text-muted-foreground">
+                    {pull.base.ref}{' <- '}{pull.head.ref}{' - '}commit {formatShortDate(pull.lastCommitDate || pull.updated_at)}
+                  </span>
+                </div>
               </SelectItem>
             ))}
           </SelectContent>
         </Select>
+      ) : (
+        <div className="rounded-md border py-3 text-center text-xs text-muted-foreground">
+          No open pull requests found.
+        </div>
       )}
     </div>
   );
@@ -381,7 +388,8 @@ export function SourceSidebar({
                   </div>
 
                   {selectedRepoFullName ? (
-                    <Tabs key={selectedRepoFullName} defaultValue="pull" className="space-y-3">
+                    <div className="space-y-3 rounded-md border bg-muted/20 p-3">
+                      <Tabs key={selectedRepoFullName} defaultValue="pull" className="space-y-3">
                       <TabsList className="grid w-full grid-cols-2">
                         <TabsTrigger value="pull" className="text-xs px-2 py-1.5">
                           <GitPullRequest className="h-3.5 w-3.5 mr-1.5" /> PR
@@ -391,18 +399,16 @@ export function SourceSidebar({
                         </TabsTrigger>
                       </TabsList>
                       <TabsContent value="pull" className="mt-0">
-                        {pullRequestControls(true)}
+                        {pullRequestControls}
                       </TabsContent>
                       <TabsContent value="branch" className="mt-0">
                         {branchControls}
                       </TabsContent>
-                    </Tabs>
+                      </Tabs>
+                    </div>
                   ) : (
-                    <div className="space-y-2">
-                      <label htmlFor="github-pr-input" className="flex items-center gap-1 text-xs font-medium text-muted-foreground">
-                        <GitPullRequest className="h-3 w-3" /> Pull Request
-                      </label>
-                      {pullRequestControls(false)}
+                    <div className="rounded-md border border-dashed p-3 text-center text-xs text-muted-foreground">
+                      Select a repository to choose a pull request or branch.
                     </div>
                   )}
 

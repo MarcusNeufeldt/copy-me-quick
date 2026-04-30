@@ -117,7 +117,6 @@ export default function ClientPageRoot() {
   const [selectedBranchName, setSelectedBranchName] = useState<string | null>(null);
   const [pullRequests, setPullRequests] = useState<GitHubPullRequest[]>([]);
   const [selectedPullNumber, setSelectedPullNumber] = useState<number | null>(null);
-  const [pullRequestInput, setPullRequestInput] = useState('');
   const [githubSourceMode, setGithubSourceMode] = useState<'branch' | 'pull'>('branch');
   const [selectedPullRequest, setSelectedPullRequest] = useState<GitHubPullRequest | null>(null);
   const [githubSelectionError, setGithubSelectionError] = useState<string | null>(null); // Separate error state for selection
@@ -393,7 +392,6 @@ export default function ClientPageRoot() {
     setSelectedBranchName(null);
     setSelectedPullNumber(null);
     setSelectedPullRequest(null);
-    setPullRequestInput('');
     setBranches([]);
     setPullRequests([]);
     setGithubTree(null);
@@ -405,7 +403,6 @@ export default function ClientPageRoot() {
     setSelectedBranchName(null); // Reset branch selection
     setSelectedPullNumber(null);
     setSelectedPullRequest(null);
-    setPullRequestInput('');
     setBranches([]); // Clear old branches
     setPullRequests([]);
     setGithubTree(null);
@@ -629,32 +626,6 @@ export default function ClientPageRoot() {
 
   }, [repos, selectedRepoFullName, projects, setProjects, setState, setCurrentProjectId, setLoadingStatus]); // Added projects dependencies
 
-  const parsePullRequestInput = useCallback((value: string) => {
-    const trimmed = value.trim();
-    if (!trimmed) return null;
-
-    const urlMatch = trimmed.match(/github\.com\/([^/]+)\/([^/]+)\/pull\/(\d+)/i);
-    if (urlMatch) {
-      return {
-        owner: urlMatch[1],
-        repo: urlMatch[2],
-        pullNumber: Number(urlMatch[3]),
-      };
-    }
-
-    const numberMatch = trimmed.match(/^#?(\d+)$/);
-    if (numberMatch && selectedRepoFullName) {
-      const [owner, repo] = selectedRepoFullName.split('/');
-      return {
-        owner,
-        repo,
-        pullNumber: Number(numberMatch[1]),
-      };
-    }
-
-    return null;
-  }, [selectedRepoFullName]);
-
   const loadPullRequest = useCallback(async (owner: string, repo: string, pullNumber: number) => {
     const repoFullName = `${owner}/${repo}`;
 
@@ -787,18 +758,8 @@ export default function ClientPageRoot() {
     const repoFullName = selectedRepoFullName;
     if (!repoFullName || !pullNumber) return;
     const [owner, repo] = repoFullName.split('/');
-    setPullRequestInput(`#${pullNumber}`);
     loadPullRequest(owner, repo, pullNumber);
   }, [loadPullRequest, selectedRepoFullName]);
-
-  const handlePullRequestInputSubmit = useCallback(() => {
-    const parsed = parsePullRequestInput(pullRequestInput);
-    if (!parsed) {
-      setGithubSelectionError('Enter a PR number for the selected repo, or a GitHub PR URL.');
-      return;
-    }
-    loadPullRequest(parsed.owner, parsed.repo, parsed.pullNumber);
-  }, [loadPullRequest, parsePullRequestInput, pullRequestInput]);
 
   // Persist state changes to localStorage
   useEffect(() => {
@@ -1224,7 +1185,6 @@ export default function ClientPageRoot() {
       setSelectedBranchName(projectToLoad.githubBranch || null);
       setGithubSourceMode(projectToLoad.githubSourceMode || (projectToLoad.githubPullNumber ? 'pull' : 'branch'));
       setSelectedPullNumber(projectToLoad.githubPullNumber || null);
-      setPullRequestInput(projectToLoad.githubPullNumber ? `#${projectToLoad.githubPullNumber}` : '');
       // Note: The actual data fetching (tree, content) for GitHub projects is handled
       // by the useEffects triggered by selectedRepoFullName and handleBranchChange.
       // If the state (analysisResult) was fully persisted, we might load it here.
@@ -1307,7 +1267,6 @@ export default function ClientPageRoot() {
     setSelectedBranchName(null);
     setSelectedPullNumber(null);
     setSelectedPullRequest(null);
-    setPullRequestInput('');
     setGithubSourceMode('branch');
     setPullRequests([]);
     setGithubTree(null);
@@ -1534,9 +1493,6 @@ export default function ClientPageRoot() {
             selectedBranchName={selectedBranchName}
             pullRequests={pullRequests}
             selectedPullNumber={selectedPullNumber}
-            pullRequestInput={pullRequestInput}
-            onPullRequestInputChange={setPullRequestInput}
-            onPullRequestInputSubmit={handlePullRequestInputSubmit}
             onPullRequestSelect={handlePullRequestSelect}
             githubSelectionError={githubSelectionError}
             fileLoadingMessage={fileLoadingMessage}

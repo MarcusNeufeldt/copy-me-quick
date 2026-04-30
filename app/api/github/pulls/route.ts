@@ -2,6 +2,27 @@ import { NextRequest, NextResponse } from 'next/server';
 import { clearGitHubCookie, resolveGitHubToken } from '@/lib/githubAuth';
 const GITHUB_API_BASE = 'https://api.github.com';
 
+async function fetchGitHub(url: string, token: string) {
+  const response = await fetch(url, {
+    headers: {
+      Authorization: `token ${token}`,
+      Accept: 'application/vnd.github.v3+json',
+    },
+    cache: 'no-store',
+  });
+
+  if (!response.ok) {
+    if (response.status === 401) {
+      throw new Error('Invalid GitHub token');
+    }
+    const errorText = await response.text();
+    console.error(`GitHub API error fetching ${url}:`, response.status, errorText);
+    throw new Error(`GitHub API error: ${response.statusText}`);
+  }
+
+  return response.json();
+}
+
 async function fetchGitHubPaginated(url: string, token: string, limit = 50): Promise<any[]> {
   const results: any[] = [];
   let page = 1;
@@ -46,6 +67,21 @@ async function fetchGitHubPaginated(url: string, token: string, limit = 50): Pro
   return results.slice(0, limit);
 }
 
+async function fetchHeadCommitDate(owner: string, repo: string, pull: any, token: string): Promise<string | null> {
+  const headRepoFullName = pull.head?.repo?.full_name || `${owner}/${repo}`;
+  const headSha = pull.head?.sha;
+
+  if (!headRepoFullName || !headSha) return null;
+
+  try {
+    const commit = await fetchGitHub(`${GITHUB_API_BASE}/repos/${headRepoFullName}/commits/${headSha}`, token);
+    return commit.commit?.committer?.date || commit.commit?.author?.date || null;
+  } catch (error) {
+    console.warn(`Failed to fetch head commit date for PR #${pull.number}:`, error);
+    return null;
+  }
+}
+
 export async function GET(request: NextRequest) {
   const { token, source } = await resolveGitHubToken();
   const { searchParams } = new URL(request.url);
@@ -72,12 +108,13 @@ export async function GET(request: NextRequest) {
       limit
     );
 
-    const pullData = pulls.map((pull) => ({
+    const pullData = await Promise.all(pulls.map(async (pull) => ({
       number: pull.number,
       title: pull.title,
       state: pull.state,
       html_url: pull.html_url,
       updated_at: pull.updated_at,
+      lastCommitDate: await fetchHeadCommitDate(owner, repo, pull, token),
       user: pull.user ? { login: pull.user.login } : undefined,
       head: {
         ref: pull.head.ref,
@@ -87,9 +124,15 @@ export async function GET(request: NextRequest) {
       base: {
         ref: pull.base.ref,
         sha: pull.base.sha,
-        repo: pull.base.repo ? { full_name: pull.base.repo.full_name } : null,
-      },
-    }));
+          repo: pull.base.repo ? { full_name: pull.base.repo.full_name } : null,
+        },
+    })));
+
+    pullData.sort((a, b) => {
+      const aTime = new Date(a.lastCommitDate || a.updated_at).getTime();
+      const bTime = new Date(b.lastCommitDate || b.updated_at).getTime();
+      return bTime - aTime;
+    });
 
     return NextResponse.json(pullData);
   } catch (error: any) {
