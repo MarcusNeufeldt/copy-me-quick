@@ -44,6 +44,41 @@ interface LoadingStatus {
   message: string | null;
 }
 
+const mergeGitHubOwners = (
+  githubUser: GitHubUser,
+  owners: GitHubOwner[],
+  repos: GitHubRepo[]
+): GitHubOwner[] => {
+  const ownerMap = new Map<string, GitHubOwner>();
+
+  ownerMap.set(githubUser.login, {
+    login: githubUser.login,
+    type: 'User',
+    avatarUrl: githubUser.avatarUrl,
+  });
+
+  owners.forEach((owner) => {
+    ownerMap.set(owner.login, owner);
+  });
+
+  repos.forEach((repo) => {
+    const login = repo.owner?.login;
+    if (!login || ownerMap.has(login)) return;
+
+    ownerMap.set(login, {
+      login,
+      type: login === githubUser.login ? 'User' : 'Organization',
+    });
+  });
+
+  return Array.from(ownerMap.values()).sort((a, b) => {
+    if (a.login === githubUser.login) return -1;
+    if (b.login === githubUser.login) return 1;
+    if (a.type !== b.type) return a.type === 'Organization' ? -1 : 1;
+    return a.login.localeCompare(b.login);
+  });
+};
+
 export default function ClientPageRoot() {
   // Initialize state with server-safe defaults
   const [projects, setProjects] = useState<Project[]>([]);
@@ -74,6 +109,8 @@ export default function ClientPageRoot() {
   // State for GitHub repo/branch selection
   const [githubOwners, setGithubOwners] = useState<GitHubOwner[]>([]);
   const [selectedOwnerLogin, setSelectedOwnerLogin] = useState<string | null>(null);
+  const [allRepos, setAllRepos] = useState<GitHubRepo[]>([]);
+  const [githubReposLoaded, setGithubReposLoaded] = useState(false);
   const [repos, setRepos] = useState<GitHubRepo[]>([]);
   const [selectedRepoFullName, setSelectedRepoFullName] = useState<string | null>(null);
   const [branches, setBranches] = useState<GitHubBranch[]>([]);
@@ -266,25 +303,50 @@ export default function ClientPageRoot() {
     if (!githubUser) {
       setGithubOwners([]);
       setSelectedOwnerLogin(null);
+      setAllRepos([]);
+      setGithubReposLoaded(false);
       setRepos([]);
       setSelectedRepoFullName(null);
       return;
     }
 
     const fetchOwners = async () => {
-      setLoadingStatus({ isLoading: true, message: 'Fetching GitHub accounts...' });
+      setLoadingStatus({ isLoading: true, message: 'Fetching GitHub accounts and repositories...' });
       setGithubSelectionError(null);
+      setGithubReposLoaded(false);
       try {
-        const response = await fetch('/api/github/owners');
-        if (!response.ok) {
-          const errorData = await response.json();
-          throw new Error(errorData.error || 'Failed to fetch GitHub accounts');
+        const [ownersResponse, reposResponse] = await Promise.all([
+          fetch('/api/github/owners'),
+          fetch('/api/github/repos'),
+        ]);
+
+        let ownersData: GitHubOwner[] = [];
+
+        if (ownersResponse.ok) {
+          ownersData = await ownersResponse.json();
+        } else {
+          const errorData = await ownersResponse.json();
+          console.warn('Failed to fetch GitHub org memberships:', errorData.error || ownersResponse.statusText);
         }
-        const ownersData: GitHubOwner[] = await response.json();
-        setGithubOwners(ownersData);
-        setSelectedOwnerLogin(prev => prev || ownersData[0]?.login || githubUser.login);
+
+        if (!reposResponse.ok) {
+          const errorData = await reposResponse.json();
+          throw new Error(errorData.error || 'Failed to fetch repositories');
+        }
+
+        const repoData: GitHubRepo[] = await reposResponse.json();
+        const mergedOwners = mergeGitHubOwners(githubUser, ownersData, repoData);
+
+        setAllRepos(repoData);
+        setGithubReposLoaded(true);
+        setGithubOwners(mergedOwners);
+        setSelectedOwnerLogin(prev => {
+          if (prev && mergedOwners.some(owner => owner.login === prev)) return prev;
+          return mergedOwners[0]?.login || githubUser.login;
+        });
       } catch (error: any) {
         console.error("Error fetching GitHub owners:", error);
+        setGithubReposLoaded(false);
         setGithubSelectionError(error.message);
         if (error.message === 'Invalid GitHub token') setGithubUser(null);
       } finally {
@@ -295,7 +357,7 @@ export default function ClientPageRoot() {
     fetchOwners();
   }, [githubUser]);
 
-  // Fetch Repos when a GitHub owner is selected
+  // Filter repositories when a GitHub owner is selected.
   useEffect(() => {
     if (!githubUser || !selectedOwnerLogin) {
       setRepos([]);
@@ -303,31 +365,26 @@ export default function ClientPageRoot() {
       return;
     }
 
-    const fetchRepos = async () => {
-      // Use unified loading state
-      setLoadingStatus({ isLoading: true, message: 'Fetching repositories...' });
-      setGithubSelectionError(null);
+    if (!githubReposLoaded) {
       setRepos([]);
-      try {
-        const response = await fetch(`/api/github/repos?owner=${encodeURIComponent(selectedOwnerLogin)}`);
-        if (!response.ok) {
-            const errorData = await response.json();
-            throw new Error(errorData.error || 'Failed to fetch repositories');
-        }
-        const repoData: GitHubRepo[] = await response.json();
-        setRepos(repoData);
-      } catch (error: any) {
-        console.error("Error fetching repos:", error);
-        setGithubSelectionError(error.message);
-        if (error.message === 'Invalid GitHub token') setGithubUser(null);
-      } finally {
-        // Clear loading state
-        setLoadingStatus({ isLoading: false, message: null });
-      }
-    };
+      return;
+    }
 
-    fetchRepos();
-  }, [githubUser, selectedOwnerLogin]);
+    const ownerRepos = allRepos.filter((repo) => repo.owner?.login === selectedOwnerLogin);
+
+    setRepos(ownerRepos);
+    setSelectedRepoFullName(prev => {
+      if (
+        prev &&
+        prev.startsWith(`${selectedOwnerLogin}/`) &&
+        ownerRepos.some((repo) => repo.full_name === prev)
+      ) {
+        return prev;
+      }
+
+      return null;
+    });
+  }, [allRepos, githubReposLoaded, githubUser, selectedOwnerLogin]);
 
   // Fetch Branches when a repo is selected
   const handleOwnerChange = useCallback((ownerLogin: string) => {
