@@ -408,6 +408,8 @@ export default function ClientPageRoot() {
     setPullRequestInput('');
     setBranches([]); // Clear old branches
     setPullRequests([]);
+    setGithubTree(null);
+    setIsGithubTreeTruncated(false);
     setGithubSelectionError(null);
 
     if (!repoFullName) {
@@ -424,7 +426,7 @@ export default function ClientPageRoot() {
       try {
         const [branchesResponse, pullsResponse] = await Promise.all([
           fetch(`/api/github/branches?owner=${selectedRepo.owner.login}&repo=${selectedRepo.name}`),
-          fetch(`/api/github/pulls?owner=${selectedRepo.owner.login}&repo=${selectedRepo.name}&state=open`),
+          fetch(`/api/github/pulls?owner=${selectedRepo.owner.login}&repo=${selectedRepo.name}&state=open&limit=30`),
         ]);
 
         if (!branchesResponse.ok) {
@@ -433,10 +435,6 @@ export default function ClientPageRoot() {
         }
         const branchData: GitHubBranch[] = await branchesResponse.json();
         setBranches(branchData);
-        const defaultBranch = branchData.find(b => b.name === selectedRepo.default_branch);
-        if (defaultBranch) {
-            setSelectedBranchName(defaultBranch.name);
-        }
 
         if (pullsResponse.ok) {
           const pullData: GitHubPullRequest[] = await pullsResponse.json();

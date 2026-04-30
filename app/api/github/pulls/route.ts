@@ -2,13 +2,14 @@ import { NextRequest, NextResponse } from 'next/server';
 import { clearGitHubCookie, resolveGitHubToken } from '@/lib/githubAuth';
 const GITHUB_API_BASE = 'https://api.github.com';
 
-async function fetchGitHubPaginated(url: string, token: string): Promise<any[]> {
+async function fetchGitHubPaginated(url: string, token: string, limit = 50): Promise<any[]> {
   const results: any[] = [];
   let page = 1;
+  const perPage = Math.min(100, Math.max(1, limit));
 
   while (true) {
     const separator = url.includes('?') ? '&' : '?';
-    const response = await fetch(`${url}${separator}per_page=100&page=${page}`, {
+    const response = await fetch(`${url}${separator}per_page=${perPage}&page=${page}`, {
       headers: {
         Authorization: `token ${token}`,
         Accept: 'application/vnd.github.v3+json',
@@ -31,14 +32,18 @@ async function fetchGitHubPaginated(url: string, token: string): Promise<any[]> 
     }
 
     results.push(...data);
+    if (results.length >= limit) {
+      break;
+    }
+
     const linkHeader = response.headers.get('Link');
-    if (!linkHeader || !linkHeader.includes('rel="next"') || data.length < 100) {
+    if (!linkHeader || !linkHeader.includes('rel="next"') || data.length < perPage) {
       break;
     }
     page++;
   }
 
-  return results;
+  return results.slice(0, limit);
 }
 
 export async function GET(request: NextRequest) {
@@ -47,6 +52,8 @@ export async function GET(request: NextRequest) {
   const owner = searchParams.get('owner');
   const repo = searchParams.get('repo');
   const state = searchParams.get('state') || 'open';
+  const limitParam = Number(searchParams.get('limit') || '50');
+  const limit = Number.isFinite(limitParam) ? Math.min(100, Math.max(1, limitParam)) : 50;
 
   if (!token) {
     const res = NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
@@ -61,7 +68,8 @@ export async function GET(request: NextRequest) {
   try {
     const pulls = await fetchGitHubPaginated(
       `${GITHUB_API_BASE}/repos/${owner}/${repo}/pulls?state=${encodeURIComponent(state)}&sort=updated&direction=desc`,
-      token
+      token,
+      limit
     );
 
     const pullData = pulls.map((pull) => ({

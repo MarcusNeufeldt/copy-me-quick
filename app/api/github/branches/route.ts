@@ -39,7 +39,7 @@ export async function GET(request: NextRequest) {
     }
 
     try {
-        const branchesUrl = `${GITHUB_API_BASE}/repos/${owner}/${repo}/branches`;
+        const branchesUrl = `${GITHUB_API_BASE}/repos/${owner}/${repo}/branches?per_page=100`;
         const branches = await fetchGitHubBranches(branchesUrl, token);
 
         // We only need specific fields
