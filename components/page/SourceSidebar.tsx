@@ -141,6 +141,105 @@ export function SourceSidebar({
   onResetWorkspace,
   hasAnalysisResult,
 }: SourceSidebarProps) {
+  const pullRequestControls = (showPullRequestSelect: boolean) => (
+    <div className="space-y-2">
+      <div className="flex gap-2">
+        <Input
+          id="github-pr-input"
+          value={pullRequestInput}
+          onChange={(event) => onPullRequestInputChange(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') {
+              event.preventDefault();
+              onPullRequestInputSubmit();
+            }
+          }}
+          placeholder={selectedRepoFullName ? 'PR # or GitHub PR URL' : 'GitHub PR URL'}
+          className="h-8 text-xs"
+        />
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="h-8"
+          onClick={onPullRequestInputSubmit}
+          disabled={loadingStatus.isLoading || !pullRequestInput.trim()}
+        >
+          Load
+        </Button>
+      </div>
+      {showPullRequestSelect && pullRequests.length > 0 && (
+        <Select
+          value={selectedPullNumber ? String(selectedPullNumber) : ''}
+          onValueChange={(value) => onPullRequestSelect(Number(value))}
+          disabled={loadingStatus.isLoading}
+        >
+          <SelectTrigger className="text-xs sm:text-sm">
+            <SelectValue placeholder="Select open pull request..." />
+          </SelectTrigger>
+          <SelectContent>
+            {pullRequests.map((pull) => (
+              <SelectItem key={pull.number} value={String(pull.number)} className="text-xs sm:text-sm">
+                #{pull.number} {pull.title}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      )}
+    </div>
+  );
+
+  const branchControls = (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between">
+        <span className="flex items-center gap-1 text-xs font-medium text-muted-foreground">
+          <GitBranch className="h-3 w-3" /> Branch file tree
+        </span>
+        <TooltipProvider delayDuration={300}>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7"
+                onClick={() => selectedBranchName && onBranchChange(selectedBranchName)}
+                disabled={!selectedBranchName || loadingStatus.isLoading}
+                aria-label="Refresh branch file list"
+              >
+                <RefreshCw className="h-4 w-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="top">
+              <p>Refresh file tree for current branch</p>
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+      </div>
+
+      {loadingStatus.isLoading && loadingStatus.message?.includes('branches') ? (
+        <div className="text-center text-muted-foreground text-xs py-2">Loading branches...</div>
+      ) : branches.length > 0 ? (
+        <ScrollArea className="h-40 w-full rounded-md border p-2">
+          {branches.map((branch) => (
+            <Button
+              key={branch.name}
+              size="sm"
+              variant={selectedBranchName === branch.name ? 'default' : 'ghost'}
+              className="w-full justify-start text-xs mb-1 h-8"
+              onClick={() => onBranchChange(branch.name)}
+              disabled={loadingStatus.isLoading && (loadingStatus.message?.includes('tree') || loadingStatus.message?.includes('contents'))}
+            >
+              <GitBranch className="h-3 w-3 mr-1" />
+              {branch.name}
+            </Button>
+          ))}
+        </ScrollArea>
+      ) : (
+        <div className="text-center text-muted-foreground text-xs py-2">No branches found</div>
+      )}
+    </div>
+  );
+
   return (
     <aside className="flex flex-col gap-4">
       <Card className="glass-card animate-slide-up sticky top-[calc(theme(spacing.16)+1rem)]">
@@ -281,105 +380,31 @@ export function SourceSidebar({
                     </Select>
                   </div>
 
-                  {selectedRepoFullName && (
-                    <div className="space-y-1.5">
-                      <div className="flex items-center justify-between">
-                        <label htmlFor="github-branch-select" className="flex items-center gap-1 text-xs font-medium text-muted-foreground">
-                          <GitBranch className="h-3 w-3" /> Branch
-                        </label>
-                        <TooltipProvider delayDuration={300}>
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className="h-7 w-7"
-                                onClick={() => selectedBranchName && onBranchChange(selectedBranchName)}
-                                disabled={!selectedBranchName || loadingStatus.isLoading}
-                                aria-label="Refresh branch file list"
-                              >
-                                <RefreshCw className="h-4 w-4" />
-                              </Button>
-                            </TooltipTrigger>
-                            <TooltipContent side="top">
-                              <p>Refresh file tree for current branch</p>
-                            </TooltipContent>
-                          </Tooltip>
-                        </TooltipProvider>
-                      </div>
-
-                      {loadingStatus.isLoading && loadingStatus.message?.includes('branches') ? (
-                        <div className="text-center text-muted-foreground text-xs py-2">Loading branches...</div>
-                      ) : branches.length > 0 ? (
-                        <ScrollArea className="h-40 w-full rounded-md border p-2">
-                          {branches.map((branch) => (
-                            <Button
-                              key={branch.name}
-                              size="sm"
-                              variant={selectedBranchName === branch.name ? 'default' : 'ghost'}
-                              className="w-full justify-start text-xs mb-1 h-8"
-                              onClick={() => onBranchChange(branch.name)}
-                              disabled={loadingStatus.isLoading && (loadingStatus.message?.includes('tree') || loadingStatus.message?.includes('contents'))}
-                            >
-                              <GitBranch className="h-3 w-3 mr-1" />
-                              {branch.name}
-                            </Button>
-                          ))}
-                        </ScrollArea>
-                      ) : (
-                        <div className="text-center text-muted-foreground text-xs py-2">No branches found</div>
-                      )}
+                  {selectedRepoFullName ? (
+                    <Tabs key={selectedRepoFullName} defaultValue="pull" className="space-y-3">
+                      <TabsList className="grid w-full grid-cols-2">
+                        <TabsTrigger value="pull" className="text-xs px-2 py-1.5">
+                          <GitPullRequest className="h-3.5 w-3.5 mr-1.5" /> PR
+                        </TabsTrigger>
+                        <TabsTrigger value="branch" className="text-xs px-2 py-1.5">
+                          <GitBranch className="h-3.5 w-3.5 mr-1.5" /> Branch
+                        </TabsTrigger>
+                      </TabsList>
+                      <TabsContent value="pull" className="mt-0">
+                        {pullRequestControls(true)}
+                      </TabsContent>
+                      <TabsContent value="branch" className="mt-0">
+                        {branchControls}
+                      </TabsContent>
+                    </Tabs>
+                  ) : (
+                    <div className="space-y-2">
+                      <label htmlFor="github-pr-input" className="flex items-center gap-1 text-xs font-medium text-muted-foreground">
+                        <GitPullRequest className="h-3 w-3" /> Pull Request
+                      </label>
+                      {pullRequestControls(false)}
                     </div>
                   )}
-
-                  <div className="space-y-2">
-                    <label htmlFor="github-pr-input" className="flex items-center gap-1 text-xs font-medium text-muted-foreground">
-                      <GitPullRequest className="h-3 w-3" /> Pull Request
-                    </label>
-                    <div className="flex gap-2">
-                      <Input
-                        id="github-pr-input"
-                        value={pullRequestInput}
-                        onChange={(event) => onPullRequestInputChange(event.target.value)}
-                        onKeyDown={(event) => {
-                          if (event.key === 'Enter') {
-                            event.preventDefault();
-                            onPullRequestInputSubmit();
-                          }
-                        }}
-                        placeholder={selectedRepoFullName ? 'PR # or GitHub PR URL' : 'GitHub PR URL'}
-                        className="h-8 text-xs"
-                      />
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        className="h-8"
-                        onClick={onPullRequestInputSubmit}
-                        disabled={loadingStatus.isLoading || !pullRequestInput.trim()}
-                      >
-                        Load
-                      </Button>
-                    </div>
-                    {selectedRepoFullName && pullRequests.length > 0 && (
-                      <Select
-                        value={selectedPullNumber ? String(selectedPullNumber) : ''}
-                        onValueChange={(value) => onPullRequestSelect(Number(value))}
-                        disabled={loadingStatus.isLoading}
-                      >
-                        <SelectTrigger className="text-xs sm:text-sm">
-                          <SelectValue placeholder="Select open pull request..." />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {pullRequests.map((pull) => (
-                            <SelectItem key={pull.number} value={String(pull.number)} className="text-xs sm:text-sm">
-                              #{pull.number} {pull.title}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    )}
-                  </div>
 
                   {githubSelectionError && (
                     <Alert variant="destructive" className="text-xs mt-2"><AlertDescription>{githubSelectionError}</AlertDescription></Alert>
