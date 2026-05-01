@@ -84,10 +84,30 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const [pull, files] = await Promise.all([
+    const [pull, files, commits] = await Promise.all([
       fetchGitHub(`${GITHUB_API_BASE}/repos/${owner}/${repo}/pulls/${pullNumber}`, token),
       fetchGitHubPaginated(`${GITHUB_API_BASE}/repos/${owner}/${repo}/pulls/${pullNumber}/files`, token),
+      fetchGitHubPaginated(`${GITHUB_API_BASE}/repos/${owner}/${repo}/pulls/${pullNumber}/commits`, token),
     ]);
+
+    const commitData = commits.map((commit: any) => ({
+      sha: commit.sha,
+      shortSha: commit.sha?.slice(0, 7),
+      message: (commit.commit?.message || '').split('\n')[0] || commit.sha?.slice(0, 7),
+      authorName: commit.commit?.author?.name || commit.commit?.committer?.name || null,
+      authorLogin: commit.author?.login || commit.committer?.login || null,
+      date: commit.commit?.committer?.date || commit.commit?.author?.date || null,
+      html_url: commit.html_url,
+      parents: Array.isArray(commit.parents)
+        ? commit.parents.map((parent: any) => ({ sha: parent.sha, html_url: parent.html_url }))
+        : [],
+    }));
+
+    commitData.sort((a: any, b: any) => {
+      const aTime = new Date(a.date || 0).getTime();
+      const bTime = new Date(b.date || 0).getTime();
+      return bTime - aTime;
+    });
 
     return NextResponse.json({
       pull: {
@@ -118,6 +138,7 @@ export async function GET(request: NextRequest) {
         patch: file.patch,
         previous_filename: file.previous_filename,
       })),
+      commits: commitData,
     });
   } catch (error: any) {
     console.error('Error fetching GitHub pull request files:', error);

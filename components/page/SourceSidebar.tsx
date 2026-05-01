@@ -47,6 +47,8 @@ interface LoadingStatus {
   message: string | null;
 }
 
+const FULL_PR_SCOPE_VALUE = '__full_pr__';
+
 interface SourceSidebarProps {
   activeSourceTab: 'local' | 'github';
   onSourceTabChange: (value: 'local' | 'github') => void;
@@ -81,7 +83,7 @@ interface SourceSidebarProps {
   commits: GitHubCommit[];
   selectedCommitSha: string | null;
   onPullRequestSelect: (pullNumber: number) => void;
-  onCommitSelect: (commitSha: string) => void;
+  onCommitSelect: (commitSha: string | null) => void;
   githubSelectionError: string | null;
   fileLoadingMessage: string | null;
   isGithubTreeTruncated: boolean;
@@ -154,6 +156,7 @@ export function SourceSidebar({
 
   const selectedPullRequest = pullRequests.find((pull) => pull.number === selectedPullNumber);
   const selectedCommit = commits.find((commit) => commit.sha === selectedCommitSha);
+  const prScopeValue = selectedCommitSha || FULL_PR_SCOPE_VALUE;
 
   const pullRequestControls = (
     <div className="space-y-2">
@@ -202,56 +205,50 @@ export function SourceSidebar({
           No open pull requests found.
         </div>
       )}
-    </div>
-  );
 
-  const commitControls = (
-    <div className="space-y-2">
-      <div className="flex items-center justify-between gap-2">
-        <span className="flex items-center gap-1 text-xs font-medium text-muted-foreground">
-          <GitCommitHorizontal className="h-3 w-3" /> Recent commits
-        </span>
-        <span className="text-[11px] text-muted-foreground">
-          {commits.length} newest
-        </span>
-      </div>
-
-      {loadingStatus.isLoading && loadingStatus.message?.includes('refs') ? (
-        <div className="flex items-center justify-center gap-2 rounded-md border py-3 text-xs text-muted-foreground">
-          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-          Loading commits...
-        </div>
-      ) : commits.length > 0 ? (
-        <Select
-          value={selectedCommitSha || ''}
-          onValueChange={onCommitSelect}
-          disabled={loadingStatus.isLoading}
-        >
-          <SelectTrigger className="text-xs sm:text-sm">
-            <SelectValue placeholder="Select commit...">
-              {selectedCommit ? `${selectedCommit.shortSha} ${selectedCommit.message}` : undefined}
-            </SelectValue>
-          </SelectTrigger>
-          <SelectContent>
-            {commits.map((commit) => (
-              <SelectItem key={commit.sha} value={commit.sha} className="text-xs sm:text-sm">
-                <div className="flex min-w-0 flex-col gap-0.5">
-                  <span className="truncate">
-                    {commit.shortSha} {commit.message}
-                  </span>
-                  <span className="truncate text-[11px] text-muted-foreground">
-                    {commit.authorLogin || commit.authorName || 'unknown'} - {formatShortDate(commit.date)}
-                  </span>
-                </div>
+      {selectedPullRequest ? (
+        <div className="space-y-2 rounded-md border bg-background/70 p-2">
+          <div className="flex items-center justify-between gap-2">
+            <span className="flex items-center gap-1 text-xs font-medium text-muted-foreground">
+              <GitCommitHorizontal className="h-3 w-3" /> Scope
+            </span>
+            <span className="text-[11px] text-muted-foreground">
+              {commits.length} commits
+            </span>
+          </div>
+          <Select
+            value={prScopeValue}
+            onValueChange={(value) => onCommitSelect(value === FULL_PR_SCOPE_VALUE ? null : value)}
+            disabled={loadingStatus.isLoading}
+          >
+            <SelectTrigger className="text-xs sm:text-sm">
+              <SelectValue placeholder="Select scope..." />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={FULL_PR_SCOPE_VALUE} className="text-xs sm:text-sm">
+                Entire PR diff
               </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      ) : (
-        <div className="rounded-md border py-3 text-center text-xs text-muted-foreground">
-          No commits found.
+              {commits.map((commit) => (
+                <SelectItem key={commit.sha} value={commit.sha} className="text-xs sm:text-sm">
+                  <div className="flex min-w-0 flex-col gap-0.5">
+                    <span className="truncate">
+                      {commit.shortSha} {commit.message}
+                    </span>
+                    <span className="truncate text-[11px] text-muted-foreground">
+                      {commit.authorLogin || commit.authorName || 'unknown'} - {formatShortDate(commit.date)}
+                    </span>
+                  </div>
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {selectedCommit ? (
+            <div className="truncate text-[11px] text-muted-foreground">
+              {selectedCommit.shortSha} selected
+            </div>
+          ) : null}
         </div>
-      )}
+      ) : null}
     </div>
   );
 
@@ -449,12 +446,9 @@ export function SourceSidebar({
                   {selectedRepoFullName ? (
                     <div className="space-y-3 rounded-md border bg-muted/20 p-3">
                       <Tabs key={selectedRepoFullName} defaultValue="pull" className="space-y-3">
-                      <TabsList className="grid w-full grid-cols-3">
+                      <TabsList className="grid w-full grid-cols-2">
                         <TabsTrigger value="pull" className="text-xs px-2 py-1.5">
                           <GitPullRequest className="h-3.5 w-3.5 mr-1.5" /> PR
-                        </TabsTrigger>
-                        <TabsTrigger value="commit" className="text-xs px-2 py-1.5">
-                          <GitCommitHorizontal className="h-3.5 w-3.5 mr-1.5" /> Commit
                         </TabsTrigger>
                         <TabsTrigger value="branch" className="text-xs px-2 py-1.5">
                           <GitBranch className="h-3.5 w-3.5 mr-1.5" /> Branch
@@ -462,9 +456,6 @@ export function SourceSidebar({
                       </TabsList>
                       <TabsContent value="pull" className="mt-0">
                         {pullRequestControls}
-                      </TabsContent>
-                      <TabsContent value="commit" className="mt-0">
-                        {commitControls}
                       </TabsContent>
                       <TabsContent value="branch" className="mt-0">
                         {branchControls}

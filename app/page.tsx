@@ -401,6 +401,7 @@ export default function ClientPageRoot() {
     setSelectedPullRequest(null);
     setSelectedCommitSha(null);
     setSelectedCommit(null);
+    setCommits([]);
     setBranches([]);
     setPullRequests([]);
     setCommits([]);
@@ -434,10 +435,9 @@ export default function ClientPageRoot() {
       setLoadingStatus({ isLoading: true, message: 'Fetching repository refs...' });
       setGithubSelectionError(null);
       try {
-        const [branchesResponse, pullsResponse, commitsResponse] = await Promise.all([
+        const [branchesResponse, pullsResponse] = await Promise.all([
           fetch(`/api/github/branches?owner=${selectedRepo.owner.login}&repo=${selectedRepo.name}`),
           fetch(`/api/github/pulls?owner=${selectedRepo.owner.login}&repo=${selectedRepo.name}&state=open&limit=30`),
-          fetch(`/api/github/commits?owner=${selectedRepo.owner.login}&repo=${selectedRepo.name}&limit=30`),
         ]);
 
         if (!branchesResponse.ok) {
@@ -453,14 +453,6 @@ export default function ClientPageRoot() {
         } else {
           console.warn('Failed to fetch pull requests for repository', await pullsResponse.text());
           setPullRequests([]);
-        }
-
-        if (commitsResponse.ok) {
-          const commitData: GitHubCommit[] = await commitsResponse.json();
-          setCommits(commitData);
-        } else {
-          console.warn('Failed to fetch commits for repository', await commitsResponse.text());
-          setCommits([]);
         }
 
       } catch (error: any) {
@@ -516,17 +508,6 @@ export default function ClientPageRoot() {
         const treeResponse = await fetch(apiUrl);
         const treeData = await treeResponse.json();
         if (!treeResponse.ok) throw new Error(treeData.error || 'Failed to fetch file tree');
-
-        fetch(`/api/github/commits?owner=${selectedRepo.owner.login}&repo=${selectedRepo.name}&ref=${encodeURIComponent(branchName)}&limit=30`)
-          .then(async (commitsResponse) => {
-            if (!commitsResponse.ok) {
-              console.warn('Failed to fetch commits for branch', await commitsResponse.text());
-              return [];
-            }
-            return commitsResponse.json();
-          })
-          .then((commitData: GitHubCommit[]) => setCommits(commitData))
-          .catch((commitError) => console.warn('Failed to refresh branch commits:', commitError));
 
         loadedTree = treeData.tree;
         loadedCommitDate = treeData.commitDate; // Capture the commit date
@@ -687,18 +668,9 @@ export default function ClientPageRoot() {
 
       const pull: GitHubPullRequest = data.pull;
       const pullFiles: GitHubPullFile[] = data.files || [];
+      const pullCommits: GitHubCommit[] = data.commits || [];
       setSelectedPullRequest(pull);
-
-      fetch(`/api/github/commits?owner=${encodeURIComponent(owner)}&repo=${encodeURIComponent(repo)}&ref=${encodeURIComponent(pull.head.sha)}&limit=30`)
-        .then(async (commitsResponse) => {
-          if (!commitsResponse.ok) {
-            console.warn('Failed to fetch commits for pull request head', await commitsResponse.text());
-            return [];
-          }
-          return commitsResponse.json();
-        })
-        .then((commitData: GitHubCommit[]) => setCommits(commitData))
-        .catch((commitError) => console.warn('Failed to refresh pull request commits:', commitError));
+      setCommits(pullCommits);
 
       const enhancedTree: GitHubTreeItem[] = pullFiles.map((file) => ({
         path: file.filename,
@@ -749,7 +721,8 @@ export default function ClientPageRoot() {
         (p) =>
           p.sourceType === 'github' &&
           p.githubRepoFullName === repoFullName &&
-          p.githubPullNumber === pullNumber
+          p.githubPullNumber === pullNumber &&
+          p.githubSourceMode !== 'commit'
       );
 
       const targetProjectId = existingProject?.id || Date.now().toString();
@@ -768,6 +741,7 @@ export default function ClientPageRoot() {
                   name: `${repoFullName} PR #${pullNumber}`,
                   githubSourceMode: 'pull',
                   githubPullNumber: pullNumber,
+                  githubCommitSha: undefined,
                   githubBranch: pull.head.ref,
                   state: finalState,
                   lastAccessed: Date.now(),
@@ -802,7 +776,7 @@ export default function ClientPageRoot() {
     }
   }, [projects, setCurrentProjectId, setLoadingStatus, setProjects, setState]);
 
-  const loadCommit = useCallback(async (owner: string, repo: string, commitSha: string) => {
+  const loadCommit = useCallback(async (owner: string, repo: string, commitSha: string, pullNumber?: number) => {
     const repoFullName = `${owner}/${repo}`;
 
     setLoadingStatus({ isLoading: true, message: `Loading commit ${commitSha.slice(0, 7)} file tree...` });
@@ -812,8 +786,9 @@ export default function ClientPageRoot() {
     setSelectedRepoFullName(repoFullName);
     setSelectedCommitSha(commitSha);
     setSelectedBranchName(null);
-    setSelectedPullNumber(null);
-    setSelectedPullRequest(null);
+    if (pullNumber) {
+      setSelectedPullNumber(pullNumber);
+    }
     setGithubTree(null);
     setIsGithubTreeTruncated(false);
     setFileLoadingProgress({ current: 0, total: 0 });
@@ -880,6 +855,7 @@ export default function ClientPageRoot() {
         (p) =>
           p.sourceType === 'github' &&
           p.githubRepoFullName === repoFullName &&
+          p.githubPullNumber === pullNumber &&
           p.githubCommitSha === commit.sha
       );
 
@@ -896,8 +872,11 @@ export default function ClientPageRoot() {
             p.id === targetProjectId
               ? {
                   ...p,
-                  name: `${repoFullName} commit ${commit.shortSha}`,
+                  name: pullNumber
+                    ? `${repoFullName} PR #${pullNumber} commit ${commit.shortSha}`
+                    : `${repoFullName} commit ${commit.shortSha}`,
                   githubSourceMode: 'commit',
+                  githubPullNumber: pullNumber,
                   githubCommitSha: commit.sha,
                   githubBranch: commit.sha,
                   state: finalState,
@@ -909,10 +888,13 @@ export default function ClientPageRoot() {
       } else {
         const newProject: Project = {
           id: targetProjectId,
-          name: `${repoFullName} commit ${commit.shortSha}`,
+          name: pullNumber
+            ? `${repoFullName} PR #${pullNumber} commit ${commit.shortSha}`
+            : `${repoFullName} commit ${commit.shortSha}`,
           sourceType: 'github',
           githubRepoFullName: repoFullName,
           githubBranch: commit.sha,
+          githubPullNumber: pullNumber,
           githubCommitSha: commit.sha,
           githubSourceMode: 'commit',
           state: finalState,
@@ -940,12 +922,18 @@ export default function ClientPageRoot() {
     loadPullRequest(owner, repo, pullNumber);
   }, [loadPullRequest, selectedRepoFullName]);
 
-  const handleCommitSelect = useCallback((commitSha: string) => {
+  const handleCommitSelect = useCallback((commitSha: string | null) => {
     const repoFullName = selectedRepoFullName;
-    if (!repoFullName || !commitSha) return;
+    if (!repoFullName) return;
     const [owner, repo] = repoFullName.split('/');
-    loadCommit(owner, repo, commitSha);
-  }, [loadCommit, selectedRepoFullName]);
+    if (!commitSha) {
+      if (selectedPullNumber) {
+        loadPullRequest(owner, repo, selectedPullNumber);
+      }
+      return;
+    }
+    loadCommit(owner, repo, commitSha, selectedPullNumber || undefined);
+  }, [loadCommit, loadPullRequest, selectedPullNumber, selectedRepoFullName]);
 
   // Persist state changes to localStorage
   useEffect(() => {
@@ -1227,6 +1215,7 @@ export default function ClientPageRoot() {
         branch: selectedCommit.sha,
         ref: selectedCommit.sha,
         baseRef: selectedCommit.parents?.[0]?.sha,
+        pullNumber: selectedPullNumber || undefined,
         commitSha: selectedCommit.sha,
         sourceMode: 'commit' as const,
       };
@@ -1242,7 +1231,7 @@ export default function ClientPageRoot() {
       };
     }
     return undefined;
-  }, [githubSourceMode, selectedCommit, selectedPullRequest, selectedRepoFullName, selectedBranchName]);
+  }, [githubSourceMode, selectedCommit, selectedPullNumber, selectedPullRequest, selectedRepoFullName, selectedBranchName]);
 
   // This callback is passed to AnalysisResult for its internal state changes
   const handleSelectedFilesChange = useCallback(async (filesOrUpdater: string[] | ((prev: string[]) => string[])) => {
