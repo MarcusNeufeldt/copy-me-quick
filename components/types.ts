@@ -12,6 +12,7 @@ export interface FileData {
   deletions?: number;
   previousPath?: string;
   pullNumber?: number;
+  commitSha?: string;
   dataSourceType?: 'local' | 'github';
 }
 
@@ -41,7 +42,8 @@ export interface Project {
   githubRepoFullName?: string;
   githubBranch?: string;
   githubPullNumber?: number;
-  githubSourceMode?: 'branch' | 'pull';
+  githubCommitSha?: string;
+  githubSourceMode?: GitHubSourceMode;
   state: AppState;
   lastAccessed?: number; // Unix timestamp
   hasDirectoryHandle?: boolean;
@@ -122,6 +124,19 @@ export interface GitHubPullFile {
   previous_filename?: string;
 }
 
+export interface GitHubCommit {
+  sha: string;
+  shortSha: string;
+  message: string;
+  authorName?: string | null;
+  authorLogin?: string | null;
+  date: string | null;
+  html_url: string;
+  parents: Array<{ sha: string; html_url?: string }>;
+}
+
+export type GitHubCommitFile = GitHubPullFile;
+
 export interface GitHubTreeItem {
   path: string;
   mode: string;
@@ -140,7 +155,10 @@ export interface GitHubTreeItem {
   deletions?: number;
   previousPath?: string;
   pullNumber?: number;
+  commitSha?: string;
 }
+
+export type GitHubSourceMode = 'branch' | 'pull' | 'commit';
 
 export interface GitHubRepoInfo {
   owner: string;
@@ -149,7 +167,8 @@ export interface GitHubRepoInfo {
   ref?: string;
   baseRef?: string;
   pullNumber?: number;
-  sourceMode?: 'branch' | 'pull';
+  commitSha?: string;
+  sourceMode?: GitHubSourceMode;
 }
 
 export type DataSourceType = 'local' | 'github';

@@ -16,6 +16,7 @@ import {
   AnalysisResultData,
   AppState,
   GitHubBranch,
+  GitHubCommit,
   GitHubOwner,
   GitHubPullRequest,
   GitHubRepo,
@@ -30,6 +31,7 @@ import {
   Filter,
   GitBranch,
   GitBranchPlus,
+  GitCommitHorizontal,
   GitPullRequest,
   Github,
   Loader2,
@@ -76,7 +78,10 @@ interface SourceSidebarProps {
   selectedBranchName: string | null;
   pullRequests: GitHubPullRequest[];
   selectedPullNumber: number | null;
+  commits: GitHubCommit[];
+  selectedCommitSha: string | null;
   onPullRequestSelect: (pullNumber: number) => void;
+  onCommitSelect: (commitSha: string) => void;
   githubSelectionError: string | null;
   fileLoadingMessage: string | null;
   isGithubTreeTruncated: boolean;
@@ -121,7 +126,10 @@ export function SourceSidebar({
   selectedBranchName,
   pullRequests,
   selectedPullNumber,
+  commits,
+  selectedCommitSha,
   onPullRequestSelect,
+  onCommitSelect,
   githubSelectionError,
   fileLoadingMessage,
   isGithubTreeTruncated,
@@ -145,6 +153,7 @@ export function SourceSidebar({
   };
 
   const selectedPullRequest = pullRequests.find((pull) => pull.number === selectedPullNumber);
+  const selectedCommit = commits.find((commit) => commit.sha === selectedCommitSha);
 
   const pullRequestControls = (
     <div className="space-y-2">
@@ -191,6 +200,56 @@ export function SourceSidebar({
       ) : (
         <div className="rounded-md border py-3 text-center text-xs text-muted-foreground">
           No open pull requests found.
+        </div>
+      )}
+    </div>
+  );
+
+  const commitControls = (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between gap-2">
+        <span className="flex items-center gap-1 text-xs font-medium text-muted-foreground">
+          <GitCommitHorizontal className="h-3 w-3" /> Recent commits
+        </span>
+        <span className="text-[11px] text-muted-foreground">
+          {commits.length} newest
+        </span>
+      </div>
+
+      {loadingStatus.isLoading && loadingStatus.message?.includes('refs') ? (
+        <div className="flex items-center justify-center gap-2 rounded-md border py-3 text-xs text-muted-foreground">
+          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          Loading commits...
+        </div>
+      ) : commits.length > 0 ? (
+        <Select
+          value={selectedCommitSha || ''}
+          onValueChange={onCommitSelect}
+          disabled={loadingStatus.isLoading}
+        >
+          <SelectTrigger className="text-xs sm:text-sm">
+            <SelectValue placeholder="Select commit...">
+              {selectedCommit ? `${selectedCommit.shortSha} ${selectedCommit.message}` : undefined}
+            </SelectValue>
+          </SelectTrigger>
+          <SelectContent>
+            {commits.map((commit) => (
+              <SelectItem key={commit.sha} value={commit.sha} className="text-xs sm:text-sm">
+                <div className="flex min-w-0 flex-col gap-0.5">
+                  <span className="truncate">
+                    {commit.shortSha} {commit.message}
+                  </span>
+                  <span className="truncate text-[11px] text-muted-foreground">
+                    {commit.authorLogin || commit.authorName || 'unknown'} - {formatShortDate(commit.date)}
+                  </span>
+                </div>
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      ) : (
+        <div className="rounded-md border py-3 text-center text-xs text-muted-foreground">
+          No commits found.
         </div>
       )}
     </div>
@@ -390,9 +449,12 @@ export function SourceSidebar({
                   {selectedRepoFullName ? (
                     <div className="space-y-3 rounded-md border bg-muted/20 p-3">
                       <Tabs key={selectedRepoFullName} defaultValue="pull" className="space-y-3">
-                      <TabsList className="grid w-full grid-cols-2">
+                      <TabsList className="grid w-full grid-cols-3">
                         <TabsTrigger value="pull" className="text-xs px-2 py-1.5">
                           <GitPullRequest className="h-3.5 w-3.5 mr-1.5" /> PR
+                        </TabsTrigger>
+                        <TabsTrigger value="commit" className="text-xs px-2 py-1.5">
+                          <GitCommitHorizontal className="h-3.5 w-3.5 mr-1.5" /> Commit
                         </TabsTrigger>
                         <TabsTrigger value="branch" className="text-xs px-2 py-1.5">
                           <GitBranch className="h-3.5 w-3.5 mr-1.5" /> Branch
@@ -401,6 +463,9 @@ export function SourceSidebar({
                       <TabsContent value="pull" className="mt-0">
                         {pullRequestControls}
                       </TabsContent>
+                      <TabsContent value="commit" className="mt-0">
+                        {commitControls}
+                      </TabsContent>
                       <TabsContent value="branch" className="mt-0">
                         {branchControls}
                       </TabsContent>
@@ -408,7 +473,7 @@ export function SourceSidebar({
                     </div>
                   ) : (
                     <div className="rounded-md border border-dashed p-3 text-center text-xs text-muted-foreground">
-                      Select a repository to choose a pull request or branch.
+                      Select a repository to choose a pull request, commit, or branch.
                     </div>
                   )}
 

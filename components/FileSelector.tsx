@@ -177,6 +177,7 @@ const FileSelector = ({
             deletions: analysisFile?.deletions ?? extendedItem.deletions,
             previousPath: analysisFile?.previousPath ?? extendedItem.previousPath,
             pullNumber: analysisFile?.pullNumber ?? extendedItem.pullNumber,
+            commitSha: analysisFile?.commitSha ?? extendedItem.commitSha,
             dataSourceType: 'github'
           };
         });
@@ -206,7 +207,9 @@ const FileSelector = ({
     setLoadingStatus,
     loadingStatus
   });
-  const isPullRequestSource = dataSource.type === 'github' && dataSource.repoInfo?.sourceMode === 'pull';
+  const isDiffSource = dataSource.type === 'github'
+    && (dataSource.repoInfo?.sourceMode === 'pull' || dataSource.repoInfo?.sourceMode === 'commit');
+  const copyDiffLabel = dataSource.repoInfo?.sourceMode === 'commit' ? 'Copy Commit' : 'Copy PR';
   const handleCopy = useCallback((mode: CopyMode = 'full') => {
     copySelectedFiles(mode);
   }, [copySelectedFiles]);
@@ -650,7 +653,7 @@ const FileSelector = ({
             </Tooltip>
           </TooltipProvider>
 
-          {isPullRequestSource ? (
+          {isDiffSource ? (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button
@@ -664,7 +667,7 @@ const FileSelector = ({
                   ) : (
                     <Copy className="mr-2 h-4 w-4" />
                   )}
-                  <span>{loadingStatus.isLoading && loadingStatus.message?.includes('Copying') ? 'Copying...' : copySuccess ? 'Copied!' : 'Copy PR'}</span>
+                  <span>{loadingStatus.isLoading && loadingStatus.message?.includes('Copying') ? 'Copying...' : copySuccess ? 'Copied!' : copyDiffLabel}</span>
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">

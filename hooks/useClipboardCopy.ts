@@ -155,7 +155,8 @@ export function useClipboardCopy({
           return `${header}\n\n${file.patch || '[No textual patch available. The file may be binary, renamed without textual changes, or too large for GitHub patch output.]'}`;
         }).join('\n\n---\n\n');
 
-        clipboardText = `Project Structure:\n${treeString}\n\n---\n\nPull Request Diffs:\n${diffContent}`;
+        const diffTitle = dataSource.repoInfo?.sourceMode === 'commit' ? 'Commit Diffs' : 'Pull Request Diffs';
+        clipboardText = `Project Structure:\n${treeString}\n\n---\n\n${diffTitle}:\n${diffContent}`;
 
         if (mode === 'diff-full') {
           let fullContent = '';

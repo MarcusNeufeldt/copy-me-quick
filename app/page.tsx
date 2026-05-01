@@ -11,9 +11,12 @@ import {
   GitHubUser,
   GitHubRepo,
   GitHubBranch,
+  GitHubCommit,
+  GitHubCommitFile,
   GitHubOwner,
   GitHubPullFile,
   GitHubPullRequest,
+  GitHubSourceMode,
   GitHubTreeItem,
 } from '@/components/types';
 import dynamic from 'next/dynamic';
@@ -117,7 +120,10 @@ export default function ClientPageRoot() {
   const [selectedBranchName, setSelectedBranchName] = useState<string | null>(null);
   const [pullRequests, setPullRequests] = useState<GitHubPullRequest[]>([]);
   const [selectedPullNumber, setSelectedPullNumber] = useState<number | null>(null);
-  const [githubSourceMode, setGithubSourceMode] = useState<'branch' | 'pull'>('branch');
+  const [commits, setCommits] = useState<GitHubCommit[]>([]);
+  const [selectedCommitSha, setSelectedCommitSha] = useState<string | null>(null);
+  const [selectedCommit, setSelectedCommit] = useState<GitHubCommit | null>(null);
+  const [githubSourceMode, setGithubSourceMode] = useState<GitHubSourceMode>('pull');
   const [selectedPullRequest, setSelectedPullRequest] = useState<GitHubPullRequest | null>(null);
   const [githubSelectionError, setGithubSelectionError] = useState<string | null>(null); // Separate error state for selection
 
@@ -197,8 +203,9 @@ export default function ClientPageRoot() {
             setSelectedOwnerLogin(currentProject.githubRepoFullName.split('/')[0]);
             setSelectedRepoFullName(currentProject.githubRepoFullName);
             setSelectedBranchName(currentProject.githubBranch);
-            setGithubSourceMode(currentProject.githubSourceMode || (currentProject.githubPullNumber ? 'pull' : 'branch'));
+            setGithubSourceMode(currentProject.githubSourceMode || (currentProject.githubPullNumber ? 'pull' : currentProject.githubCommitSha ? 'commit' : 'branch'));
             setSelectedPullNumber(currentProject.githubPullNumber || null);
+            setSelectedCommitSha(currentProject.githubCommitSha || null);
             // Note: We might still need to re-fetch branches/tree if not persisted or stale,
             // but setting the selected repo/branch is crucial for UI consistency.
             // Consider if handleBranchChange needs to be smarter about re-fetching vs using restored state.
@@ -392,8 +399,11 @@ export default function ClientPageRoot() {
     setSelectedBranchName(null);
     setSelectedPullNumber(null);
     setSelectedPullRequest(null);
+    setSelectedCommitSha(null);
+    setSelectedCommit(null);
     setBranches([]);
     setPullRequests([]);
+    setCommits([]);
     setGithubTree(null);
     setGithubSelectionError(null);
   }, []);
@@ -403,8 +413,11 @@ export default function ClientPageRoot() {
     setSelectedBranchName(null); // Reset branch selection
     setSelectedPullNumber(null);
     setSelectedPullRequest(null);
+    setSelectedCommitSha(null);
+    setSelectedCommit(null);
     setBranches([]); // Clear old branches
     setPullRequests([]);
+    setCommits([]);
     setGithubTree(null);
     setIsGithubTreeTruncated(false);
     setGithubSelectionError(null);
@@ -421,9 +434,10 @@ export default function ClientPageRoot() {
       setLoadingStatus({ isLoading: true, message: 'Fetching repository refs...' });
       setGithubSelectionError(null);
       try {
-        const [branchesResponse, pullsResponse] = await Promise.all([
+        const [branchesResponse, pullsResponse, commitsResponse] = await Promise.all([
           fetch(`/api/github/branches?owner=${selectedRepo.owner.login}&repo=${selectedRepo.name}`),
           fetch(`/api/github/pulls?owner=${selectedRepo.owner.login}&repo=${selectedRepo.name}&state=open&limit=30`),
+          fetch(`/api/github/commits?owner=${selectedRepo.owner.login}&repo=${selectedRepo.name}&limit=30`),
         ]);
 
         if (!branchesResponse.ok) {
@@ -439,6 +453,14 @@ export default function ClientPageRoot() {
         } else {
           console.warn('Failed to fetch pull requests for repository', await pullsResponse.text());
           setPullRequests([]);
+        }
+
+        if (commitsResponse.ok) {
+          const commitData: GitHubCommit[] = await commitsResponse.json();
+          setCommits(commitData);
+        } else {
+          console.warn('Failed to fetch commits for repository', await commitsResponse.text());
+          setCommits([]);
         }
 
       } catch (error: any) {
@@ -475,6 +497,8 @@ export default function ClientPageRoot() {
     setGithubSourceMode('branch');
     setSelectedPullNumber(null);
     setSelectedPullRequest(null);
+    setSelectedCommitSha(null);
+    setSelectedCommit(null);
 
     const selectedRepo = repos.find(r => r.full_name === selectedRepoFullName);
     if (!selectedRepo) return;
@@ -492,6 +516,17 @@ export default function ClientPageRoot() {
         const treeResponse = await fetch(apiUrl);
         const treeData = await treeResponse.json();
         if (!treeResponse.ok) throw new Error(treeData.error || 'Failed to fetch file tree');
+
+        fetch(`/api/github/commits?owner=${selectedRepo.owner.login}&repo=${selectedRepo.name}&ref=${encodeURIComponent(branchName)}&limit=30`)
+          .then(async (commitsResponse) => {
+            if (!commitsResponse.ok) {
+              console.warn('Failed to fetch commits for branch', await commitsResponse.text());
+              return [];
+            }
+            return commitsResponse.json();
+          })
+          .then((commitData: GitHubCommit[]) => setCommits(commitData))
+          .catch((commitError) => console.warn('Failed to refresh branch commits:', commitError));
 
         loadedTree = treeData.tree;
         loadedCommitDate = treeData.commitDate; // Capture the commit date
@@ -636,6 +671,8 @@ export default function ClientPageRoot() {
     setSelectedRepoFullName(repoFullName);
     setSelectedPullNumber(pullNumber);
     setSelectedBranchName(null);
+    setSelectedCommitSha(null);
+    setSelectedCommit(null);
     setGithubTree(null);
     setIsGithubTreeTruncated(false);
     setFileLoadingProgress({ current: 0, total: 0 });
@@ -651,6 +688,17 @@ export default function ClientPageRoot() {
       const pull: GitHubPullRequest = data.pull;
       const pullFiles: GitHubPullFile[] = data.files || [];
       setSelectedPullRequest(pull);
+
+      fetch(`/api/github/commits?owner=${encodeURIComponent(owner)}&repo=${encodeURIComponent(repo)}&ref=${encodeURIComponent(pull.head.sha)}&limit=30`)
+        .then(async (commitsResponse) => {
+          if (!commitsResponse.ok) {
+            console.warn('Failed to fetch commits for pull request head', await commitsResponse.text());
+            return [];
+          }
+          return commitsResponse.json();
+        })
+        .then((commitData: GitHubCommit[]) => setCommits(commitData))
+        .catch((commitError) => console.warn('Failed to refresh pull request commits:', commitError));
 
       const enhancedTree: GitHubTreeItem[] = pullFiles.map((file) => ({
         path: file.filename,
@@ -754,12 +802,150 @@ export default function ClientPageRoot() {
     }
   }, [projects, setCurrentProjectId, setLoadingStatus, setProjects, setState]);
 
+  const loadCommit = useCallback(async (owner: string, repo: string, commitSha: string) => {
+    const repoFullName = `${owner}/${repo}`;
+
+    setLoadingStatus({ isLoading: true, message: `Loading commit ${commitSha.slice(0, 7)} file tree...` });
+    setGithubSelectionError(null);
+    setGithubSourceMode('commit');
+    setSelectedOwnerLogin(owner);
+    setSelectedRepoFullName(repoFullName);
+    setSelectedCommitSha(commitSha);
+    setSelectedBranchName(null);
+    setSelectedPullNumber(null);
+    setSelectedPullRequest(null);
+    setGithubTree(null);
+    setIsGithubTreeTruncated(false);
+    setFileLoadingProgress({ current: 0, total: 0 });
+    setFileLoadingMessage(null);
+
+    try {
+      const response = await fetch(`/api/github/commit-files?owner=${encodeURIComponent(owner)}&repo=${encodeURIComponent(repo)}&sha=${encodeURIComponent(commitSha)}`);
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to fetch commit files');
+      }
+
+      const commit: GitHubCommit = data.commit;
+      const commitFiles: GitHubCommitFile[] = data.files || [];
+      const baseRef = commit.parents?.[0]?.sha;
+      setSelectedCommit(commit);
+
+      const enhancedTree: GitHubTreeItem[] = commitFiles.map((file) => ({
+        path: file.filename,
+        mode: '100644',
+        type: 'blob',
+        sha: file.sha,
+        url: '',
+        formattedSize: `+${file.additions} / -${file.deletions}`,
+        ref: commit.sha,
+        baseRef,
+        patch: file.patch,
+        status: file.status,
+        additions: file.additions,
+        deletions: file.deletions,
+        previousPath: file.previous_filename,
+        commitSha: commit.sha,
+      }));
+
+      setGithubTree(enhancedTree);
+
+      const filesMetadata: FileData[] = commitFiles.map((file) => ({
+        path: file.filename,
+        lines: 0,
+        content: '',
+        sha: file.sha,
+        ref: commit.sha,
+        baseRef,
+        patch: file.patch,
+        status: file.status,
+        additions: file.additions,
+        deletions: file.deletions,
+        previousPath: file.previous_filename,
+        commitSha: commit.sha,
+        dataSourceType: 'github',
+      }));
+
+      const analysisResultData: AnalysisResultData = {
+        totalFiles: filesMetadata.length,
+        totalLines: 0,
+        totalTokens: 0,
+        summary: `GitHub commit: ${repoFullName} ${commit.shortSha} - ${commit.message}`,
+        project_tree: `GitHub commit file tree for ${repoFullName} ${commit.shortSha}`,
+        files: filesMetadata,
+        commitDate: commit.date,
+      };
+
+      const existingProject = projects.find(
+        (p) =>
+          p.sourceType === 'github' &&
+          p.githubRepoFullName === repoFullName &&
+          p.githubCommitSha === commit.sha
+      );
+
+      const targetProjectId = existingProject?.id || Date.now().toString();
+      const finalState: AppState = {
+        ...(existingProject?.state || initialAppState),
+        analysisResult: analysisResultData,
+        selectedFiles: [],
+      };
+
+      if (existingProject) {
+        setProjects(prevProjects =>
+          prevProjects.map(p =>
+            p.id === targetProjectId
+              ? {
+                  ...p,
+                  name: `${repoFullName} commit ${commit.shortSha}`,
+                  githubSourceMode: 'commit',
+                  githubCommitSha: commit.sha,
+                  githubBranch: commit.sha,
+                  state: finalState,
+                  lastAccessed: Date.now(),
+                }
+              : p
+          )
+        );
+      } else {
+        const newProject: Project = {
+          id: targetProjectId,
+          name: `${repoFullName} commit ${commit.shortSha}`,
+          sourceType: 'github',
+          githubRepoFullName: repoFullName,
+          githubBranch: commit.sha,
+          githubCommitSha: commit.sha,
+          githubSourceMode: 'commit',
+          state: finalState,
+          lastAccessed: Date.now(),
+        };
+        setProjects(prevProjects => [...prevProjects, newProject]);
+      }
+
+      setState(finalState);
+      setCurrentProjectId(targetProjectId);
+    } catch (error) {
+      console.error("Error loading commit:", error);
+      setGithubSelectionError(error instanceof Error ? error.message : String(error));
+      setGithubTree(null);
+      if (error instanceof Error && error.message === 'Invalid GitHub token') setGithubUser(null);
+    } finally {
+      setLoadingStatus({ isLoading: false, message: null });
+    }
+  }, [projects, setCurrentProjectId, setLoadingStatus, setProjects, setState]);
+
   const handlePullRequestSelect = useCallback((pullNumber: number) => {
     const repoFullName = selectedRepoFullName;
     if (!repoFullName || !pullNumber) return;
     const [owner, repo] = repoFullName.split('/');
     loadPullRequest(owner, repo, pullNumber);
   }, [loadPullRequest, selectedRepoFullName]);
+
+  const handleCommitSelect = useCallback((commitSha: string) => {
+    const repoFullName = selectedRepoFullName;
+    if (!repoFullName || !commitSha) return;
+    const [owner, repo] = repoFullName.split('/');
+    loadCommit(owner, repo, commitSha);
+  }, [loadCommit, selectedRepoFullName]);
 
   // Persist state changes to localStorage
   useEffect(() => {
@@ -1034,6 +1220,18 @@ export default function ClientPageRoot() {
       };
     }
 
+    if (selectedRepoFullName && githubSourceMode === 'commit' && selectedCommit) {
+      return {
+        owner: selectedRepoFullName.split('/')[0],
+        repo: selectedRepoFullName.split('/')[1],
+        branch: selectedCommit.sha,
+        ref: selectedCommit.sha,
+        baseRef: selectedCommit.parents?.[0]?.sha,
+        commitSha: selectedCommit.sha,
+        sourceMode: 'commit' as const,
+      };
+    }
+
     if (selectedRepoFullName && selectedBranchName) {
       return {
         owner: selectedRepoFullName.split('/')[0],
@@ -1044,7 +1242,7 @@ export default function ClientPageRoot() {
       };
     }
     return undefined;
-  }, [githubSourceMode, selectedPullRequest, selectedRepoFullName, selectedBranchName]);
+  }, [githubSourceMode, selectedCommit, selectedPullRequest, selectedRepoFullName, selectedBranchName]);
 
   // This callback is passed to AnalysisResult for its internal state changes
   const handleSelectedFilesChange = useCallback(async (filesOrUpdater: string[] | ((prev: string[]) => string[])) => {
@@ -1183,8 +1381,9 @@ export default function ClientPageRoot() {
       setSelectedOwnerLogin(projectToLoad.githubRepoFullName?.split('/')[0] || null);
       setSelectedRepoFullName(projectToLoad.githubRepoFullName || null);
       setSelectedBranchName(projectToLoad.githubBranch || null);
-      setGithubSourceMode(projectToLoad.githubSourceMode || (projectToLoad.githubPullNumber ? 'pull' : 'branch'));
+      setGithubSourceMode(projectToLoad.githubSourceMode || (projectToLoad.githubPullNumber ? 'pull' : projectToLoad.githubCommitSha ? 'commit' : 'branch'));
       setSelectedPullNumber(projectToLoad.githubPullNumber || null);
+      setSelectedCommitSha(projectToLoad.githubCommitSha || null);
       // Note: The actual data fetching (tree, content) for GitHub projects is handled
       // by the useEffects triggered by selectedRepoFullName and handleBranchChange.
       // If the state (analysisResult) was fully persisted, we might load it here.
@@ -1267,8 +1466,11 @@ export default function ClientPageRoot() {
     setSelectedBranchName(null);
     setSelectedPullNumber(null);
     setSelectedPullRequest(null);
+    setSelectedCommitSha(null);
+    setSelectedCommit(null);
     setGithubSourceMode('branch');
     setPullRequests([]);
+    setCommits([]);
     setGithubTree(null);
     setIsGithubTreeTruncated(false);
     setGithubSelectionError(null);
@@ -1364,7 +1566,13 @@ export default function ClientPageRoot() {
         setGithubError(null);
         setSelectedRepoFullName(null);
         setSelectedBranchName(null);
+        setSelectedPullNumber(null);
+        setSelectedPullRequest(null);
+        setSelectedCommitSha(null);
+        setSelectedCommit(null);
         setBranches([]);
+        setPullRequests([]);
+        setCommits([]);
         setRepos([]);
         setGithubTree(null);
         setActiveSourceTab('local'); // Switch back to local tab on logout
@@ -1493,7 +1701,10 @@ export default function ClientPageRoot() {
             selectedBranchName={selectedBranchName}
             pullRequests={pullRequests}
             selectedPullNumber={selectedPullNumber}
+            commits={commits}
+            selectedCommitSha={selectedCommitSha}
             onPullRequestSelect={handlePullRequestSelect}
+            onCommitSelect={handleCommitSelect}
             githubSelectionError={githubSelectionError}
             fileLoadingMessage={fileLoadingMessage}
             isGithubTreeTruncated={isGithubTreeTruncated}
