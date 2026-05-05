@@ -31,6 +31,7 @@ import { EmptyAnalysisState } from '@/components/page/EmptyAnalysisState';
 import { LoadingIndicator } from '@/components/page/LoadingIndicator';
 import { PageDialogs } from '@/components/page/PageDialogs';
 import { SourceSidebar } from '@/components/page/SourceSidebar';
+import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable';
 import { defaultProjectTypes, initialAppState, MAX_RECENT_PROJECTS, MAX_TOKENS } from '@/lib/appDefaults';
 import { getFilesFromHandle } from '@/lib/localDirectory';
 import { formatFileSize } from '@/components/fileSelectorUtils';
@@ -1652,95 +1653,123 @@ export default function ClientPageRoot() {
     );
   }
 
+  const renderSourcePanel = () => (
+    <SourceSidebar
+      activeSourceTab={activeSourceTab}
+      onSourceTabChange={handleTabChangeAttempt}
+      setState={setState}
+      onProjectTypeSelected={setProjectTypeSelected}
+      projectTypes={projectTypes}
+      onProjectTemplatesUpdate={handleProjectTemplateUpdate}
+      state={state}
+      setLoadingStatus={setLoadingStatus}
+      loadingStatus={loadingStatus}
+      updateCurrentProject={updateCurrentProject}
+      onUploadComplete={handleUploadComplete}
+      setError={setError}
+      projectTypeSelected={projectTypeSelected}
+      onOpenLocalFilters={() => setIsLocalFilterManagerOpen(true)}
+      projects={projects}
+      onLoadProject={handleLoadRecentProject}
+      onPinProject={handlePinProject}
+      onRemoveProject={handleRemoveProject}
+      onRenameProject={handleRenameProject}
+      githubUser={githubUser}
+      githubError={githubError}
+      githubOwners={githubOwners}
+      selectedOwnerLogin={selectedOwnerLogin}
+      onOwnerChange={handleOwnerChange}
+      repos={repos}
+      selectedRepoFullName={selectedRepoFullName}
+      branches={branches}
+      selectedBranchName={selectedBranchName}
+      pullRequests={pullRequests}
+      selectedPullNumber={selectedPullNumber}
+      commits={commits}
+      selectedCommitSha={selectedCommitSha}
+      onPullRequestSelect={handlePullRequestSelect}
+      onCommitSelect={handleCommitSelect}
+      githubSelectionError={githubSelectionError}
+      fileLoadingMessage={fileLoadingMessage}
+      isGithubTreeTruncated={isGithubTreeTruncated}
+      githubExclusions={githubExclusions}
+      onGitHubLogin={handleGitHubLogin}
+      onGitHubLogout={handleGitHubLogout}
+      onRepoChange={handleRepoChange}
+      onBranchChange={handleBranchChange}
+      onOpenGitHubFilters={() => setIsGitHubFilterManagerOpen(true)}
+      onResetWorkspace={handleResetWorkspace}
+      hasAnalysisResult={Boolean(state.analysisResult)}
+    />
+  );
+
+  const renderMainPanel = () => (
+    <div className="space-y-6 animate-slide-up animation-delay-200">
+      {error && (
+        <Alert variant="destructive" className="animate-scale">
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
+
+      {state.analysisResult ? (
+        <AnalysisResult
+          analysisResult={state.analysisResult}
+          selectedFiles={state.selectedFiles}
+          onSelectedFilesChange={handleSelectedFilesChange}
+          tokenCount={tokenCount}
+          setTokenCount={handleTokenCountChange}
+          tokenDetails={tokenDetails}
+          maxTokens={MAX_TOKENS}
+          activeSourceTab={activeSourceTab}
+          githubTree={githubTree}
+          githubRepoInfo={githubRepoInfo}
+          setLoadingStatus={setLoadingStatus}
+          loadingStatus={loadingStatus}
+          currentProjectId={currentProjectId}
+          githubExclusions={githubExclusions}
+        />
+      ) : (
+        <EmptyAnalysisState
+          activeSourceTab={activeSourceTab}
+          isGithubTreeTruncated={isGithubTreeTruncated}
+        />
+      )}
+    </div>
+  );
+
   return (
     <div className="relative">
       <LoadingIndicator isLoading={loadingStatus.isLoading} message={loadingStatus.message} />
       <AppHeader />
       
-      <div className="container px-4 py-4 sm:py-6 md:py-10 max-w-7xl mx-auto animate-fade-in">
-        <div className="grid gap-6 grid-cols-1 md:grid-cols-[250px_1fr] lg:grid-cols-[280px_1fr]">
-          <SourceSidebar
-            activeSourceTab={activeSourceTab}
-            onSourceTabChange={handleTabChangeAttempt}
-            setState={setState}
-            onProjectTypeSelected={setProjectTypeSelected}
-            projectTypes={projectTypes}
-            onProjectTemplatesUpdate={handleProjectTemplateUpdate}
-            state={state}
-            setLoadingStatus={setLoadingStatus}
-            loadingStatus={loadingStatus}
-            updateCurrentProject={updateCurrentProject}
-            onUploadComplete={handleUploadComplete}
-            setError={setError}
-            projectTypeSelected={projectTypeSelected}
-            onOpenLocalFilters={() => setIsLocalFilterManagerOpen(true)}
-            projects={projects}
-            onLoadProject={handleLoadRecentProject}
-            onPinProject={handlePinProject}
-            onRemoveProject={handleRemoveProject}
-            onRenameProject={handleRenameProject}
-            githubUser={githubUser}
-            githubError={githubError}
-            githubOwners={githubOwners}
-            selectedOwnerLogin={selectedOwnerLogin}
-            onOwnerChange={handleOwnerChange}
-            repos={repos}
-            selectedRepoFullName={selectedRepoFullName}
-            branches={branches}
-            selectedBranchName={selectedBranchName}
-            pullRequests={pullRequests}
-            selectedPullNumber={selectedPullNumber}
-            commits={commits}
-            selectedCommitSha={selectedCommitSha}
-            onPullRequestSelect={handlePullRequestSelect}
-            onCommitSelect={handleCommitSelect}
-            githubSelectionError={githubSelectionError}
-            fileLoadingMessage={fileLoadingMessage}
-            isGithubTreeTruncated={isGithubTreeTruncated}
-            githubExclusions={githubExclusions}
-            onGitHubLogin={handleGitHubLogin}
-            onGitHubLogout={handleGitHubLogout}
-            onRepoChange={handleRepoChange}
-            onBranchChange={handleBranchChange}
-            onOpenGitHubFilters={() => setIsGitHubFilterManagerOpen(true)}
-            onResetWorkspace={handleResetWorkspace}
-            hasAnalysisResult={Boolean(state.analysisResult)}
-          />
-          
-          {/* Main Content */}
-          <div className="space-y-6 animate-slide-up animation-delay-200">
-            {error && (
-              <Alert variant="destructive" className="animate-scale">
-                <AlertDescription>{error}</AlertDescription>
-              </Alert>
-            )}
-
-            {/* Conditionally render AnalysisResult based on having valid data */}
-            {state.analysisResult ? (
-              <AnalysisResult
-                analysisResult={state.analysisResult}
-                selectedFiles={state.selectedFiles}
-                onSelectedFilesChange={handleSelectedFilesChange}
-                tokenCount={tokenCount}
-                setTokenCount={handleTokenCountChange}
-                tokenDetails={tokenDetails}
-                maxTokens={MAX_TOKENS}
-                activeSourceTab={activeSourceTab}
-                githubTree={githubTree}
-                githubRepoInfo={githubRepoInfo}
-                setLoadingStatus={setLoadingStatus}
-                loadingStatus={loadingStatus}
-                currentProjectId={currentProjectId}
-                githubExclusions={githubExclusions}
-              />
-            ) : (
-              <EmptyAnalysisState
-                activeSourceTab={activeSourceTab}
-                isGithubTreeTruncated={isGithubTreeTruncated}
-              />
-            )}
-          </div>
+      <div className="mx-auto w-full max-w-[1800px] px-3 py-4 sm:px-4 sm:py-6 md:px-6 md:py-8 animate-fade-in">
+        <div className="space-y-6 lg:hidden">
+          {renderSourcePanel()}
+          {renderMainPanel()}
         </div>
+
+        <ResizablePanelGroup
+          direction="horizontal"
+          autoSaveId="codebase-reader-layout"
+          className="hidden min-h-[calc(100vh-8rem)] rounded-lg lg:flex"
+        >
+          <ResizablePanel
+            defaultSize="34%"
+            minSize="340px"
+            maxSize="560px"
+            className="relative z-10 pr-3"
+          >
+            <div className="h-full min-w-0 overflow-hidden">
+              {renderSourcePanel()}
+            </div>
+          </ResizablePanel>
+          <ResizableHandle withHandle className="mx-2 bg-transparent" />
+          <ResizablePanel defaultSize="66%" minSize="480px" className="min-w-0 pl-3">
+            <main className="min-h-full min-w-0 overflow-hidden">
+              {renderMainPanel()}
+            </main>
+          </ResizablePanel>
+        </ResizablePanelGroup>
       </div>
 
       <PageDialogs

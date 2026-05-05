@@ -304,9 +304,9 @@ export function SourceSidebar({
   );
 
   return (
-    <aside className="flex flex-col gap-4">
-      <Card className="glass-card animate-slide-up sticky top-[calc(theme(spacing.16)+1rem)]">
-        <CardContent className="p-4 sm:p-5 space-y-4 sm:space-y-5">
+    <aside className="flex h-full flex-col gap-4">
+      <Card className="glass-card h-full overflow-hidden animate-slide-up">
+        <CardContent className="h-full space-y-4 overflow-y-auto p-4 sm:p-5 sm:space-y-5">
           <div className="flex items-center gap-2 mb-2 sm:mb-4">
             <GitBranchPlus className="h-4 w-4 sm:h-5 sm:w-5 text-primary" />
             <h2 className="font-heading font-semibold text-sm sm:text-base">Project Configuration</h2>
@@ -367,7 +367,7 @@ export function SourceSidebar({
               />
             </TabsContent>
 
-            <TabsContent value="github" className="mt-0 space-y-3">
+            <TabsContent value="github" className="mt-0 space-y-4">
               {loadingStatus.isLoading && loadingStatus.message?.includes('GitHub connection') ? (
                 <div className="flex items-center justify-center gap-2 text-muted-foreground text-xs sm:text-sm py-4">
                   <Loader2 className="h-4 w-4 animate-spin" />
@@ -394,53 +394,55 @@ export function SourceSidebar({
                     </Button>
                   </div>
 
-                  <div className="space-y-1.5">
-                    <label htmlFor="github-owner-select" className="flex items-center gap-1 text-xs font-medium text-muted-foreground">
-                      <Github className="h-3 w-3" /> Account / Org
-                    </label>
-                    <Select
-                      value={selectedOwnerLogin || ''}
-                      onValueChange={onOwnerChange}
-                      disabled={loadingStatus.isLoading || githubOwners.length === 0}
-                    >
-                      <SelectTrigger id="github-owner-select" className="text-xs sm:text-sm">
-                        <SelectValue placeholder="Select account or org..." />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {githubOwners.map((owner) => (
-                          <SelectItem key={owner.login} value={owner.login} className="text-xs sm:text-sm">
-                            {owner.login} {owner.type === 'Organization' ? '(org)' : '(you)'}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
+                  <div className="grid gap-3 lg:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)]">
+                    <div className="min-w-0 space-y-1.5">
+                      <label htmlFor="github-owner-select" className="flex items-center gap-1 text-xs font-medium text-muted-foreground">
+                        <Github className="h-3 w-3" /> Account / Org
+                      </label>
+                      <Select
+                        value={selectedOwnerLogin || ''}
+                        onValueChange={onOwnerChange}
+                        disabled={loadingStatus.isLoading || githubOwners.length === 0}
+                      >
+                        <SelectTrigger id="github-owner-select" className="min-w-0 text-xs sm:text-sm">
+                          <SelectValue placeholder="Select account or org..." />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {githubOwners.map((owner) => (
+                            <SelectItem key={owner.login} value={owner.login} className="text-xs sm:text-sm">
+                              <span className="truncate">{owner.login} {owner.type === 'Organization' ? '(org)' : '(you)'}</span>
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
 
-                  <div className="space-y-1.5">
-                    <label htmlFor="github-repo-select" className="flex items-center gap-1 text-xs font-medium text-muted-foreground">
-                      <BookMarked className="h-3 w-3" /> Repository
-                    </label>
-                    <Select
-                      value={selectedRepoFullName || ''}
-                      onValueChange={onRepoChange}
-                      disabled={loadingStatus.isLoading || repos.length === 0}
-                    >
-                      <SelectTrigger id="github-repo-select" className="text-xs sm:text-sm">
-                        <SelectValue placeholder={loadingStatus.isLoading && loadingStatus.message?.includes('repositories') ? 'Loading...' : 'Select repository...'} />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {loadingStatus.isLoading && loadingStatus.message?.includes('repositories') && (
-                          <div className="flex items-center justify-center p-4 text-muted-foreground text-xs">
-                            <Loader2 className="h-4 w-4 mr-2 animate-spin" /> Loading...
-                          </div>
-                        )}
-                        {repos.map((repo) => (
-                          <SelectItem key={repo.id} value={repo.full_name} className="text-xs sm:text-sm">
-                            {repo.full_name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    <div className="min-w-0 space-y-1.5">
+                      <label htmlFor="github-repo-select" className="flex items-center gap-1 text-xs font-medium text-muted-foreground">
+                        <BookMarked className="h-3 w-3" /> Repository
+                      </label>
+                      <Select
+                        value={selectedRepoFullName || ''}
+                        onValueChange={onRepoChange}
+                        disabled={loadingStatus.isLoading || repos.length === 0}
+                      >
+                        <SelectTrigger id="github-repo-select" className="min-w-0 text-xs sm:text-sm">
+                          <SelectValue placeholder={loadingStatus.isLoading && loadingStatus.message?.includes('repositories') ? 'Loading...' : 'Select repository...'} />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {loadingStatus.isLoading && loadingStatus.message?.includes('repositories') && (
+                            <div className="flex items-center justify-center p-4 text-muted-foreground text-xs">
+                              <Loader2 className="h-4 w-4 mr-2 animate-spin" /> Loading...
+                            </div>
+                          )}
+                          {repos.map((repo) => (
+                            <SelectItem key={repo.id} value={repo.full_name} className="text-xs sm:text-sm">
+                              <span className="truncate">{repo.full_name}</span>
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
                   </div>
 
                   {selectedRepoFullName ? (
@@ -464,7 +466,7 @@ export function SourceSidebar({
                     </div>
                   ) : (
                     <div className="rounded-md border border-dashed p-3 text-center text-xs text-muted-foreground">
-                      Select a repository to choose a pull request, commit, or branch.
+                      Select a repository to choose a pull request or branch.
                     </div>
                   )}
 
