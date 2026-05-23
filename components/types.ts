@@ -93,6 +93,7 @@ export interface GitHubPullRequest {
   state: string;
   html_url: string;
   updated_at: string;
+  body?: string | null;
   lastCommitDate?: string | null;
   user?: {
     login: string;
@@ -169,6 +170,13 @@ export interface GitHubRepoInfo {
   ref?: string;
   baseRef?: string;
   pullNumber?: number;
+  pullTitle?: string;
+  pullUrl?: string;
+  pullState?: string;
+  pullBody?: string | null;
+  pullAuthor?: string;
+  pullBaseBranch?: string;
+  pullHeadBranch?: string;
   commitSha?: string;
   sourceMode?: GitHubSourceMode;
 }

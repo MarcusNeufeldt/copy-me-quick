@@ -1255,6 +1255,13 @@ export default function ClientPageRoot() {
         ref: selectedPullRequest.head.sha,
         baseRef: selectedPullRequest.base.sha,
         pullNumber: selectedPullRequest.number,
+        pullTitle: selectedPullRequest.title,
+        pullUrl: selectedPullRequest.html_url,
+        pullState: selectedPullRequest.state,
+        pullBody: selectedPullRequest.body,
+        pullAuthor: selectedPullRequest.user?.login,
+        pullBaseBranch: selectedPullRequest.base.ref,
+        pullHeadBranch: selectedPullRequest.head.ref,
         sourceMode: 'pull' as const,
       };
     }
@@ -1267,6 +1274,13 @@ export default function ClientPageRoot() {
         ref: selectedCommit.sha,
         baseRef: selectedCommit.parents?.[0]?.sha,
         pullNumber: selectedPullNumber || undefined,
+        pullTitle: selectedPullRequest?.title,
+        pullUrl: selectedPullRequest?.html_url,
+        pullState: selectedPullRequest?.state,
+        pullBody: selectedPullRequest?.body,
+        pullAuthor: selectedPullRequest?.user?.login,
+        pullBaseBranch: selectedPullRequest?.base.ref,
+        pullHeadBranch: selectedPullRequest?.head.ref,
         commitSha: selectedCommit.sha,
         sourceMode: 'commit' as const,
       };

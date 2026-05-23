@@ -39,6 +39,30 @@ interface UseClipboardCopyReturn {
   copySuccess: boolean;
 }
 
+const buildPullRequestContext = (repoInfo?: GitHubRepoInfo): string => {
+  if (!repoInfo?.pullNumber) return '';
+
+  const body = repoInfo.pullBody?.trim() || '[No PR description provided.]';
+  const branchLine = repoInfo.pullBaseBranch || repoInfo.pullHeadBranch
+    ? `Branches: ${repoInfo.pullBaseBranch || '(unknown base)'} <- ${repoInfo.pullHeadBranch || repoInfo.branch || '(unknown head)'}`
+    : null;
+
+  const lines: Array<string | null> = [
+    'PR Context:',
+    `Repository: ${repoInfo.owner}/${repoInfo.repo}`,
+    `PR: #${repoInfo.pullNumber}${repoInfo.pullTitle ? ` - ${repoInfo.pullTitle}` : ''}`,
+    repoInfo.pullUrl ? `URL: ${repoInfo.pullUrl}` : null,
+    repoInfo.pullState ? `State: ${repoInfo.pullState}` : null,
+    repoInfo.pullAuthor ? `Author: ${repoInfo.pullAuthor}` : null,
+    branchLine,
+    '',
+    'Description:',
+    body,
+  ];
+
+  return lines.filter((line): line is string => line !== null).join('\n');
+};
+
 export function useClipboardCopy({
   fileTree,
   selectedFiles,
@@ -156,7 +180,8 @@ export function useClipboardCopy({
         }).join('\n\n---\n\n');
 
         const diffTitle = dataSource.repoInfo?.sourceMode === 'commit' ? 'Commit Diffs' : 'Pull Request Diffs';
-        clipboardText = `Project Structure:\n${treeString}\n\n---\n\n${diffTitle}:\n${diffContent}`;
+        const pullRequestContext = buildPullRequestContext(dataSource.repoInfo);
+        clipboardText = `Project Structure:\n${treeString}\n\n---\n\n${pullRequestContext ? `${pullRequestContext}\n\n---\n\n` : ''}${diffTitle}:\n${diffContent}`;
 
         if (mode === 'diff-full') {
           let fullContent = '';

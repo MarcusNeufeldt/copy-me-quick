@@ -116,6 +116,7 @@ export async function GET(request: NextRequest) {
         state: pull.state,
         html_url: pull.html_url,
         updated_at: pull.updated_at,
+        body: pull.body || null,
         user: pull.user ? { login: pull.user.login } : undefined,
         head: {
           ref: pull.head.ref,
