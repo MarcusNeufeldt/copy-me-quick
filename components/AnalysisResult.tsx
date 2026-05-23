@@ -615,6 +615,7 @@ const AnalysisResult: React.FC<AnalysisResultProps> = React.memo(({
                 setSelectedFiles={handleSetSelectedFiles}
                 maxTokens={maxTokens}
                 onTokenCountChange={setTokenCount}
+                tokenDetails={tokenDetails}
                 allFiles={allAnalysisFiles}
                 tokenCount={tokenCount}
                 setLoadingStatus={setLoadingStatus}

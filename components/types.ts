@@ -113,6 +113,8 @@ export interface GitHubPullRequest {
   };
 }
 
+export type GitHubPullRequestState = 'open' | 'closed';
+
 export interface GitHubPullFile {
   filename: string;
   status: string;
@@ -194,6 +196,7 @@ export interface FileSelectorProps {
   setSelectedFiles: (filesOrUpdater: string[] | ((prev: string[]) => string[])) => void;
   maxTokens: number;
   onTokenCountChange: (count: number, details?: import('../hooks/useTokenCalculator').TokenCountDetails) => void;
+  tokenDetails?: import('../hooks/useTokenCalculator').TokenCountDetails | null;
   allFiles?: FileData[];
   setLoadingStatus: React.Dispatch<React.SetStateAction<LoadingStatus>>;
   loadingStatus: LoadingStatus;

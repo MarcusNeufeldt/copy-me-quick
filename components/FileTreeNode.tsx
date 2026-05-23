@@ -25,6 +25,9 @@ export interface FileTreeNodeProps {
   averageLines: number;
   searchTerm: string;
   highlightSearch: boolean;
+  tokenCountByPath?: Map<string, number>;
+  maxTokenCount?: number;
+  sortByTokens?: boolean;
 }
 
 const FileTreeNode: React.FC<FileTreeNodeProps> = ({
@@ -36,6 +39,9 @@ const FileTreeNode: React.FC<FileTreeNodeProps> = ({
   averageLines,
   searchTerm,
   highlightSearch,
+  tokenCountByPath,
+  maxTokenCount = 0,
+  sortByTokens = false,
 }) => {
   const isFolder = node.type === 'directory';
   const isExpanded = expandedNodes.has(node.path);
@@ -57,8 +63,29 @@ const FileTreeNode: React.FC<FileTreeNodeProps> = ({
 
   const handleCheckboxChange = (checked: boolean) => onToggle(node.path, checked);
 
+  const getNodeTokenCount = React.useCallback((treeNode: InternalTreeNode): number => {
+    if (treeNode.type === 'file') {
+      return tokenCountByPath?.get(treeNode.path) || 0;
+    }
+
+    return Object.values(treeNode.children || {}).reduce(
+      (sum, child) => sum + getNodeTokenCount(child),
+      0
+    );
+  }, [tokenCountByPath]);
+
+  const tokenCount = getNodeTokenCount(node);
+  const tokenRatio = maxTokenCount > 0 ? tokenCount / maxTokenCount : 0;
+  const hasTokenSignal = tokenCount > 0 && maxTokenCount > 0;
+
   const getFileSizeLevel = React.useCallback((): 'normal' | 'moderate' | 'large' => {
     if (isFolder) return 'normal';
+
+    if (hasTokenSignal) {
+      if (tokenCount >= 10000 || tokenRatio >= 0.5) return 'large';
+      if (tokenCount >= 3000 || tokenRatio >= 0.2) return 'moderate';
+      return 'normal';
+    }
     
     // If we have line count, use that (for local files or fetched GitHub files)
     if (node.lines && averageLines > 0) {
@@ -75,7 +102,7 @@ const FileTreeNode: React.FC<FileTreeNodeProps> = ({
     }
     
     return 'normal';
-  }, [node.lines, node.size, averageLines, isFolder]);
+  }, [node.lines, node.size, averageLines, isFolder, hasTokenSignal, tokenCount, tokenRatio]);
 
   const fileSizeLevel = getFileSizeLevel();
   const isLargeFile = fileSizeLevel === 'large';
@@ -83,6 +110,10 @@ const FileTreeNode: React.FC<FileTreeNodeProps> = ({
 
   const getSizeRatio = React.useCallback((): number => {
     if (isFolder) return 0;
+
+    if (hasTokenSignal) {
+      return Math.min(tokenRatio * 100, 100);
+    }
     
     // Use line count if available
     if (node.lines && averageLines > 0) {
@@ -98,7 +129,7 @@ const FileTreeNode: React.FC<FileTreeNodeProps> = ({
     }
     
     return 0;
-  }, [node.lines, node.size, averageLines, isFolder]);
+  }, [node.lines, node.size, averageLines, isFolder, hasTokenSignal, tokenRatio]);
 
   const sizeRatio = getSizeRatio();
 
@@ -131,8 +162,11 @@ const FileTreeNode: React.FC<FileTreeNodeProps> = ({
       <div className={`relative flex items-center space-x-2 py-1 px-2 rounded-md transition-colors hover:bg-muted/50 ${
         selectedFiles.includes(node.path) ? selectedBgClass : ''
       }`}>
-        {!isFolder && node.lines && averageLines > 0 && (
-          <div className={`${progressBarHeight} absolute bottom-0 left-0 rounded-b-md opacity-60 ${progressBarStyle}`} style={{ width: `${sizeRatio}%`, backgroundColor: getComputedStyle(document.documentElement).getPropertyValue(`--${progressBarColor.split('-')[1]}-500`) }} />
+        {!isFolder && sizeRatio > 0 && (
+          <div
+            className={`${progressBarHeight} absolute bottom-0 left-0 rounded-b-md opacity-60 ${progressBarColor} ${progressBarStyle}`}
+            style={{ width: `${sizeRatio}%` }}
+          />
         )}
         <div className="flex items-center">
           {isFolder ? (
@@ -170,6 +204,11 @@ const FileTreeNode: React.FC<FileTreeNodeProps> = ({
                 )}
                 {!isFolder && (
                   <>
+                    {tokenCount > 0 && (
+                      <span className={`ml-2 text-xs ${isLargeFile ? 'text-rose-600 dark:text-rose-400' : isModerateFile ? 'text-yellow-700 dark:text-yellow-400' : 'text-muted-foreground'}`}>
+                        ({tokenCount.toLocaleString()} tokens)
+                      </span>
+                    )}
                     {node.lines && (
                       <span className="ml-2 text-xs text-muted-foreground">
                         ({node.lines.toLocaleString()} lines)
@@ -181,6 +220,11 @@ const FileTreeNode: React.FC<FileTreeNodeProps> = ({
                       </span>
                     )}
                   </>
+                )}
+                {isFolder && tokenCount > 0 && (
+                  <span className={`ml-2 text-xs ${tokenRatio >= 0.5 ? 'text-rose-600 dark:text-rose-400' : tokenRatio >= 0.2 ? 'text-yellow-700 dark:text-yellow-400' : 'text-muted-foreground'}`}>
+                    {tokenCount.toLocaleString()} tokens
+                  </span>
                 )}
                 {contentMatches && !matchesSearch && !isFolder && (
                   <span className="ml-2 text-xs text-primary">
@@ -199,6 +243,16 @@ const FileTreeNode: React.FC<FileTreeNodeProps> = ({
                   </span>
                 </p>
               )}
+              {tokenCount > 0 && (
+                <p className="text-xs mt-1">
+                  <span>{tokenCount.toLocaleString()} selected tokens</span>
+                  {maxTokenCount > 0 && (
+                    <span className="ml-2 text-muted-foreground">
+                      ({Math.round(tokenRatio * 100)}% of largest)
+                    </span>
+                  )}
+                </p>
+              )}
               {tooltipWarning && (
                 <p className={`text-xs mt-1 ${isLargeFile ? 'text-rose-500' : 'text-yellow-600 dark:text-yellow-400'}`}>
                   {tooltipWarning}
@@ -212,6 +266,10 @@ const FileTreeNode: React.FC<FileTreeNodeProps> = ({
         <div className="ml-4 pl-2 border-l border-muted dark:border-muted/50">
           {Object.values(node.children)
             .sort((a, b) => {
+              if (sortByTokens) {
+                const tokenDiff = getNodeTokenCount(b) - getNodeTokenCount(a);
+                if (tokenDiff !== 0) return tokenDiff;
+              }
               const aIsFolder = a.type === 'directory';
               const bIsFolder = b.type === 'directory';
               if (aIsFolder && !bIsFolder) return -1;
@@ -229,6 +287,9 @@ const FileTreeNode: React.FC<FileTreeNodeProps> = ({
                 averageLines={averageLines}
                 searchTerm={searchTerm}
                 highlightSearch={highlightSearch}
+                tokenCountByPath={tokenCountByPath}
+                maxTokenCount={maxTokenCount}
+                sortByTokens={sortByTokens}
               />
             ))}
         </div>

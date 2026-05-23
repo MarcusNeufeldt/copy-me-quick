@@ -13,6 +13,12 @@ export type TokenEncoding = {
 
 export type GetEncodingFunc = (encoding: string) => TokenEncoding;
 
+export interface FileTokenCount {
+  path: string;
+  tokens: number;
+  method: 'exact' | 'estimated';
+}
+
 export interface TokenCountDetails {
   totalTokens: number;
   exactTokens: number;
@@ -21,6 +27,7 @@ export interface TokenCountDetails {
   estimatedFileCount: number;
   encodingName: string;
   estimatedCharsPerToken: number;
+  fileTokens: FileTokenCount[];
 }
 
 interface UseTokenCalculatorReturn {
@@ -97,6 +104,7 @@ export function useTokenCalculator({
     let estimatedTokens = 0;
     let exactFileCount = 0;
     let estimatedFileCount = 0;
+    const fileTokens: FileTokenCount[] = [];
 
     try {
       for (const file of filesToProcess) {
@@ -104,18 +112,26 @@ export function useTokenCalculator({
 
         if (encoding && hasContent) {
           try {
-            exactTokens += encoding.encode(file.content).length;
+            const tokens = encoding.encode(file.content).length;
+            exactTokens += tokens;
             exactFileCount++;
+            fileTokens.push({ path: file.path, tokens, method: 'exact' });
           } catch {
-            estimatedTokens += estimateTokensFromText(file.content);
+            const tokens = estimateTokensFromText(file.content);
+            estimatedTokens += tokens;
             estimatedFileCount++;
+            fileTokens.push({ path: file.path, tokens, method: 'estimated' });
           }
         } else if (hasContent) {
-          estimatedTokens += estimateTokensFromText(file.content);
+          const tokens = estimateTokensFromText(file.content);
+          estimatedTokens += tokens;
           estimatedFileCount++;
+          fileTokens.push({ path: file.path, tokens, method: 'estimated' });
         } else {
-          estimatedTokens += estimateTokensFromFile(file);
+          const tokens = estimateTokensFromFile(file);
+          estimatedTokens += tokens;
           estimatedFileCount++;
+          fileTokens.push({ path: file.path, tokens, method: 'estimated' });
         }
       }
     } finally {
@@ -136,7 +152,8 @@ export function useTokenCalculator({
       exactFileCount,
       estimatedFileCount,
       encodingName,
-      estimatedCharsPerToken: ESTIMATED_CHARS_PER_TOKEN
+      estimatedCharsPerToken: ESTIMATED_CHARS_PER_TOKEN,
+      fileTokens
     };
 
     console.log('Finished token calculation', details);

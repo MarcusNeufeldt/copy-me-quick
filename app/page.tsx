@@ -16,6 +16,7 @@ import {
   GitHubOwner,
   GitHubPullFile,
   GitHubPullRequest,
+  GitHubPullRequestState,
   GitHubSourceMode,
   GitHubTreeItem,
 } from '@/components/types';
@@ -120,6 +121,7 @@ export default function ClientPageRoot() {
   const [branches, setBranches] = useState<GitHubBranch[]>([]);
   const [selectedBranchName, setSelectedBranchName] = useState<string | null>(null);
   const [pullRequests, setPullRequests] = useState<GitHubPullRequest[]>([]);
+  const [pullRequestState, setPullRequestState] = useState<GitHubPullRequestState>('open');
   const [selectedPullNumber, setSelectedPullNumber] = useState<number | null>(null);
   const [commits, setCommits] = useState<GitHubCommit[]>([]);
   const [selectedCommitSha, setSelectedCommitSha] = useState<string | null>(null);
@@ -438,7 +440,7 @@ export default function ClientPageRoot() {
       try {
         const [branchesResponse, pullsResponse] = await Promise.all([
           fetch(`/api/github/branches?owner=${selectedRepo.owner.login}&repo=${selectedRepo.name}`),
-          fetch(`/api/github/pulls?owner=${selectedRepo.owner.login}&repo=${selectedRepo.name}&state=open&limit=30`),
+          fetch(`/api/github/pulls?owner=${selectedRepo.owner.login}&repo=${selectedRepo.name}&state=${pullRequestState}&limit=30`),
         ]);
 
         if (!branchesResponse.ok) {
@@ -467,7 +469,55 @@ export default function ClientPageRoot() {
     };
 
     fetchRepoData();
-  }, [repos]);
+  }, [repos, pullRequestState]);
+
+  const handlePullRequestStateChange = useCallback((nextState: GitHubPullRequestState) => {
+    if (nextState === pullRequestState) return;
+
+    setPullRequestState(nextState);
+    setSelectedPullNumber(null);
+    setSelectedPullRequest(null);
+    setSelectedCommitSha(null);
+    setSelectedCommit(null);
+    setCommits([]);
+    setGithubTree(null);
+    setIsGithubTreeTruncated(false);
+    setGithubSelectionError(null);
+
+    if (!selectedRepoFullName) {
+      setPullRequests([]);
+      return;
+    }
+
+    const selectedRepo = repos.find(r => r.full_name === selectedRepoFullName);
+    if (!selectedRepo) {
+      setPullRequests([]);
+      return;
+    }
+
+    const fetchPulls = async () => {
+      setLoadingStatus({ isLoading: true, message: `Fetching ${nextState} pull requests...` });
+      try {
+        const pullsResponse = await fetch(`/api/github/pulls?owner=${selectedRepo.owner.login}&repo=${selectedRepo.name}&state=${nextState}&limit=30`);
+        if (pullsResponse.ok) {
+          const pullData: GitHubPullRequest[] = await pullsResponse.json();
+          setPullRequests(pullData);
+        } else {
+          console.warn('Failed to fetch pull requests for repository', await pullsResponse.text());
+          setPullRequests([]);
+        }
+      } catch (error: any) {
+        console.error('Error fetching pull requests:', error);
+        setGithubSelectionError(error.message);
+        if (error.message === 'Invalid GitHub token') setGithubUser(null);
+        setPullRequests([]);
+      } finally {
+        setLoadingStatus({ isLoading: false, message: null });
+      }
+    };
+
+    fetchPulls();
+  }, [pullRequestState, repos, selectedRepoFullName]);
 
   // Handle Branch Selection - Modified to fetch tree and manage projects
   const handleBranchChange = useCallback((branchName: string) => {
@@ -1684,9 +1734,11 @@ export default function ClientPageRoot() {
       branches={branches}
       selectedBranchName={selectedBranchName}
       pullRequests={pullRequests}
+      pullRequestState={pullRequestState}
       selectedPullNumber={selectedPullNumber}
       commits={commits}
       selectedCommitSha={selectedCommitSha}
+      onPullRequestStateChange={handlePullRequestStateChange}
       onPullRequestSelect={handlePullRequestSelect}
       onCommitSelect={handleCommitSelect}
       githubSelectionError={githubSelectionError}

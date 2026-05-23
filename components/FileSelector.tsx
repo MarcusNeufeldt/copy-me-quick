@@ -10,6 +10,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -33,10 +34,11 @@ import {
   Search, 
   X, 
   FileSearch, 
-  FileWarning, 
+  FileWarning,
   Ban,
   BookMarked,
-  Trash2
+  Trash2,
+  BarChart3
 } from 'lucide-react';
 import { FileData, AppState, DataSource, GitHubTreeItem, GitHubRepoInfo, FileSelectorProps } from './types';
 import FileTreeNodeMemo, { InternalTreeNode } from './FileTreeNode';
@@ -71,6 +73,7 @@ const FileSelector = ({
   setSelectedFiles: onSelectedFilesChange,
   maxTokens,
   onTokenCountChange,
+  tokenDetails,
   allFiles,
   tokenCount,
   setLoadingStatus,
@@ -138,6 +141,7 @@ const FileSelector = ({
   const [minifyOnCopy, setMinifyOnCopy] = useState<boolean>(true);
   const [aiError, setAiError] = useState<string | null>(null);
   const [highlightSearch, setHighlightSearch] = useState(false);
+  const [isTokenImpactOpen, setIsTokenImpactOpen] = useState(false);
 
   // Preset management state
   const [isPresetsOpen, setIsPresetsOpen] = useState(false);
@@ -146,7 +150,7 @@ const FileSelector = ({
   const [getEncodingFunc, setGetEncodingFunc] = useState<GetEncodingFunc | null>(null);
 
   // Ref to track the previous data source identity
-  const prevDataSourceRef = useRef<DataSource>();
+  const prevDataSourceRef = useRef<DataSource | undefined>(undefined);
 
 
 
@@ -238,6 +242,24 @@ const FileSelector = ({
     const totalLines = selectedFilesData.reduce((sum, file) => sum + (file.lines || 0), 0);
     return totalLines / selectedFilesData.length;
   }, [selectedFiles, getAllFilesFromDataSource, projectWideAverageLines]);
+
+  const tokenCountByPath = useMemo(() => {
+    const map = new Map<string, number>();
+    tokenDetails?.fileTokens?.forEach(fileToken => {
+      map.set(fileToken.path, fileToken.tokens);
+    });
+    return map;
+  }, [tokenDetails]);
+
+  const sortedSelectedTokenFiles = useMemo(() => {
+    return (tokenDetails?.fileTokens || [])
+      .filter(fileToken => selectedFiles.includes(fileToken.path) && fileToken.tokens > 0)
+      .sort((a, b) => b.tokens - a.tokens);
+  }, [selectedFiles, tokenDetails]);
+
+  const maxFileTokenCount = sortedSelectedTokenFiles[0]?.tokens || 0;
+  const hasTokenBreakdown = maxFileTokenCount > 0;
+  const selectedTokenTotal = sortedSelectedTokenFiles.reduce((sum, file) => sum + file.tokens, 0);
 
   // Effect to dynamically load tiktoken on mount
   useEffect(() => {
@@ -433,6 +455,26 @@ const FileSelector = ({
       onSelectedFilesChange([]); // Use callback
   }, [onSelectedFilesChange]);
 
+  const deselectTokenFile = useCallback((path: string): void => {
+    onSelectedFilesChange(prev => prev.filter(selectedPath => selectedPath !== path));
+  }, [onSelectedFilesChange]);
+
+  const deselectTopTokenFiles = useCallback((limit = 5): void => {
+    const pathsToRemove = new Set(sortedSelectedTokenFiles.slice(0, limit).map(file => file.path));
+    if (pathsToRemove.size === 0) return;
+    onSelectedFilesChange(prev => prev.filter(path => !pathsToRemove.has(path)));
+  }, [onSelectedFilesChange, sortedSelectedTokenFiles]);
+
+  const deselectVeryLargeTokenFiles = useCallback((): void => {
+    const pathsToRemove = new Set(
+      sortedSelectedTokenFiles
+        .filter(file => file.tokens >= 10000)
+        .map(file => file.path)
+    );
+    if (pathsToRemove.size === 0) return;
+    onSelectedFilesChange(prev => prev.filter(path => !pathsToRemove.has(path)));
+  }, [onSelectedFilesChange, sortedSelectedTokenFiles]);
+
   const handleAiSuggest = useCallback(async () => {
     if (!fileTree) return;
     // Use unified loading state
@@ -566,9 +608,11 @@ const FileSelector = ({
           averageLines={averageLines}
           searchTerm={searchTerm}
           highlightSearch={highlightSearch}
+          tokenCountByPath={tokenCountByPath}
+          maxTokenCount={maxFileTokenCount}
         />
       ));
-  }, [fileTree, selectedFiles, handleSelectionToggle, expandedNodes, toggleExpand, averageLines, searchTerm, highlightSearch]);
+  }, [fileTree, selectedFiles, handleSelectionToggle, expandedNodes, toggleExpand, averageLines, searchTerm, highlightSearch, tokenCountByPath, maxFileTokenCount]);
 
   // Calculate total file count and lines from getAllFilesFromDataSource
   const { totalFilesCount, totalLinesCount } = useMemo(() => {
@@ -733,6 +777,17 @@ const FileSelector = ({
               </DropdownMenuContent>
             </DropdownMenu>
 
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 px-2"
+              onClick={() => setIsTokenImpactOpen(true)}
+              disabled={!hasTokenBreakdown}
+            >
+              <BarChart3 className="mr-1.5 h-3.5 w-3.5 text-muted-foreground" />
+              <span className="text-muted-foreground">Token Impact</span>
+            </Button>
+
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="ghost" size="sm" className="h-7 px-2">
@@ -746,6 +801,13 @@ const FileSelector = ({
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={deselectAll} disabled={selectedFiles.length === 0}>
                   Deselect All ({selectedFiles.length})
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={() => deselectTopTokenFiles(5)} disabled={!hasTokenBreakdown}>
+                  Deselect top 5 by tokens
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={deselectVeryLargeTokenFiles} disabled={!sortedSelectedTokenFiles.some(file => file.tokens >= 10000)}>
+                  Deselect files over 10k tokens
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
@@ -762,30 +824,30 @@ const FileSelector = ({
 
         </div>
 
-         {/* File Size Legend (Condensed) */}
+         {/* Token / size heat legend */}
         <div className="flex items-center gap-2 text-muted-foreground">
-            <span>Size:</span>
+            <span>{hasTokenBreakdown ? 'Tokens:' : 'Size:'}</span>
             <TooltipProvider delayDuration={100}>
                 <Tooltip>
                     <TooltipTrigger className="flex items-center gap-1 cursor-default">
                         <File className="h-3 w-3 text-muted-foreground/70" />
                         <span className="hidden sm:inline">Normal</span>
                     </TooltipTrigger>
-                    <TooltipContent side="bottom" className="text-xs">Normal Size</TooltipContent>
+                    <TooltipContent side="bottom" className="text-xs">{hasTokenBreakdown ? 'Lower token impact' : 'Normal size'}</TooltipContent>
                 </Tooltip>
                 <Tooltip>
                     <TooltipTrigger className="flex items-center gap-1 cursor-default">
                         <FileWarning className="h-3 w-3 text-yellow-500" />
                          <span className="hidden sm:inline">Mod</span>
                     </TooltipTrigger>
-                    <TooltipContent side="bottom" className="text-xs">Moderate (1.25-2.5x avg lines)</TooltipContent>
+                    <TooltipContent side="bottom" className="text-xs">{hasTokenBreakdown ? 'Moderate token impact' : 'Moderate (1.25-2.5x avg lines)'}</TooltipContent>
                 </Tooltip>
                 <Tooltip>
                      <TooltipTrigger className="flex items-center gap-1 cursor-default">
                         <FileWarning className="h-3 w-3 text-rose-500" />
-                         <span className="hidden sm:inline">Large</span>
+                          <span className="hidden sm:inline">Large</span>
                     </TooltipTrigger>
-                    <TooltipContent side="bottom" className="text-xs">Large (&gt;2.5x avg lines)</TooltipContent>
+                    <TooltipContent side="bottom" className="text-xs">{hasTokenBreakdown ? 'High token impact' : 'Large (&gt;2.5x avg lines)'}</TooltipContent>
                 </Tooltip>
             </TooltipProvider>
         </div>
@@ -850,6 +912,128 @@ const FileSelector = ({
             </div>
         </div>
       </div>
+
+      <Sheet open={isTokenImpactOpen} onOpenChange={setIsTokenImpactOpen}>
+        <SheetContent side="right" className="flex w-full flex-col p-0 sm:max-w-2xl">
+          <SheetHeader className="border-b px-6 py-4">
+            <SheetTitle className="flex items-center gap-2">
+              <BarChart3 className="h-4 w-4" />
+              Token Impact
+            </SheetTitle>
+            <SheetDescription>
+              Selected files sorted globally by token count.
+            </SheetDescription>
+          </SheetHeader>
+
+          <div className="border-b px-6 py-3 text-sm">
+            <div className="flex items-center justify-between gap-3">
+              <span>{sortedSelectedTokenFiles.length} selected files with token data</span>
+              <span className="font-mono font-semibold">{selectedTokenTotal.toLocaleString()} tokens</span>
+            </div>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => deselectTopTokenFiles(5)}
+                disabled={!hasTokenBreakdown}
+              >
+                Deselect top 5
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => deselectTopTokenFiles(10)}
+                disabled={sortedSelectedTokenFiles.length === 0}
+              >
+                Deselect top 10
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={deselectVeryLargeTokenFiles}
+                disabled={!sortedSelectedTokenFiles.some(file => file.tokens >= 10000)}
+              >
+                Deselect &gt;10k
+              </Button>
+            </div>
+          </div>
+
+          <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
+            {sortedSelectedTokenFiles.length > 0 ? (
+              <div className="space-y-2">
+                {sortedSelectedTokenFiles.map((fileToken, index) => {
+                  const percentOfTotal = selectedTokenTotal > 0
+                    ? Math.round((fileToken.tokens / selectedTokenTotal) * 100)
+                    : 0;
+                  const percentOfLargest = maxFileTokenCount > 0
+                    ? Math.max(4, (fileToken.tokens / maxFileTokenCount) * 100)
+                    : 0;
+                  const fileName = fileToken.path.split('/').pop() || fileToken.path;
+                  const barColor = fileToken.tokens >= 10000 || percentOfLargest >= 50
+                    ? 'bg-rose-500'
+                    : fileToken.tokens >= 3000 || percentOfLargest >= 20
+                      ? 'bg-yellow-400'
+                      : 'bg-sky-400';
+
+                  return (
+                    <div key={fileToken.path} className="rounded-md border bg-muted/20 p-3">
+                      <div className="flex items-start gap-3">
+                        <Checkbox
+                          checked
+                          onCheckedChange={(checked) => {
+                            if (checked === false) {
+                              deselectTokenFile(fileToken.path);
+                            }
+                          }}
+                          className="mt-0.5 h-4 w-4"
+                        />
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2">
+                            <span className="truncate font-medium">{index + 1}. {fileName}</span>
+                            <span className="rounded border px-1.5 py-0.5 text-[10px] uppercase text-muted-foreground">
+                              {fileToken.method}
+                            </span>
+                          </div>
+                          <div className="mt-1 break-all text-xs text-muted-foreground">
+                            {fileToken.path}
+                          </div>
+                          <div className="mt-2 h-1.5 rounded-full bg-muted">
+                            <div
+                              className={`h-1.5 rounded-full ${barColor}`}
+                              style={{ width: `${percentOfLargest}%` }}
+                            />
+                          </div>
+                        </div>
+                        <div className="flex shrink-0 flex-col items-end gap-2">
+                          <div className="text-right">
+                            <div className="font-mono text-sm font-semibold">
+                              {fileToken.tokens.toLocaleString()}
+                            </div>
+                            <div className="text-[11px] text-muted-foreground">{percentOfTotal}%</div>
+                          </div>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7"
+                            onClick={() => deselectTokenFile(fileToken.path)}
+                            title="Deselect file"
+                          >
+                            <Trash2 className="h-3.5 w-3.5 text-muted-foreground" />
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+                No selected token data yet.
+              </div>
+            )}
+          </div>
+        </SheetContent>
+      </Sheet>
 
       {/* Preset Manager */}
       <PresetManager

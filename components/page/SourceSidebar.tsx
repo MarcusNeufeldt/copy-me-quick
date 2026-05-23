@@ -19,6 +19,7 @@ import {
   GitHubCommit,
   GitHubOwner,
   GitHubPullRequest,
+  GitHubPullRequestState,
   GitHubRepo,
   GitHubUser,
   Project,
@@ -79,9 +80,11 @@ interface SourceSidebarProps {
   branches: GitHubBranch[];
   selectedBranchName: string | null;
   pullRequests: GitHubPullRequest[];
+  pullRequestState: GitHubPullRequestState;
   selectedPullNumber: number | null;
   commits: GitHubCommit[];
   selectedCommitSha: string | null;
+  onPullRequestStateChange: (state: GitHubPullRequestState) => void;
   onPullRequestSelect: (pullNumber: number) => void;
   onCommitSelect: (commitSha: string | null) => void;
   githubSelectionError: string | null;
@@ -127,9 +130,11 @@ export function SourceSidebar({
   branches,
   selectedBranchName,
   pullRequests,
+  pullRequestState,
   selectedPullNumber,
   commits,
   selectedCommitSha,
+  onPullRequestStateChange,
   onPullRequestSelect,
   onCommitSelect,
   githubSelectionError,
@@ -157,22 +162,39 @@ export function SourceSidebar({
   const selectedPullRequest = pullRequests.find((pull) => pull.number === selectedPullNumber);
   const selectedCommit = commits.find((commit) => commit.sha === selectedCommitSha);
   const prScopeValue = selectedCommitSha || FULL_PR_SCOPE_VALUE;
+  const pullRequestStateLabel = pullRequestState === 'open' ? 'Open' : 'Closed';
+  const isLoadingPullRequests = loadingStatus.isLoading
+    && (loadingStatus.message?.includes('pull requests') || loadingStatus.message?.includes('refs'));
 
   const pullRequestControls = (
     <div className="space-y-2">
       <div className="flex items-center justify-between gap-2">
         <span className="flex items-center gap-1 text-xs font-medium text-muted-foreground">
-          <GitPullRequest className="h-3 w-3" /> Open pull requests
+          <GitPullRequest className="h-3 w-3" /> Pull requests
         </span>
         <span className="text-[11px] text-muted-foreground">
-          {pullRequests.length} sorted by latest commit
+          {pullRequests.length} {pullRequestState} sorted by latest commit
         </span>
       </div>
 
-      {loadingStatus.isLoading && loadingStatus.message?.includes('refs') ? (
+      <Tabs
+        value={pullRequestState}
+        onValueChange={(value) => onPullRequestStateChange(value as GitHubPullRequestState)}
+      >
+        <TabsList className="grid h-8 w-full grid-cols-2">
+          <TabsTrigger value="open" className="text-xs" disabled={loadingStatus.isLoading}>
+            Open
+          </TabsTrigger>
+          <TabsTrigger value="closed" className="text-xs" disabled={loadingStatus.isLoading}>
+            Closed
+          </TabsTrigger>
+        </TabsList>
+      </Tabs>
+
+      {isLoadingPullRequests ? (
         <div className="flex items-center justify-center gap-2 rounded-md border py-3 text-xs text-muted-foreground">
           <Loader2 className="h-3.5 w-3.5 animate-spin" />
-          Loading pull requests...
+          Loading {pullRequestState} pull requests...
         </div>
       ) : pullRequests.length > 0 ? (
         <Select
@@ -181,7 +203,7 @@ export function SourceSidebar({
           disabled={loadingStatus.isLoading}
         >
           <SelectTrigger className="text-xs sm:text-sm">
-            <SelectValue placeholder="Select open pull request...">
+            <SelectValue placeholder={`Select ${pullRequestState} pull request...`}>
               {selectedPullRequest ? `#${selectedPullRequest.number} ${selectedPullRequest.title}` : undefined}
             </SelectValue>
           </SelectTrigger>
@@ -202,7 +224,7 @@ export function SourceSidebar({
         </Select>
       ) : (
         <div className="rounded-md border py-3 text-center text-xs text-muted-foreground">
-          No open pull requests found.
+          No {pullRequestStateLabel.toLowerCase()} pull requests found.
         </div>
       )}
 
